@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fornecedores — SECOP Cotações</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="logo-title">SECOP · Cotações</div>
+      <div class="logo-sub">CEASAMINAS</div>
+      <div class="logo-divider"></div>
+    </div>
+    <nav>
+      <a href="index.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </a>
+      <a href="processos.html" class="nav-item active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Processos
+      </a>
+      <a href="novo-processo.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        Novo Processo
+      </a>
+    </nav>
+    <div class="sidebar-footer">v1.0 · SECOP 2026</div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main" id="main-content">
+
+    <div id="loader" class="loader">Carregando processo...</div>
+
+    <div id="content" style="display:none;">
+
+      <!-- Cabeçalho -->
+      <div class="page-header">
+        <div>
+          <div class="page-title">Fornecedores</div>
+          <div class="page-subtitle" id="bread-processo">—</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <a href="processos.html" class="btn btn-secondary btn-sm">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+            Processos
+          </a>
+          <a id="btn-ver-quadro" href="#" class="btn btn-primary btn-sm" style="display:none;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+            Ver quadro comparativo
+          </a>
+        </div>
+      </div>
+
+      <!-- Lista de fornecedores já cadastrados -->
+      <div class="card" style="margin-bottom:20px;">
+        <div class="card-header">
+          <div class="card-title">Fornecedores cadastrados</div>
+          <button class="btn btn-outline btn-sm" id="btn-novo-forn">+ Novo fornecedor</button>
+        </div>
+        <div id="forn-list" style="padding:16px 20px;display:flex;flex-wrap:wrap;gap:10px;min-height:54px;align-items:center;">
+          <span class="text-muted" style="font-size:13px;">Nenhum fornecedor cadastrado ainda.</span>
+        </div>
+      </div>
+
+      <!-- Formulário do fornecedor -->
+      <div class="card" id="forn-form-card" style="margin-bottom:20px;">
+        <div class="card-header">
+          <div class="card-title" id="forn-form-title">Novo fornecedor</div>
+        </div>
+        <div style="padding:20px 24px;">
+
+          <div class="form-row cols-1" style="margin-bottom:12px;">
+            <div class="form-group">
+              <label>Nome / Empresa</label>
+              <input type="text" id="f-nome" placeholder="Razão social ou nome fantasia" />
+            </div>
+          </div>
+
+          <div class="form-row" style="grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+            <div class="form-group">
+              <label>Contato</label>
+              <input type="text" id="f-contato" placeholder="Nome do contato" />
+            </div>
+            <div class="form-group">
+              <label>Telefone</label>
+              <input type="text" id="f-telefone" placeholder="(31) 0000-0000" />
+            </div>
+            <div class="form-group">
+              <label>Celular</label>
+              <input type="text" id="f-celular" placeholder="(31) 90000-0000" />
+            </div>
+          </div>
+
+          <div class="form-row" style="grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+            <div class="form-group" style="grid-column:span 2;">
+              <label>E-mail</label>
+              <input type="text" id="f-email" placeholder="contato@empresa.com.br" />
+            </div>
+            <div class="form-group">
+              <label>Data da Proposta *</label>
+              <input type="date" id="f-data-proposta" />
+            </div>
+            <div class="form-group">
+              <label>Incluso Frete</label>
+              <div style="display:flex;gap:20px;align-items:center;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:#fff;height:38px;">
+                <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;cursor:pointer;">
+                  <input type="radio" name="f-frete" id="f-frete-sim" value="Sim" style="cursor:pointer;" /> Sim
+                </label>
+                <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;cursor:pointer;">
+                  <input type="radio" name="f-frete" id="f-frete-nao" value="Não" style="cursor:pointer;" /> Não
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row" style="grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+            <div class="form-group">
+              <label>Prazo de Entrega</label>
+              <input type="text" id="f-prazo-ent" placeholder="Ex: 5 dias úteis" />
+            </div>
+            <div class="form-group">
+              <label>Condição de Pagamento</label>
+              <input type="text" id="f-prazo-pag" placeholder="Ex: 30 dias, à vista" />
+            </div>
+            <div class="form-group">
+              <label>Prazo de Garantia</label>
+              <input type="text" id="f-prazo-gar" placeholder="Ex: 12 meses" />
+            </div>
+          </div>
+
+          <div class="form-row cols-1" style="margin-bottom:0;">
+            <div class="form-group">
+              <label>Observações do Fornecedor</label>
+              <textarea id="f-observacoes" rows="2" placeholder="Ex: 15 usuários, 4000 hs de suporte, condições especiais..."></textarea>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Tabela de preços do fornecedor -->
+      <div class="preco-table-wrap" style="margin-bottom:20px;">
+        <div style="padding:12px 16px;border-bottom:1px solid #e0e4ea;">
+          <span class="card-title" style="font-size:13px;font-weight:700;color:#5a6478;text-transform:uppercase;letter-spacing:.4px;">Preços do Fornecedor</span>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="preco-table">
+            <thead>
+              <tr>
+                <th class="col-fixed">Item</th>
+                <th class="col-fixed">Qtde</th>
+                <th class="col-fixed">Unid.</th>
+                <th class="col-fixed">Descrição</th>
+                <th>R$ UNIT/MÊS</th>
+                <th>R$ TOTAL/ANO</th>
+              </tr>
+            </thead>
+            <tbody id="precos-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Histórico de Negociação -->
+      <div class="card" style="margin-bottom:20px;">
+        <div class="card-header">
+          <div class="card-title">Histórico de Negociação</div>
+        </div>
+        <div style="padding:20px 24px;">
+          <div class="form-row" style="grid-template-columns:200px 200px;gap:16px;">
+            <div class="form-group">
+              <label>Proposta Inicial</label>
+              <input type="number" id="f-prop-ini" placeholder="0.00" step="0.01" min="0" />
+            </div>
+            <div class="form-group">
+              <label>Proposta Final</label>
+              <input type="number" id="f-prop-fin" placeholder="0.00" step="0.01" min="0" />
+            </div>
+          </div>
+          <p style="font-size:11px;color:#aaa;margin-top:8px;">Valores negociados manualmente — não são calculados automaticamente.</p>
+        </div>
+      </div>
+
+      <!-- Botões -->
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-bottom:32px;flex-wrap:wrap;">
+        <button class="btn btn-secondary" id="btn-cancelar">Cancelar</button>
+        <button class="btn btn-primary" id="btn-salvar-forn">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/><polyline points="7,3 7,8 15,8"/></svg>
+          Salvar fornecedor
+        </button>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<div id="toast"></div>
+<script src="js/fornecedor.js"></script>
+</body>
+</html>

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — SECOP Cotações</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="logo-title">SECOP · Cotações</div>
+      <div class="logo-sub">CEASAMINAS</div>
+      <div class="logo-divider"></div>
+    </div>
+    <nav>
+      <a href="index.html" class="nav-item active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </a>
+      <a href="processos.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Processos
+      </a>
+      <a href="novo-processo.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        Novo Processo
+      </a>
+    </nav>
+    <div class="sidebar-footer">v1.0 · SECOP 2026</div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Dashboard</div>
+        <div class="page-subtitle">Visão geral das cotações em andamento</div>
+      </div>
+    </div>
+
+    <!-- Métricas -->
+    <div class="cards-grid" id="cards-grid">
+      <div class="metric-card metric-cotacao">
+        <div class="metric-card-top">
+          <span class="metric-icon">📋</span>
+          <span class="metric-label">EM COTAÇÃO</span>
+        </div>
+        <div class="metric-value metric-val-cotacao" id="val-cotacao">—</div>
+        <div class="metric-hint">processos ativos</div>
+      </div>
+      <div class="metric-card metric-aprovacao">
+        <div class="metric-card-top">
+          <span class="metric-icon">⏳</span>
+          <span class="metric-label">AG. APROVAÇÃO</span>
+        </div>
+        <div class="metric-value metric-val-aprovacao" id="val-aprovacao">—</div>
+        <div class="metric-hint">aguardando decisão</div>
+      </div>
+      <div class="metric-card metric-concluido">
+        <div class="metric-card-top">
+          <span class="metric-icon">✅</span>
+          <span class="metric-label">CONCLUÍDOS NO MÊS</span>
+        </div>
+        <div class="metric-value metric-val-concluido" id="val-concluidos">—</div>
+        <div class="metric-hint">mês corrente</div>
+      </div>
+      <div class="metric-card metric-parado" id="card-parados">
+        <div class="metric-card-top">
+          <span class="metric-icon">⚠️</span>
+          <span class="metric-label">PARADOS &gt;15 DIAS</span>
+        </div>
+        <div class="metric-value metric-val-parado" id="val-parados">—</div>
+        <div class="metric-hint">sem movimentação</div>
+      </div>
+    </div>
+
+    <!-- Grid inferior: Alertas + Últimos + Por setor -->
+    <div class="bottom-grid">
+
+      <!-- Coluna esquerda: Alertas -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">⚠️ Processos Parados ou sem atualização &gt;15 dias</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Nº Processo</th>
+                <th>Objeto</th>
+                <th>Setor</th>
+                <th>Dias em aberto</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="alertas-tbody">
+              <tr><td colspan="5" class="loader">Carregando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Coluna direita: dois cards empilhados -->
+      <div class="right-col">
+
+        <!-- Últimos 5 processos -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title dash-card-title">🕐 Últimos processos</span>
+          </div>
+          <div id="ultimos-list"></div>
+        </div>
+
+        <!-- Por setor -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title dash-card-title">📊 Distribuição por setor</span>
+          </div>
+          <div id="setor-list" class="setor-list"></div>
+        </div>
+
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="toast"></div>
+<script src="js/dashboard.js"></script>
+</body>
+</html>

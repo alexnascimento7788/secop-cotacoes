@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Processos — SECOP Cotações</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="logo-title">SECOP · Cotações</div>
+      <div class="logo-sub">CEASAMINAS</div>
+      <div class="logo-divider"></div>
+    </div>
+    <nav>
+      <a href="index.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </a>
+      <a href="processos.html" class="nav-item active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Processos
+      </a>
+      <a href="novo-processo.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        Novo Processo
+      </a>
+    </nav>
+    <div class="sidebar-footer">v1.0 · SECOP 2026</div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Processos de Cotação</div>
+        <div class="page-subtitle">Gerencie todos os processos de compra</div>
+      </div>
+      <a href="novo-processo.html" class="btn btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Novo Processo
+      </a>
+    </div>
+
+    <!-- Filtros -->
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header">
+        <div class="filters">
+          <input type="text" id="busca" class="filter-input" placeholder="Buscar por objeto, nº ou responsável..." />
+          <select id="filtro-status" class="filter-select">
+            <option value="">Todos os status</option>
+          </select>
+          <select id="filtro-setor" class="filter-select">
+            <option value="">Todos os setores</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" id="btn-limpar">Limpar filtros</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabela -->
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nº Processo</th>
+              <th>Objeto</th>
+              <th>Setor</th>
+              <th>Tipo</th>
+              <th>Responsável</th>
+              <th>Status</th>
+              <th>Dias em aberto</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="processos-tbody">
+            <tr><td colspan="8" class="loader">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Modal de confirmação de exclusão -->
+<div id="modal-delete" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:10px;padding:28px;max-width:400px;width:92%;">
+    <div style="font-size:16px;font-weight:700;margin-bottom:8px;">Confirmar exclusão</div>
+    <p style="font-size:13.5px;color:#555;margin-bottom:20px;">Esta ação não pode ser desfeita. O processo e todos os dados associados serão removidos permanentemente.</p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button class="btn btn-secondary" id="btn-cancel-delete">Cancelar</button>
+      <button class="btn btn-danger" id="btn-confirm-delete">Excluir</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="js/processos.js"></script>
+</body>
+</html>

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title id="page-title">Novo Processo — SECOP Cotações</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="logo-title">SECOP · Cotações</div>
+      <div class="logo-sub">CEASAMINAS</div>
+      <div class="logo-divider"></div>
+    </div>
+    <nav>
+      <a href="index.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </a>
+      <a href="processos.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Processos
+      </a>
+      <a href="novo-processo.html" class="nav-item active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        Novo Processo
+      </a>
+    </nav>
+    <div class="sidebar-footer">v1.0 · SECOP 2026</div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title" id="header-title">Novo Processo</div>
+        <div class="page-subtitle" id="header-subtitle">Preencha os dados do processo de cotação</div>
+      </div>
+      <a href="processos.html" class="btn btn-secondary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        Voltar
+      </a>
+    </div>
+
+    <div class="form-card card">
+      <!-- Abas de etapas -->
+      <div class="steps-nav">
+        <div class="step-tab active" data-step="1">1. Identificação</div>
+        <div class="step-tab" data-step="2">2. Itens</div>
+        <div class="step-tab" data-step="3">3. Revisão</div>
+      </div>
+
+      <!-- Etapa 1 -->
+      <div class="step-pane active" id="pane-1">
+        <div class="form-row cols-1">
+          <div class="form-group">
+            <label>Objeto *</label>
+            <input type="text" id="objeto" placeholder="Descreva o objeto da contratação" />
+          </div>
+        </div>
+        <div class="form-row cols-2">
+          <div class="form-group">
+            <label>Setor Solicitante</label>
+            <input type="text" id="setor_solicitante" placeholder="Ex: Administrativo, TI, Operações..." />
+          </div>
+          <div class="form-group">
+            <label>Tipo de Contratação</label>
+            <select id="tipo_contratacao">
+              <option value="">Selecione...</option>
+              <option value="Direta">Direta</option>
+              <option value="Licitação">Licitação</option>
+              <option value="Dispensa">Dispensa</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row cols-4">
+          <div class="form-group">
+            <label>Responsável</label>
+            <input type="text" id="responsavel" placeholder="Nome do responsável" />
+          </div>
+          <div class="form-group">
+            <label>Data de Abertura</label>
+            <input type="date" id="data_abertura" />
+          </div>
+          <div class="form-group">
+            <label>Previsão de Início</label>
+            <input type="date" id="previsao_inicio" />
+          </div>
+          <div class="form-group">
+            <label>Previsão de Término</label>
+            <input type="date" id="previsao_termino" />
+          </div>
+        </div>
+        <div class="form-row cols-1">
+          <div class="form-group">
+            <label>Descrição Detalhada</label>
+            <textarea id="descricao" placeholder="Informações adicionais sobre o processo..."></textarea>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+          <button class="btn btn-primary" id="btn-step1-next">Próximo: Itens →</button>
+        </div>
+      </div>
+
+      <!-- Etapa 2 -->
+      <div class="step-pane" id="pane-2">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div style="font-size:13px;color:#666;">Adicione os itens que serão cotados.</div>
+          <button class="btn btn-primary btn-sm" id="btn-add-item">+ Adicionar item</button>
+        </div>
+        <div id="itens-container"></div>
+        <div style="display:flex;justify-content:space-between;margin-top:8px;">
+          <button class="btn btn-secondary" id="btn-step2-back">← Voltar</button>
+          <button class="btn btn-primary" id="btn-step2-next">Próximo: Revisão →</button>
+        </div>
+      </div>
+
+      <!-- Etapa 3 -->
+      <div class="step-pane" id="pane-3">
+        <div class="review-block">
+          <h3>Identificação do Processo</h3>
+          <div class="review-grid">
+            <div class="review-item"><label>Objeto</label><span id="rev-objeto">—</span></div>
+            <div class="review-item"><label>Setor Solicitante</label><span id="rev-setor">—</span></div>
+            <div class="review-item"><label>Tipo de Contratação</label><span id="rev-tipo">—</span></div>
+            <div class="review-item"><label>Responsável</label><span id="rev-responsavel">—</span></div>
+            <div class="review-item"><label>Data de Abertura</label><span id="rev-abertura">—</span></div>
+            <div class="review-item"><label>Previsão de Início</label><span id="rev-inicio">—</span></div>
+            <div class="review-item"><label>Previsão de Término</label><span id="rev-termino">—</span></div>
+          </div>
+        </div>
+        <div class="review-block">
+          <h3>Itens (<span id="rev-itens-count">0</span>)</h3>
+          <table style="font-size:13px;width:100%;">
+            <thead>
+              <tr>
+                <th style="padding:6px 10px;text-align:left;color:#888;font-size:11px;text-transform:uppercase;border-bottom:1px solid #eee;">Item</th>
+                <th style="padding:6px 10px;text-align:left;color:#888;font-size:11px;text-transform:uppercase;border-bottom:1px solid #eee;">Descrição</th>
+                <th style="padding:6px 10px;text-align:left;color:#888;font-size:11px;text-transform:uppercase;border-bottom:1px solid #eee;">Qtde</th>
+                <th style="padding:6px 10px;text-align:left;color:#888;font-size:11px;text-transform:uppercase;border-bottom:1px solid #eee;">Unid.</th>
+              </tr>
+            </thead>
+            <tbody id="rev-itens-tbody"></tbody>
+          </table>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:8px;">
+          <button class="btn btn-secondary" id="btn-step3-back">← Voltar</button>
+          <button class="btn btn-primary" id="btn-salvar">Salvar Processo</button>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="toast"></div>
+<script src="js/novo-processo.js"></script>
+</body>
+</html>
