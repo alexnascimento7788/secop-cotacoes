@@ -96,7 +96,21 @@ button { cursor: pointer; }
   border-top: 1px solid var(--cinza-b);
   font-size: 11px;
   color: #aaa;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
+.sidebar-gear {
+  color: #bbb;
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  padding: 3px 5px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+.sidebar-gear:hover { color: #555; background: rgba(0,0,0,0.07); }
 
 /* ── Main content ─────────────────────────────────────── */
 .main {

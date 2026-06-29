@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Administração — SECOP Cotações</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    .admin-card {
+      background: #fff;
+      border: 1px solid var(--cinza-b);
+      border-radius: 10px;
+      padding: 28px 32px;
+      max-width: 560px;
+    }
+    .admin-card-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 6px;
+    }
+    .admin-card-desc {
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+    .admin-section { margin-bottom: 28px; }
+    .admin-section:last-child { margin-bottom: 0; }
+    .admin-section-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: #888;
+      margin-bottom: 10px;
+    }
+    .admin-divider {
+      border: none;
+      border-top: 1px solid var(--cinza-b);
+      margin: 24px 0;
+    }
+    .import-area {
+      border: 2px dashed var(--cinza-b);
+      border-radius: 8px;
+      padding: 20px;
+      text-align: center;
+      transition: border-color .15s;
+    }
+    .import-area.drag-over { border-color: var(--azul); }
+    .import-filename {
+      font-size: 13px;
+      color: #555;
+      margin: 8px 0 14px;
+      min-height: 18px;
+    }
+    .alert-warn {
+      background: #FFF8E1;
+      border: 1px solid #FFE082;
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 12px;
+      color: #795548;
+      margin-top: 14px;
+      line-height: 1.5;
+    }
+    #import-status {
+      margin-top: 12px;
+      font-size: 13px;
+      font-weight: 600;
+      min-height: 20px;
+    }
+    #import-status.ok   { color: #2E7D32; }
+    #import-status.erro { color: #C62828; }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="logo-title">SECOP · Cotações</div>
+      <div class="logo-sub">CEASAMINAS</div>
+      <div class="logo-divider"></div>
+    </div>
+    <nav>
+      <a href="index.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </a>
+      <a href="processos.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Processos
+      </a>
+      <a href="novo-processo.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        Novo Processo
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <span>v1.0 · SECOP 2026</span>
+      <a href="admin.html" class="sidebar-gear active" title="Administração">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </a>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Administração</div>
+        <div class="page-subtitle">Backup e restauração do banco de dados</div>
+      </div>
+    </div>
+
+    <div class="admin-card">
+
+      <!-- Export -->
+      <div class="admin-section">
+        <div class="admin-section-title">Exportar banco</div>
+        <div class="admin-card-desc">
+          Faz o download do arquivo <strong>secop.db</strong> com todos os dados
+          (processos, fornecedores, preços). Use para levar o banco para outro PC.
+        </div>
+        <button class="btn btn-primary" onclick="exportar()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;vertical-align:-2px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Baixar secop.db
+        </button>
+      </div>
+
+      <hr class="admin-divider">
+
+      <!-- Import -->
+      <div class="admin-section">
+        <div class="admin-section-title">Importar banco</div>
+        <div class="admin-card-desc">
+          Substitui o banco atual pelo arquivo enviado. Use quando quiser trazer dados
+          de outro PC. <strong>Os dados atuais serão substituídos.</strong>
+        </div>
+
+        <div class="import-area" id="drop-area">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <div style="font-size:13px;color:#aaa;margin-top:6px;">Arraste o arquivo aqui ou</div>
+          <label class="btn btn-secondary" style="margin-top:10px;cursor:pointer;">
+            Escolher arquivo .db
+            <input type="file" id="file-input" accept=".db" style="display:none" onchange="selecionarArquivo(this)">
+          </label>
+          <div class="import-filename" id="filename-label">Nenhum arquivo selecionado</div>
+          <button class="btn btn-primary" id="btn-importar" onclick="importar()" disabled>
+            Importar e reiniciar servidor
+          </button>
+        </div>
+
+        <div class="alert-warn">
+          ⚠️ O servidor será <strong>reiniciado automaticamente</strong> após a importação.
+          Se estiver usando <code>node server.js</code> diretamente, reinicie manualmente após o upload.
+        </div>
+
+        <div id="import-status"></div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+let arquivoSelecionado = null;
+
+function exportar() {
+  window.location.href = '/api/admin/export-db';
+}
+
+function selecionarArquivo(input) {
+  const f = input.files[0];
+  if (!f) return;
+  arquivoSelecionado = f;
+  document.getElementById('filename-label').textContent = f.name;
+  document.getElementById('btn-importar').disabled = false;
+  document.getElementById('import-status').textContent = '';
+}
+
+async function importar() {
+  if (!arquivoSelecionado) return;
+  const btn = document.getElementById('btn-importar');
+  const status = document.getElementById('import-status');
+  btn.disabled = true;
+  btn.textContent = 'Enviando...';
+  status.className = '';
+  status.textContent = '';
+
+  try {
+    const buffer = await arquivoSelecionado.arrayBuffer();
+    const res = await fetch('/api/admin/import-db', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: buffer
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Erro desconhecido');
+    }
+    status.className = 'ok';
+    status.textContent = 'Importado! Aguardando servidor reiniciar...';
+    let contador = 6;
+    const iv = setInterval(() => {
+      contador--;
+      status.textContent = `Importado! Recarregando em ${contador}s...`;
+      if (contador <= 0) {
+        clearInterval(iv);
+        window.location.href = '/';
+      }
+    }, 1000);
+  } catch (e) {
+    status.className = 'erro';
+    status.textContent = 'Erro: ' + e.message;
+    btn.disabled = false;
+    btn.textContent = 'Importar e reiniciar servidor';
+  }
+}
+
+// Drag and drop
+const dropArea = document.getElementById('drop-area');
+dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.classList.add('drag-over'); });
+dropArea.addEventListener('dragleave', () => dropArea.classList.remove('drag-over'));
+dropArea.addEventListener('drop', e => {
+  e.preventDefault();
+  dropArea.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.name.endsWith('.db')) {
+    arquivoSelecionado = f;
+    document.getElementById('filename-label').textContent = f.name;
+    document.getElementById('btn-importar').disabled = false;
+  }
+});
+</script>
+</body>
+</html>

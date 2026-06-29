@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const { db, gerarNumeroProcesso } = require('./database');
 
 const app = express();
@@ -281,6 +282,30 @@ app.get('/api/setores', (req, res) => {
   const rows = db.prepare(`SELECT DISTINCT setor_solicitante FROM processos WHERE setor_solicitante IS NOT NULL ORDER BY setor_solicitante`).all();
   res.json(rows.map(r => r.setor_solicitante));
 });
+
+// ── Admin: export / import banco ─────────────────────────────────────────────
+
+app.get('/api/admin/export-db', (req, res) => {
+  try { db.exec('PRAGMA wal_checkpoint(FULL)'); } catch {}
+  res.download(path.join(__dirname, 'data', 'secop.db'), 'secop.db');
+});
+
+app.post('/api/admin/import-db',
+  express.raw({ type: 'application/octet-stream', limit: '100mb' }),
+  (req, res) => {
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0)
+      return res.status(400).json({ error: 'Arquivo inválido' });
+
+    const dbPath = path.join(__dirname, 'data', 'secop.db');
+    try { db.close(); } catch {}
+    fs.writeFileSync(dbPath, req.body);
+    try { fs.unlinkSync(dbPath + '-shm'); } catch {}
+    try { fs.unlinkSync(dbPath + '-wal'); } catch {}
+
+    res.json({ ok: true });
+    setTimeout(() => process.exit(0), 300);
+  }
+);
 
 // ── Serve SPA ─────────────────────────────────────────────────────────────────
 

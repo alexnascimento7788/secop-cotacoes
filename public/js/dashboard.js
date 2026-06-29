@@ -18,7 +18,7 @@ function badgeStatus(s) {
     'Concluído':    'badge-concluido',
     'Parado':       'badge-parado'
   };
-  return `<span class="badge ${map[s] || ''}">${s}</span>`;
+  return `<span class="badge ${map[s] || ''}">${s || '—'}</span>`;
 }
 
 function diasBadgeHtml(dias) {
