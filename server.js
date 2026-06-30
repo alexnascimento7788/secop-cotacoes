@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { db, gerarNumeroProcesso } = require('./database');
 
 const app = express();
@@ -9,6 +10,96 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // node:sqlite rejects undefined — coerce to null
 const n = v => (v === undefined ? null : v);
+
+// ── Auth helpers ──────────────────────────────────────────────────────────────
+
+function getCookie(req, name) {
+  const match = (req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function requireAuth(req, res, next) {
+  const token = getCookie(req, 'secop_sid');
+  if (!token) return res.status(401).json({ error: 'Não autenticado' });
+  const session = db.prepare(`
+    SELECT s.user_id, u.username, u.role
+    FROM sessions s JOIN users u ON u.id = s.user_id
+    WHERE s.token = ? AND s.expires > datetime('now') AND u.ativo = 1
+  `).get(token);
+  if (!session) return res.status(401).json({ error: 'Sessão expirada' });
+  req.user = session;
+  next();
+}
+
+// ── Log helper ────────────────────────────────────────────────────────────────
+
+function registrarLog(req, tipo, acao, descricao, _username, _userId) {
+  const username = _username ?? (req.user ? req.user.username : null);
+  const user_id  = _userId  ?? (req.user ? req.user.user_id  : null);
+  const ip = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
+  try {
+    db.prepare('INSERT INTO logs (user_id, username, tipo, acao, descricao, ip) VALUES (?,?,?,?,?,?)')
+      .run(n(user_id), n(username), tipo, acao, n(descricao), n(ip));
+  } catch {}
+}
+
+// Protege todas as rotas /api/ exceto /api/auth/*
+app.use('/api', (req, res, next) => {
+  if (req.path.startsWith('/auth/')) return next();
+  requireAuth(req, res, next);
+});
+
+// ── Endpoints de autenticação ─────────────────────────────────────────────────
+
+app.post('/api/auth/login', (req, res) => {
+  const { username, senha } = req.body;
+  if (!username || !senha) return res.status(400).json({ error: 'Dados incompletos' });
+
+  const user = db.prepare("SELECT * FROM users WHERE username = ? AND ativo = 1").get(username);
+  if (!user) return res.status(401).json({ error: 'Usuário ou senha inválidos' });
+
+  const hash = crypto.pbkdf2Sync(senha, user.salt, 100000, 64, 'sha512').toString('hex');
+  if (hash !== user.senha_hash) return res.status(401).json({ error: 'Usuário ou senha inválidos' });
+
+  const token   = crypto.randomBytes(32).toString('hex');
+  const expires = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString();
+
+  db.prepare("DELETE FROM sessions WHERE user_id = ? AND expires < datetime('now')").run(user.id);
+  db.prepare("INSERT INTO sessions (token, user_id, expires) VALUES (?, ?, ?)").run(token, user.id, expires);
+
+  registrarLog(req, 'AUTH', 'LOGIN', `Login realizado`, user.username, user.id);
+
+  res.cookie('secop_sid', token, {
+    httpOnly: true, sameSite: 'strict', expires: new Date(expires)
+  });
+  res.json({ ok: true, username: user.username, role: user.role });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const token = getCookie(req, 'secop_sid');
+  if (token) {
+    const session = db.prepare(`
+      SELECT s.user_id, u.username FROM sessions s
+      JOIN users u ON u.id = s.user_id WHERE s.token = ?
+    `).get(token);
+    if (session) registrarLog(req, 'AUTH', 'LOGOUT', 'Logout realizado', session.username, session.user_id);
+    db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+  }
+  res.clearCookie('secop_sid');
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/me', (req, res) => {
+  const token = getCookie(req, 'secop_sid');
+  if (!token) return res.status(401).json({ error: 'Não autenticado' });
+  const session = db.prepare(`
+    SELECT s.user_id AS id, u.username, u.role
+    FROM sessions s JOIN users u ON u.id = s.user_id
+    WHERE s.token = ? AND s.expires > datetime('now') AND u.ativo = 1
+  `).get(token);
+  if (!session) return res.status(401).json({ error: 'Não autenticado' });
+  res.json(session);
+});
 
 // ── Processos ─────────────────────────────────────────────────────────────────
 
@@ -39,6 +130,8 @@ app.post('/api/processos', (req, res) => {
   `).run(numero_processo, n(objeto), n(setor_solicitante), n(tipo_contratacao), n(responsavel),
          n(descricao), n(previsao_inicio), n(previsao_termino), n(observacoes), n(observacoes2), n(data_abertura));
 
+  registrarLog(req, 'PROCESSO', 'CRIOU', `Criou processo ${numero_processo}: ${objeto}`);
+
   res.status(201).json({ id: info.lastInsertRowid, numero_processo });
 });
 
@@ -64,7 +157,7 @@ app.put('/api/processos/:id', (req, res) => {
   const { objeto, setor_solicitante, tipo_contratacao, responsavel, descricao,
           previsao_inicio, previsao_termino, status, observacoes, observacoes2, data_abertura } = req.body;
 
-  const existe = db.prepare(`SELECT id FROM processos WHERE id = ?`).get(req.params.id);
+  const existe = db.prepare(`SELECT id, numero_processo FROM processos WHERE id = ?`).get(req.params.id);
   if (!existe) return res.status(404).json({ error: 'Não encontrado' });
 
   db.prepare(`
@@ -76,11 +169,15 @@ app.put('/api/processos/:id', (req, res) => {
          n(previsao_inicio), n(previsao_termino), n(status), n(observacoes),
          n(observacoes2), n(data_abertura), req.params.id);
 
+  registrarLog(req, 'PROCESSO', 'EDITOU', `Editou processo ${existe.numero_processo}`);
+
   res.json({ ok: true });
 });
 
 app.delete('/api/processos/:id', (req, res) => {
+  const proc = db.prepare(`SELECT numero_processo, objeto FROM processos WHERE id = ?`).get(req.params.id);
   db.prepare(`DELETE FROM processos WHERE id = ?`).run(req.params.id);
+  if (proc) registrarLog(req, 'PROCESSO', 'EXCLUIU', `Excluiu processo ${proc.numero_processo}: ${proc.objeto}`);
   res.json({ ok: true });
 });
 
@@ -114,6 +211,9 @@ app.post('/api/processos/:id/fornecedores', (req, res) => {
          n(data_proposta), n(prazo_pagamento), n(prazo_entrega), n(prazo_garantia), n(frete),
          n(proposta_inicial), n(proposta_final), n(observacoes));
 
+  const proc = db.prepare(`SELECT numero_processo FROM processos WHERE id = ?`).get(req.params.id);
+  registrarLog(req, 'FORNECEDOR', 'CRIOU', `Adicionou fornecedor "${nome}" ao processo ${proc?.numero_processo || req.params.id}`);
+
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
@@ -134,7 +234,12 @@ app.put('/api/fornecedores/:id', (req, res) => {
 });
 
 app.delete('/api/fornecedores/:id', (req, res) => {
+  const f = db.prepare(`SELECT nome, processo_id FROM fornecedores WHERE id = ?`).get(req.params.id);
   db.prepare(`DELETE FROM fornecedores WHERE id = ?`).run(req.params.id);
+  if (f) {
+    const proc = db.prepare(`SELECT numero_processo FROM processos WHERE id = ?`).get(f.processo_id);
+    registrarLog(req, 'FORNECEDOR', 'EXCLUIU', `Removeu fornecedor "${f.nome}" do processo ${proc?.numero_processo || f.processo_id}`);
+  }
   res.json({ ok: true });
 });
 
@@ -187,7 +292,7 @@ app.post('/api/precos', (req, res) => {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 app.get('/api/dashboard/resumo', (req, res) => {
-  const em_cotacao   = db.prepare(`SELECT COUNT(*) AS c FROM processos WHERE status='Em cotação'`).get().c;
+  const em_cotacao   = db.prepare(`SELECT COUNT(*) AS c FROM processos WHERE status='Em cotação' OR status IS NULL`).get().c;
   const ag_aprovacao = db.prepare(`SELECT COUNT(*) AS c FROM processos WHERE status='Ag. aprovação'`).get().c;
   const concluidos_mes = db.prepare(`
     SELECT COUNT(*) AS c FROM processos
@@ -243,12 +348,13 @@ app.patch('/api/processos/:id/mostrar-menor-preco', (req, res) => {
 
 app.patch('/api/processos/:id/status', (req, res) => {
   const { status } = req.body;
-  const atual = db.prepare(`SELECT status FROM processos WHERE id=?`).get(req.params.id);
+  const atual = db.prepare(`SELECT status, numero_processo FROM processos WHERE id=?`).get(req.params.id);
   if (!atual) return res.status(404).json({ error: 'Não encontrado' });
   db.prepare(`UPDATE processos SET status=?, atualizado_em=CURRENT_TIMESTAMP WHERE id=?`)
     .run(status, req.params.id);
   db.prepare(`INSERT INTO status_historico (processo_id, status_de, status_para) VALUES (?,?,?)`)
     .run(req.params.id, atual.status, status);
+  registrarLog(req, 'PROCESSO', 'STATUS', `Processo ${atual.numero_processo}: "${atual.status || 'Em cotação'}" → "${status}"`);
   res.json({ ok: true });
 });
 
@@ -283,9 +389,64 @@ app.get('/api/setores', (req, res) => {
   res.json(rows.map(r => r.setor_solicitante));
 });
 
+// ── Admin: usuários ───────────────────────────────────────────────────────────
+
+app.get('/api/admin/users', (req, res) => {
+  res.json(db.prepare("SELECT id, username, role, ativo, criado_em FROM users WHERE username != 'master' ORDER BY id").all());
+});
+
+app.post('/api/admin/users', (req, res) => {
+  const { username, senha, role } = req.body;
+  if (!username || !senha) return res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(senha, salt, 100000, 64, 'sha512').toString('hex');
+  try {
+    const info = db.prepare(
+      "INSERT INTO users (username, senha_hash, salt, role, ativo) VALUES (?, ?, ?, ?, 1)"
+    ).run(username, hash, salt, role || 'admin');
+    registrarLog(req, 'USUARIO', 'CRIOU', `Criou usuário "${username}"`);
+    res.status(201).json({ id: info.lastInsertRowid });
+  } catch (e) {
+    res.status(400).json({ error: 'Usuário já existe' });
+  }
+});
+
+app.patch('/api/admin/users/:id', (req, res) => {
+  const { ativo, senha, role } = req.body;
+  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'Não encontrado' });
+
+  if (ativo !== undefined) {
+    if (user.username === 'master') return res.status(400).json({ error: 'Não é possível desativar o master' });
+    db.prepare("UPDATE users SET ativo = ? WHERE id = ?").run(ativo ? 1 : 0, req.params.id);
+    registrarLog(req, 'USUARIO', ativo ? 'ATIVOU' : 'DESATIVOU', `${ativo ? 'Ativou' : 'Desativou'} usuário "${user.username}"`);
+  }
+  if (senha) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.pbkdf2Sync(senha, salt, 100000, 64, 'sha512').toString('hex');
+    db.prepare("UPDATE users SET senha_hash = ?, salt = ? WHERE id = ?").run(hash, salt, req.params.id);
+    db.prepare("DELETE FROM sessions WHERE user_id = ?").run(req.params.id);
+    registrarLog(req, 'USUARIO', 'SENHA', `Alterou senha do usuário "${user.username}"`);
+  }
+  if (role !== undefined) {
+    db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, req.params.id);
+  }
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/users/:id', (req, res) => {
+  const user = db.prepare("SELECT username FROM users WHERE id = ?").get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'Não encontrado' });
+  if (user.username === 'master') return res.status(400).json({ error: 'Não é possível excluir o master' });
+  db.prepare("DELETE FROM users WHERE id = ?").run(req.params.id);
+  registrarLog(req, 'USUARIO', 'EXCLUIU', `Excluiu usuário "${user.username}"`);
+  res.json({ ok: true });
+});
+
 // ── Admin: export / import banco ─────────────────────────────────────────────
 
 app.get('/api/admin/export-db', (req, res) => {
+  registrarLog(req, 'BANCO', 'EXPORTOU', 'Exportou banco de dados');
   try { db.exec('PRAGMA wal_checkpoint(FULL)'); } catch {}
   res.download(path.join(__dirname, 'data', 'secop.db'), 'secop.db');
 });
@@ -295,6 +456,8 @@ app.post('/api/admin/import-db',
   (req, res) => {
     if (!Buffer.isBuffer(req.body) || req.body.length === 0)
       return res.status(400).json({ error: 'Arquivo inválido' });
+
+    registrarLog(req, 'BANCO', 'IMPORTOU', 'Importou banco de dados — servidor será reiniciado');
 
     const dbPath = path.join(__dirname, 'data', 'secop.db');
     try { db.close(); } catch {}
@@ -306,6 +469,31 @@ app.post('/api/admin/import-db',
     setTimeout(() => process.exit(0), 300);
   }
 );
+
+// ── Admin: logs ───────────────────────────────────────────────────────────────
+
+app.get('/api/admin/logs', (req, res) => {
+  const { data_de, data_ate, username, tipo } = req.query;
+  let sql = `SELECT * FROM logs WHERE 1=1`;
+  const params = [];
+  if (data_de)  { sql += ` AND date(criado_em) >= ?`; params.push(data_de); }
+  if (data_ate) { sql += ` AND date(criado_em) <= ?`; params.push(data_ate); }
+  if (username) { sql += ` AND username = ?`; params.push(username); }
+  if (tipo)     { sql += ` AND tipo = ?`; params.push(tipo); }
+  sql += ` ORDER BY id DESC LIMIT 500`;
+  res.json(db.prepare(sql).all(...params));
+});
+
+app.get('/api/admin/logs/usuarios', (req, res) => {
+  const rows = db.prepare(`SELECT DISTINCT username FROM logs WHERE username IS NOT NULL ORDER BY username`).all();
+  res.json(rows.map(r => r.username));
+});
+
+app.delete('/api/admin/logs', (req, res) => {
+  db.prepare('DELETE FROM logs').run();
+  registrarLog(req, 'SISTEMA', 'LIMPOU', 'Histórico de logs limpo');
+  res.json({ ok: true });
+});
 
 // ── Serve SPA ─────────────────────────────────────────────────────────────────
 

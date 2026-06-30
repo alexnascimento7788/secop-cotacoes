@@ -5,73 +5,87 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Administração — SECOP Cotações</title>
   <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+  <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');</script>
   <style>
+    .admin-tabs { display:flex; gap:4px; margin-bottom:20px; }
+    .admin-tab {
+      padding:8px 18px; border-radius:6px; font-size:13px; font-weight:600;
+      cursor:pointer; border:1.5px solid var(--cinza-b); background:#fff; color:var(--cinza-t);
+      transition:.15s;
+    }
+    .admin-tab.active { background:var(--verde); color:#fff; border-color:var(--verde); }
+    .admin-pane { display:none; }
+    .admin-pane.active { display:block; }
     .admin-card {
-      background: #fff;
-      border: 1px solid var(--cinza-b);
-      border-radius: 10px;
-      padding: 28px 32px;
-      max-width: 560px;
+      background:#fff; border:1px solid var(--cinza-b); border-radius:10px;
+      padding:28px 32px; max-width:600px;
     }
-    .admin-card-title {
-      font-size: 15px;
-      font-weight: 700;
-      color: #1a1a1a;
-      margin-bottom: 6px;
-    }
-    .admin-card-desc {
-      font-size: 13px;
-      color: #666;
-      margin-bottom: 20px;
-      line-height: 1.5;
-    }
-    .admin-section { margin-bottom: 28px; }
-    .admin-section:last-child { margin-bottom: 0; }
+    .admin-section { margin-bottom:28px; }
+    .admin-section:last-child { margin-bottom:0; }
     .admin-section-title {
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: .05em;
-      color: #888;
-      margin-bottom: 10px;
+      font-size:12px; font-weight:700; text-transform:uppercase;
+      letter-spacing:.05em; color:#888; margin-bottom:10px;
     }
-    .admin-divider {
-      border: none;
-      border-top: 1px solid var(--cinza-b);
-      margin: 24px 0;
-    }
+    .admin-divider { border:none; border-top:1px solid var(--cinza-b); margin:24px 0; }
     .import-area {
-      border: 2px dashed var(--cinza-b);
-      border-radius: 8px;
-      padding: 20px;
-      text-align: center;
-      transition: border-color .15s;
+      border:2px dashed var(--cinza-b); border-radius:8px; padding:20px;
+      text-align:center; transition:border-color .15s;
     }
-    .import-area.drag-over { border-color: var(--azul); }
-    .import-filename {
-      font-size: 13px;
-      color: #555;
-      margin: 8px 0 14px;
-      min-height: 18px;
-    }
+    .import-area.drag-over { border-color:var(--verde); }
+    .import-filename { font-size:13px; color:#555; margin:8px 0 14px; min-height:18px; }
     .alert-warn {
-      background: #FFF8E1;
-      border: 1px solid #FFE082;
-      border-radius: 6px;
-      padding: 10px 14px;
-      font-size: 12px;
-      color: #795548;
-      margin-top: 14px;
-      line-height: 1.5;
+      background:#FFF8E1; border:1px solid #FFE082; border-radius:6px;
+      padding:10px 14px; font-size:12px; color:#795548; margin-top:14px; line-height:1.5;
     }
-    #import-status {
-      margin-top: 12px;
-      font-size: 13px;
-      font-weight: 600;
-      min-height: 20px;
+    #import-status { margin-top:12px; font-size:13px; font-weight:600; min-height:20px; }
+    #import-status.ok   { color:#2E7D32; }
+    #import-status.erro { color:#C62828; }
+
+    /* Logs */
+    .logs-filters {
+      display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;
+      background:#fff; border:1px solid var(--cinza-b); border-radius:8px;
+      padding:14px 16px; margin-bottom:16px;
     }
-    #import-status.ok   { color: #2E7D32; }
-    #import-status.erro { color: #C62828; }
+    .logs-filters .form-group { margin:0; min-width:140px; }
+    .logs-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+    .logs-table th { text-align:left; padding:7px 10px; font-size:11px; text-transform:uppercase; color:#888; border-bottom:2px solid var(--cinza-b); white-space:nowrap; }
+    .logs-table td { padding:8px 10px; border-bottom:1px solid var(--cinza-b); vertical-align:top; }
+    .logs-table tr:last-child td { border-bottom:none; }
+    .logs-table tr:hover td { background:#fafafa; }
+    .badge-tipo { display:inline-block; padding:2px 7px; border-radius:10px; font-size:10px; font-weight:700; letter-spacing:.3px; }
+    .tipo-AUTH     { background:#E3F2FD; color:#1565C0; }
+    .tipo-PROCESSO { background:#E8F5E9; color:#1B5E20; }
+    .tipo-FORNECEDOR { background:#FFF3E0; color:#E65100; }
+    .tipo-USUARIO  { background:#FCE4EC; color:#880E4F; }
+    .tipo-BANCO    { background:#EDE7F6; color:#4527A0; }
+    .tipo-SISTEMA  { background:#ECEFF1; color:#455A64; }
+    .tipo-ITEM     { background:#F3E5F5; color:#6A1B9A; }
+    .logs-count { font-size:12px; color:#888; margin-bottom:10px; }
+    .log-desc { color:#555; max-width:320px; }
+    .log-ip { color:#aaa; font-size:11px; }
+    .log-hora { color:#777; white-space:nowrap; }
+
+    /* Usuários */
+    .users-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .users-table th { text-align:left; padding:8px 12px; font-size:11px; text-transform:uppercase; color:#888; border-bottom:2px solid var(--cinza-b); }
+    .users-table td { padding:10px 12px; border-bottom:1px solid var(--cinza-b); vertical-align:middle; }
+    .users-table tr:last-child td { border-bottom:none; }
+    .badge-ativo   { background:#E8F5E9; color:#1B5E20; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+    .badge-inativo { background:#FFEBEE; color:#C62828; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+    .add-user-form { display:grid; grid-template-columns:1fr 1fr auto; gap:10px; align-items:end; margin-top:16px; }
+    .add-user-form .form-group { margin:0; }
+    .modal-overlay {
+      display:none; position:fixed; inset:0; background:rgba(0,0,0,.4);
+      z-index:1000; align-items:center; justify-content:center;
+    }
+    .modal-overlay.open { display:flex; }
+    .modal-box {
+      background:#fff; border-radius:12px; padding:28px; width:100%; max-width:360px;
+      box-shadow:0 8px 32px rgba(0,0,0,.15);
+    }
+    .modal-box h3 { font-size:15px; margin-bottom:16px; }
   </style>
 </head>
 <body>
@@ -80,8 +94,11 @@
   <!-- Sidebar -->
   <aside class="sidebar">
     <div class="sidebar-brand">
-      <div class="logo-title">SECOP · Cotações</div>
-      <div class="logo-sub">CEASAMINAS</div>
+      <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" class="sidebar-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+      <div class="sidebar-logo-fallback" style="display:none;align-items:center;gap:10px;margin-bottom:8px;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="32" height="32" style="flex-shrink:0"><polygon points="20,1 1,20 20,20" fill="#1A6B35"/><polygon points="20,1 39,20 20,20" fill="#F9A800"/><polygon points="39,20 20,39 20,20" fill="#1A6B35"/><polygon points="1,20 20,39 20,20" fill="#1A6B35"/></svg>
+        <div><div class="logo-title">SECOP · Cotações</div><div class="logo-sub">CEASAMINAS</div></div>
+      </div>
       <div class="logo-divider"></div>
     </div>
     <nav>
@@ -99,10 +116,15 @@
       </a>
     </nav>
     <div class="sidebar-footer">
-      <span>v1.0 · SECOP 2026</span>
-      <a href="admin.html" class="sidebar-gear active" title="Administração">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-      </a>
+      <span id="sidebar-username" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;">—</span>
+      <div style="display:flex;gap:2px;flex-shrink:0;">
+        <a href="admin.html" class="sidebar-gear active" title="Administração">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </a>
+        <button onclick="logout()" class="sidebar-gear" title="Sair" style="background:none;border:none;cursor:pointer;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
     </div>
   </aside>
 
@@ -111,68 +133,201 @@
     <div class="page-header">
       <div>
         <div class="page-title">Administração</div>
-        <div class="page-subtitle">Backup e restauração do banco de dados</div>
+        <div class="page-subtitle">Configurações do sistema</div>
       </div>
     </div>
 
-    <div class="admin-card">
+    <div class="admin-tabs">
+      <button class="admin-tab active" onclick="mudarAba('usuarios')">Usuários</button>
+      <button class="admin-tab" onclick="mudarAba('banco')">Banco de Dados</button>
+      <button class="admin-tab" onclick="mudarAba('logs')">Logs</button>
+    </div>
 
-      <!-- Export -->
-      <div class="admin-section">
-        <div class="admin-section-title">Exportar banco</div>
-        <div class="admin-card-desc">
-          Faz o download do arquivo <strong>secop.db</strong> com todos os dados
-          (processos, fornecedores, preços). Use para levar o banco para outro PC.
-        </div>
-        <button class="btn btn-primary" onclick="exportar()">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;vertical-align:-2px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Baixar secop.db
-        </button>
-      </div>
-
-      <hr class="admin-divider">
-
-      <!-- Import -->
-      <div class="admin-section">
-        <div class="admin-section-title">Importar banco</div>
-        <div class="admin-card-desc">
-          Substitui o banco atual pelo arquivo enviado. Use quando quiser trazer dados
-          de outro PC. <strong>Os dados atuais serão substituídos.</strong>
-        </div>
-
-        <div class="import-area" id="drop-area">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          <div style="font-size:13px;color:#aaa;margin-top:6px;">Arraste o arquivo aqui ou</div>
-          <label class="btn btn-secondary" style="margin-top:10px;cursor:pointer;">
-            Escolher arquivo .db
-            <input type="file" id="file-input" accept=".db" style="display:none" onchange="selecionarArquivo(this)">
-          </label>
-          <div class="import-filename" id="filename-label">Nenhum arquivo selecionado</div>
-          <button class="btn btn-primary" id="btn-importar" onclick="importar()" disabled>
-            Importar e reiniciar servidor
+    <!-- Aba Banco -->
+    <div class="admin-pane" id="pane-banco">
+      <div class="admin-card">
+        <div class="admin-section">
+          <div class="admin-section-title">Exportar banco</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Faz o download do arquivo <strong>secop.db</strong> com todos os dados.
+            Use para levar o banco para outro PC.
+          </p>
+          <button class="btn btn-primary" onclick="exportar()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;vertical-align:-2px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Baixar secop.db
           </button>
         </div>
+        <hr class="admin-divider">
+        <div class="admin-section">
+          <div class="admin-section-title">Importar banco</div>
+          <p style="font-size:13px;color:#666;margin-bottom:14px;line-height:1.5;">
+            Substitui o banco atual. <strong>Os dados atuais serão substituídos.</strong>
+          </p>
+          <div class="import-area" id="drop-area">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <div style="font-size:13px;color:#aaa;margin-top:6px;">Arraste ou</div>
+            <label class="btn btn-secondary" style="margin-top:10px;cursor:pointer;">
+              Escolher arquivo .db
+              <input type="file" id="file-input" accept=".db" style="display:none" onchange="selecionarArquivo(this)">
+            </label>
+            <div class="import-filename" id="filename-label">Nenhum arquivo selecionado</div>
+            <button class="btn btn-primary" id="btn-importar" onclick="importar()" disabled>
+              Importar e reiniciar servidor
+            </button>
+          </div>
+          <div class="alert-warn">
+            ⚠️ O servidor será <strong>reiniciado automaticamente</strong>. Se usar <code>node server.js</code> direto, reinicie manualmente.
+          </div>
+          <div id="import-status"></div>
+        </div>
+      </div>
+    </div>
 
-        <div class="alert-warn">
-          ⚠️ O servidor será <strong>reiniciado automaticamente</strong> após a importação.
-          Se estiver usando <code>node server.js</code> diretamente, reinicie manualmente após o upload.
+    <!-- Aba Logs -->
+    <div class="admin-pane" id="pane-logs">
+      <div class="logs-filters">
+        <div class="form-group">
+          <label>Data início</label>
+          <input type="date" id="log-data-de" />
+        </div>
+        <div class="form-group">
+          <label>Data fim</label>
+          <input type="date" id="log-data-ate" />
+        </div>
+        <div class="form-group">
+          <label>Usuário</label>
+          <select id="log-username" style="padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:13px;background:#fff;">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Tipo</label>
+          <select id="log-tipo" style="padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:13px;background:#fff;">
+            <option value="">Todos</option>
+            <option value="AUTH">Auth</option>
+            <option value="PROCESSO">Processo</option>
+            <option value="FORNECEDOR">Fornecedor</option>
+            <option value="USUARIO">Usuário</option>
+            <option value="BANCO">Banco</option>
+            <option value="SISTEMA">Sistema</option>
+          </select>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="carregarLogs()">Filtrar</button>
+        <button class="btn btn-secondary btn-sm" onclick="limparFiltrosLog()">Limpar</button>
+        <div style="flex:1;"></div>
+        <button class="btn btn-danger btn-sm" onclick="limparLogs()" title="Remove todos os registros de log">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;vertical-align:-1px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+          Limpar logs
+        </button>
+      </div>
+      <div class="logs-count" id="logs-count"></div>
+      <div style="background:#fff;border:1px solid var(--cinza-b);border-radius:8px;overflow:hidden;">
+        <div style="overflow-x:auto;">
+          <table class="logs-table">
+            <thead>
+              <tr>
+                <th>Data / Hora</th>
+                <th>Usuário</th>
+                <th>Tipo</th>
+                <th>Ação</th>
+                <th>Descrição</th>
+                <th>IP</th>
+              </tr>
+            </thead>
+            <tbody id="logs-tbody">
+              <tr><td colspan="6" style="padding:24px;text-align:center;color:#aaa;">Carregando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Aba Usuários -->
+    <div class="admin-pane active" id="pane-usuarios">
+      <div class="admin-card" style="max-width:700px;">
+        <div class="admin-section">
+          <div class="admin-section-title">Usuários do sistema</div>
+          <table class="users-table">
+            <thead>
+              <tr>
+                <th>Usuário</th>
+                <th>Perfil</th>
+                <th>Status</th>
+                <th>Criado em</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="users-tbody">
+              <tr><td colspan="5" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
+            </tbody>
+          </table>
         </div>
 
-        <div id="import-status"></div>
-      </div>
+        <hr class="admin-divider">
 
+        <div class="admin-section">
+          <div class="admin-section-title">Adicionar usuário</div>
+          <div class="add-user-form">
+            <div class="form-group">
+              <label>Usuário</label>
+              <input type="text" id="new-username" placeholder="nome.usuario" />
+            </div>
+            <div class="form-group">
+              <label>Senha</label>
+              <input type="password" id="new-senha" placeholder="••••••••" />
+            </div>
+            <button class="btn btn-primary" onclick="adicionarUsuario()" style="white-space:nowrap;">
+              + Adicionar
+            </button>
+          </div>
+          <div id="user-msg" style="margin-top:10px;font-size:13px;font-weight:600;min-height:18px;"></div>
+        </div>
+      </div>
     </div>
+
   </main>
 </div>
 
+<!-- Modal: alterar senha -->
+<div class="modal-overlay" id="modal-senha">
+  <div class="modal-box">
+    <h3>Alterar Senha</h3>
+    <input type="hidden" id="modal-user-id" />
+    <div class="form-group" style="margin-bottom:14px;">
+      <label>Nova Senha</label>
+      <input type="password" id="modal-nova-senha" placeholder="Nova senha" style="width:100%;padding:10px 12px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:14px;"/>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarSenha()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
-
+<script src="js/auth.js"></script>
 <script>
-let arquivoSelecionado = null;
-
-function exportar() {
-  window.location.href = '/api/admin/export-db';
+function toast(msg, type='') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `show ${type}`;
+  setTimeout(() => { el.className = ''; }, 3000);
 }
+
+const _abas = ['usuarios', 'banco', 'logs'];
+function mudarAba(aba) {
+  document.querySelectorAll('.admin-tab').forEach((t, i) => t.classList.toggle('active', _abas[i] === aba));
+  _abas.forEach(a => document.getElementById(`pane-${a}`).classList.toggle('active', a === aba));
+  if (aba === 'usuarios') carregarUsuarios();
+  if (aba === 'logs') { carregarUsuariosLog(); carregarLogs(); }
+}
+carregarUsuarios();
+
+// ── Banco ──────────────────────────────────────────────────────────────────────
+
+function exportar() { window.location.href = '/api/admin/export-db'; }
+
+let arquivoSelecionado = null;
 
 function selecionarArquivo(input) {
   const f = input.files[0];
@@ -187,48 +342,32 @@ async function importar() {
   if (!arquivoSelecionado) return;
   const btn = document.getElementById('btn-importar');
   const status = document.getElementById('import-status');
-  btn.disabled = true;
-  btn.textContent = 'Enviando...';
-  status.className = '';
-  status.textContent = '';
-
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  status.className = ''; status.textContent = '';
   try {
     const buffer = await arquivoSelecionado.arrayBuffer();
     const res = await fetch('/api/admin/import-db', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/octet-stream' },
-      body: buffer
+      method:'POST', headers:{'Content-Type':'application/octet-stream'}, body:buffer
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Erro desconhecido');
-    }
+    if (!res.ok) throw new Error((await res.json()).error || 'Erro');
     status.className = 'ok';
-    status.textContent = 'Importado! Aguardando servidor reiniciar...';
-    let contador = 6;
+    let c = 6;
+    status.textContent = `Importado! Recarregando em ${c}s...`;
     const iv = setInterval(() => {
-      contador--;
-      status.textContent = `Importado! Recarregando em ${contador}s...`;
-      if (contador <= 0) {
-        clearInterval(iv);
-        window.location.href = '/';
-      }
+      c--; status.textContent = `Importado! Recarregando em ${c}s...`;
+      if (c <= 0) { clearInterval(iv); window.location.href = '/'; }
     }, 1000);
-  } catch (e) {
-    status.className = 'erro';
-    status.textContent = 'Erro: ' + e.message;
-    btn.disabled = false;
-    btn.textContent = 'Importar e reiniciar servidor';
+  } catch(e) {
+    status.className = 'erro'; status.textContent = 'Erro: ' + e.message;
+    btn.disabled = false; btn.textContent = 'Importar e reiniciar servidor';
   }
 }
 
-// Drag and drop
 const dropArea = document.getElementById('drop-area');
 dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.classList.add('drag-over'); });
 dropArea.addEventListener('dragleave', () => dropArea.classList.remove('drag-over'));
 dropArea.addEventListener('drop', e => {
-  e.preventDefault();
-  dropArea.classList.remove('drag-over');
+  e.preventDefault(); dropArea.classList.remove('drag-over');
   const f = e.dataTransfer.files[0];
   if (f && f.name.endsWith('.db')) {
     arquivoSelecionado = f;
@@ -236,6 +375,173 @@ dropArea.addEventListener('drop', e => {
     document.getElementById('btn-importar').disabled = false;
   }
 });
+
+// ── Usuários ───────────────────────────────────────────────────────────────────
+
+function fmtData(iso) {
+  if (!iso) return '—';
+  const [y,m,d] = iso.split('T')[0].split('-');
+  return `${d}/${m}/${y}`;
+}
+
+async function carregarUsuarios() {
+  try {
+    const res = await fetch('/api/admin/users');
+    const users = await res.json();
+    document.getElementById('users-tbody').innerHTML = users.map(u => `
+      <tr>
+        <td><strong>${u.username}</strong>${u.username==='master'?' <span style="font-size:10px;color:#888;">(master)</span>':''}</td>
+        <td>${u.role}</td>
+        <td><span class="${u.ativo?'badge-ativo':'badge-inativo'}">${u.ativo?'Ativo':'Inativo'}</span></td>
+        <td>${fmtData(u.criado_em)}</td>
+        <td style="white-space:nowrap;text-align:right;">
+          ${u.username!=='master'?`
+            <button class="btn btn-secondary btn-sm" onclick="alterarSenha(${u.id})">Senha</button>
+            <button class="btn btn-secondary btn-sm" onclick="toggleAtivo(${u.id},${u.ativo})">${u.ativo?'Desativar':'Ativar'}</button>
+            <button class="btn btn-danger btn-sm" onclick="excluirUsuario(${u.id},'${u.username}')">Excluir</button>
+          `:'<span style="font-size:11px;color:#aaa;">protegido</span>'}
+        </td>
+      </tr>
+    `).join('');
+  } catch {
+    toast('Erro ao carregar usuários', 'error');
+  }
+}
+
+async function adicionarUsuario() {
+  const username = document.getElementById('new-username').value.trim();
+  const senha    = document.getElementById('new-senha').value;
+  const msg = document.getElementById('user-msg');
+  msg.style.color = '';
+  if (!username || !senha) { msg.style.color='#c00'; msg.textContent='Preencha usuário e senha.'; return; }
+  try {
+    const res = await fetch('/api/admin/users', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ username, senha })
+    });
+    if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
+    msg.style.color = '#2E7D32';
+    msg.textContent = `Usuário "${username}" criado com sucesso.`;
+    document.getElementById('new-username').value = '';
+    document.getElementById('new-senha').value    = '';
+    carregarUsuarios();
+  } catch(e) {
+    msg.style.color='#c00'; msg.textContent = 'Erro: ' + e.message;
+  }
+}
+
+async function toggleAtivo(id, ativo) {
+  await fetch(`/api/admin/users/${id}`, {
+    method:'PATCH', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ ativo: !ativo })
+  });
+  carregarUsuarios();
+}
+
+async function excluirUsuario(id, nome) {
+  if (!confirm(`Excluir usuário "${nome}"?`)) return;
+  const res = await fetch(`/api/admin/users/${id}`, { method:'DELETE' });
+  if (!res.ok) { const e=await res.json(); toast(e.error,'error'); return; }
+  carregarUsuarios();
+}
+
+function alterarSenha(id) {
+  document.getElementById('modal-user-id').value = id;
+  document.getElementById('modal-nova-senha').value = '';
+  document.getElementById('modal-senha').classList.add('open');
+  setTimeout(() => document.getElementById('modal-nova-senha').focus(), 50);
+}
+
+function fecharModal() {
+  document.getElementById('modal-senha').classList.remove('open');
+}
+
+// ── Logs ───────────────────────────────────────────────────────────────────────
+
+async function carregarUsuariosLog() {
+  try {
+    const lista = await fetch('/api/admin/logs/usuarios').then(r => r.json());
+    const sel = document.getElementById('log-username');
+    const atual = sel.value;
+    sel.innerHTML = '<option value="">Todos</option>' +
+      lista.map(u => `<option value="${u}"${u===atual?' selected':''}>${u}</option>`).join('');
+  } catch {}
+}
+
+function fmtDataHora(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso.replace(' ','T') + (iso.includes('Z')?'':'Z'));
+  return d.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+
+async function carregarLogs() {
+  const params = new URLSearchParams();
+  const de  = document.getElementById('log-data-de').value;
+  const ate = document.getElementById('log-data-ate').value;
+  const usr = document.getElementById('log-username').value;
+  const tip = document.getElementById('log-tipo').value;
+  if (de)  params.set('data_de', de);
+  if (ate) params.set('data_ate', ate);
+  if (usr) params.set('username', usr);
+  if (tip) params.set('tipo', tip);
+
+  const tbody = document.getElementById('logs-tbody');
+  tbody.innerHTML = '<tr><td colspan="6" style="padding:24px;text-align:center;color:#aaa;">Carregando...</td></tr>';
+
+  try {
+    const logs = await fetch('/api/admin/logs?' + params).then(r => r.json());
+    document.getElementById('logs-count').textContent = `${logs.length} registro${logs.length !== 1 ? 's' : ''} encontrado${logs.length !== 1 ? 's' : ''} (máx. 500)`;
+
+    if (!logs.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="padding:24px;text-align:center;color:#aaa;">Nenhum log encontrado.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = logs.map(l => `
+      <tr>
+        <td class="log-hora">${fmtDataHora(l.criado_em)}</td>
+        <td><strong>${l.username || '<span style="color:#bbb">—</span>'}</strong></td>
+        <td><span class="badge-tipo tipo-${l.tipo}">${l.tipo}</span></td>
+        <td style="white-space:nowrap;font-weight:600;color:#444;">${l.acao}</td>
+        <td class="log-desc">${l.descricao || '—'}</td>
+        <td class="log-ip">${l.ip || '—'}</td>
+      </tr>
+    `).join('');
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:24px;text-align:center;color:#c00;">Erro ao carregar logs.</td></tr>';
+  }
+}
+
+function limparFiltrosLog() {
+  document.getElementById('log-data-de').value  = '';
+  document.getElementById('log-data-ate').value = '';
+  document.getElementById('log-username').value = '';
+  document.getElementById('log-tipo').value     = '';
+  carregarLogs();
+}
+
+async function limparLogs() {
+  if (!confirm('Remover todos os registros de log? Esta ação não pode ser desfeita.')) return;
+  try {
+    await fetch('/api/admin/logs', { method: 'DELETE' });
+    toast('Logs removidos com sucesso', 'success');
+    carregarLogs();
+  } catch {
+    toast('Erro ao limpar logs', 'error');
+  }
+}
+
+async function salvarSenha() {
+  const id    = document.getElementById('modal-user-id').value;
+  const senha = document.getElementById('modal-nova-senha').value;
+  if (!senha) { toast('Informe a nova senha','error'); return; }
+  await fetch(`/api/admin/users/${id}`, {
+    method:'PATCH', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ senha })
+  });
+  toast('Senha alterada com sucesso','success');
+  fecharModal();
+}
 </script>
 </body>
 </html>

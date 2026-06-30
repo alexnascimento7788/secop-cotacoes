@@ -246,7 +246,6 @@ function renderTabelaPrecos(precosMap) {
     inp.addEventListener('blur',   () => { inp.value = fmtMoeda(parseMoeda(inp.value)); });
   });
 
-  // Ao carregar preços existentes, recalcula e auto-preenche proposta se vazia
   recalcTotal();
 }
 
@@ -257,14 +256,6 @@ function recalcTotal() {
   });
   const cell = document.getElementById('total-geral');
   if (cell) cell.textContent = total > 0 ? fmtMoeda(total) : '—';
-
-  // Auto-preenche proposta se ainda não foi digitada manualmente
-  if (total > 0) {
-    const ini = document.getElementById('f-prop-ini');
-    const fin = document.getElementById('f-prop-fin');
-    if (ini && !ini.value) ini.value = total.toFixed(2);
-    if (fin && !fin.value) fin.value = total.toFixed(2);
-  }
 }
 
 // ── Salvar fornecedor (lógica extraída para reuso) ────────────────────────────

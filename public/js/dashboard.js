@@ -12,13 +12,14 @@ function toast(msg, type = '') {
 }
 
 function badgeStatus(s) {
+  const label = s || 'Em cotação';
   const map = {
     'Em cotação':   'badge-cotacao',
     'Ag. aprovação':'badge-aprovacao',
     'Concluído':    'badge-concluido',
     'Parado':       'badge-parado'
   };
-  return `<span class="badge ${map[s] || ''}">${s || '—'}</span>`;
+  return `<span class="badge ${map[label] || 'badge-cotacao'}">${label}</span>`;
 }
 
 function diasBadgeHtml(dias) {

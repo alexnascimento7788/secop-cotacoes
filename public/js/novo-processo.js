@@ -289,6 +289,95 @@ document.getElementById('btn-salvar').addEventListener('click', async () => {
   }
 });
 
+// ── Import Excel ──────────────────────────────────────────────────────────────
+
+async function carregarXLSX() {
+  if (window.XLSX) return window.XLSX;
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    s.onload  = () => resolve(window.XLSX);
+    s.onerror = () => reject(new Error('Falha ao carregar biblioteca Excel'));
+    document.head.appendChild(s);
+  });
+}
+
+async function importarExcel(input) {
+  const file = input.files[0];
+  input.value = '';
+  if (!file) return;
+
+  const aviso = document.getElementById('import-aviso');
+  aviso.style.display = 'none';
+
+  try {
+    const XLSX = await carregarXLSX();
+    const data = await file.arrayBuffer();
+    const wb   = XLSX.read(data, { type: 'array' });
+    const ws   = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+    // Ignora linha de cabeçalho (row 0); espera colunas: [0]=ID [1]=Produto [2]=Quantidade
+    const itens = [];
+    const idsVistos = new Set();
+
+    for (let i = 1; i < rows.length; i++) {
+      const row  = rows[i];
+      const id   = parseInt(row[0]);
+      const desc = String(row[1] || '').trim();
+      const qtd  = parseFloat(row[2]) || 0;
+
+      if (!desc) continue;
+      if (isNaN(id) || id < 1) {
+        aviso.style.display = 'block';
+        aviso.className = '';
+        aviso.style.background = '#FFEBEE';
+        aviso.style.borderColor = '#EF9A9A';
+        aviso.style.color = '#C62828';
+        aviso.textContent = `Linha ${i+1}: ID inválido ou ausente ("${row[0]}"). Verifique a planilha.`;
+        return;
+      }
+      if (idsVistos.has(id)) {
+        aviso.style.display = 'block';
+        aviso.style.background = '#FFEBEE';
+        aviso.style.borderColor = '#EF9A9A';
+        aviso.style.color = '#C62828';
+        aviso.textContent = `ID duplicado encontrado: ${id}. Cada linha deve ter um ID único.`;
+        return;
+      }
+      idsVistos.add(id);
+      itens.push({ item_num: id, descricao: desc, quantidade: qtd });
+    }
+
+    if (!itens.length) {
+      aviso.style.display = 'block';
+      aviso.style.background = '#FFF8E1';
+      aviso.style.borderColor = '#FFE082';
+      aviso.style.color = '#795548';
+      aviso.textContent = 'Nenhum item válido encontrado na planilha.';
+      return;
+    }
+
+    // Substitui itens existentes
+    document.getElementById('itens-container').innerHTML = '';
+    itemCount = 0;
+    itens.forEach(item => addItem(item));
+
+    aviso.style.display = 'block';
+    aviso.style.background = '#E8F5E9';
+    aviso.style.borderColor = '#A5D6A7';
+    aviso.style.color = '#1B5E20';
+    aviso.textContent = `✓ ${itens.length} iten${itens.length>1?'s':''} importado${itens.length>1?'s':''} de "${file.name}".`;
+
+  } catch(e) {
+    aviso.style.display = 'block';
+    aviso.style.background = '#FFEBEE';
+    aviso.style.borderColor = '#EF9A9A';
+    aviso.style.color = '#C62828';
+    aviso.textContent = 'Erro ao ler o arquivo: ' + e.message;
+  }
+}
+
 // ── Inicialização ─────────────────────────────────────────────────────────────
 
 carregarProcessoParaEdicao();

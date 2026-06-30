@@ -1,6 +1,7 @@
 const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 const dataDir = path.join(__dirname, 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
@@ -119,5 +120,49 @@ try { db.exec(`ALTER TABLE processos    ADD COLUMN mostrar_menor_preco INTEGER D
 try { db.exec(`ALTER TABLE fornecedores ADD COLUMN frete TEXT`);            } catch {}
 try { db.exec(`ALTER TABLE precos RENAME COLUMN preco_unitario TO preco_unitario_mes`); } catch {}
 try { db.exec(`ALTER TABLE precos RENAME COLUMN preco_total    TO preco_total_ano`);    } catch {}
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    username   TEXT NOT NULL UNIQUE,
+    senha_hash TEXT NOT NULL,
+    salt       TEXT NOT NULL,
+    role       TEXT NOT NULL DEFAULT 'admin',
+    ativo      INTEGER NOT NULL DEFAULT 1,
+    criado_em  DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS sessions (
+    token    TEXT PRIMARY KEY,
+    user_id  INTEGER NOT NULL,
+    expires  DATETIME NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+`);
+
+// Semeia usuário master se não existir
+try {
+  const exists = db.prepare("SELECT id FROM users WHERE username='master'").get();
+  if (!exists) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.pbkdf2Sync('hear_pgPN@2638#++', salt, 100000, 64, 'sha512').toString('hex');
+    db.prepare("INSERT INTO users (username, senha_hash, salt, role, ativo) VALUES (?,?,?,'admin',1)")
+      .run('master', hash, salt);
+  }
+} catch {}
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS logs (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id   INTEGER,
+    username  TEXT,
+    tipo      TEXT NOT NULL,
+    acao      TEXT NOT NULL,
+    descricao TEXT,
+    ip        TEXT,
+    criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
 
 module.exports = { db, gerarNumeroProcesso };
