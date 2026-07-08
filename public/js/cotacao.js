@@ -191,27 +191,27 @@ function renderFornecedoresInfo() {
   });
   html += '</tr></thead><tbody>';
 
-  campos.forEach(c => {
-    // Linha "Nome" sem dado útil para pesquisa_internet — pular se TODOS forem pesquisa_internet nessa linha
+  campos.forEach((c, ci) => {
     html += `<tr><td class="col-fixed"><strong>${c.label}</strong></td>`;
     fOrds.forEach(f => {
-      let val    = '';
-      let tdExtra = '';
+      const cls = fornCls(f.id);
       if (f.pesquisa_internet) {
-        if (c.key === 'nome') {
-          val = '';
-        } else if (c.key === 'contato') {
-          val     = `<strong style="text-transform:uppercase;font-size:12px;">Pesquisa na Internet</strong>`;
-          tdExtra = ' style="text-align:center;"';
-        } else if (c.key === 'telefone') {
-          val     = `<strong>${f.nome || '—'}</strong>`;
-          tdExtra = ' style="text-align:center;"';
+        if (ci === 0) {
+          // Nome: célula invisível para manter estrutura da tabela
+          html += `<td class="${cls}" style="padding:0;border:hidden;height:0;"></td>`;
+        } else if (ci === 1) {
+          // Contato: label "PESQUISA NA INTERNET"
+          html += `<td class="${cls}" style="text-align:center;font-weight:700;text-transform:uppercase;font-size:12px;">Pesquisa na Internet</td>`;
+        } else if (ci === 2) {
+          // Telefone: nome da loja com rowspan cobrindo as demais linhas (Telefone→Frete)
+          const span = campos.length - ci;
+          html += `<td class="${cls}" rowspan="${span}" style="text-align:center;vertical-align:middle;font-weight:700;">${f.nome || '—'}</td>`;
         }
+        // ci >= 3: coberto pelo rowspan acima — sem <td>
       } else {
-        val = f[c.key] || '—';
-        if (c.fmt) val = c.fmt(val) || '—';
+        const val = c.fmt ? (c.fmt(f[c.key]) || '—') : (f[c.key] || '—');
+        html += `<td class="${cls}">${val}</td>`;
       }
-      html += `<td class="${fornCls(f.id)}"${tdExtra}>${val}</td>`;
     });
     html += '</tr>';
   });
