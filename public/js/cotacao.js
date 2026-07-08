@@ -30,6 +30,42 @@ let itens             = [];
 let precos            = {}; // { `${item_id}_${forn_id}`: { preco_unitario_mes, preco_total_ano } }
 let vencedorId        = null;
 let mostrarMenorPreco = true;
+let totaisForn        = {}; // { fornId: totalValue }
+let rankMap           = {}; // { fornId: 0-based rank (menor valor = 0) }
+
+// ── Labels de coluna (lidas do localStorage — editadas em fornecedor.html) ────
+
+function getColLabel(key) {
+  return localStorage.getItem(`secop_col_${key}_${processoId}`) || (key === 'unit' ? 'R$ UNIT/MÊS' : 'R$ TOTAL/ANO');
+}
+
+// ── Totais e ranking por valor crescente ──────────────────────────────────────
+
+function computarTotais() {
+  totaisForn = {};
+  fornecedores.forEach(f => { totaisForn[f.id] = 0; });
+  itens.forEach(item => {
+    fornecedores.forEach(f => {
+      const p   = precos[`${item.id}_${f.id}`] || {};
+      const u   = p.preco_unitario_mes;
+      const tot = p.preco_total_ano ?? (u != null ? u * item.quantidade : null);
+      if (tot != null) totaisForn[f.id] += parseFloat(tot) || 0;
+    });
+  });
+}
+
+function computarRanks() {
+  const sorted = [...fornecedores]
+    .map(f => ({ id: f.id, total: totaisForn[f.id] || 0 }))
+    .sort((a, b) => {
+      if (a.total === 0 && b.total === 0) return 0;
+      if (a.total === 0) return 1;
+      if (b.total === 0) return -1;
+      return a.total - b.total;
+    });
+  rankMap = {};
+  sorted.forEach((item, rank) => { rankMap[item.id] = rank; });
+}
 
 // ── Carregar dados ────────────────────────────────────────────────────────────
 
@@ -65,6 +101,8 @@ async function carregar() {
       };
     });
 
+    computarTotais();
+    computarRanks();
     renderCabecalho();
     renderFornecedoresInfo();
     renderTabelaPrecos();
@@ -137,9 +175,10 @@ function renderFornecedoresInfo() {
 
   let html = `<thead><tr>
     <th class="col-fixed" style="min-width:130px;">—</th>`;
-  fornecedores.forEach((f, i) => {
-    const cls = fornCls(f.id);
-    html += `<th class="${cls}">${ordinals[i] || (i+1)+'º'} FORNECEDOR</th>`;
+  fornecedores.forEach(f => {
+    const cls  = fornCls(f.id);
+    const rank = rankMap[f.id] ?? fornecedores.indexOf(f);
+    html += `<th class="${cls}">${ordinals[rank] || (rank+1)+'º'} FORNECEDOR</th>`;
   });
   html += '</tr></thead><tbody>';
 
@@ -188,9 +227,10 @@ function renderTabelaPrecos() {
     <th class="col-fixed" rowspan="2">Qtde</th>
     <th class="col-fixed" rowspan="2">Unid.</th>
     <th class="col-fixed" rowspan="2">Descrição</th>`;
-  fornecedores.forEach((f, i) => {
-    const cls = fornCls(f.id);
-    thRow += `<th class="${cls}" colspan="2">${ordinals[i] || (i+1)+'º'} — ${f.nome || 'Fornecedor'}</th>`;
+  fornecedores.forEach(f => {
+    const cls  = fornCls(f.id);
+    const rank = rankMap[f.id] ?? fornecedores.indexOf(f);
+    thRow += `<th class="${cls}" colspan="2">${ordinals[rank] || (rank+1)+'º'} — ${f.nome || 'Fornecedor'}</th>`;
   });
   thRow += '</tr>';
 
@@ -198,26 +238,14 @@ function renderTabelaPrecos() {
   let thSubRow = '<tr>';
   fornecedores.forEach(f => {
     const cls = fornCls(f.id);
-    thSubRow += `<th class="${cls}">R$ UNIT/MÊS</th><th class="${cls}">R$ TOTAL/ANO</th>`;
+    thSubRow += `<th class="${cls}">${getColLabel('unit')}</th><th class="${cls}">${getColLabel('total')}</th>`;
   });
   thSubRow += '</tr>';
   thead.innerHTML = thRow + thSubRow;
 
-  // ── Pré-calcula totais por fornecedor (para encontrar o vencedor geral)
-  const totaisForn = {};
-  fornecedores.forEach((_, i) => { totaisForn[i] = 0; });
-  itens.forEach(item => {
-    fornecedores.forEach((f, i) => {
-      const p   = precos[`${item.id}_${f.id}`] || {};
-      const u   = p.preco_unitario_mes;
-      const tot = p.preco_total_ano ?? (u != null ? u * item.quantidade : null);
-      if (tot != null) totaisForn[i] += parseFloat(tot) || 0;
-    });
-  });
-
-  // ── Vencedor geral: único fornecedor com menor VALOR TOTAL (destaque em todas as linhas)
-  const withTot   = fornecedores.map((_, i) => ({ i, v: totaisForn[i] })).filter(x => x.v > 0);
-  const minTotIdx = mostrarMenorPreco && withTot.length >= 2 ? withTot.reduce((a, b) => b.v < a.v ? b : a).i : -1;
+  // ── Menor preço (usa totaisForn de módulo, já computado em carregar)
+  const withTot   = fornecedores.map(f => ({ fId: f.id, v: totaisForn[f.id] || 0 })).filter(x => x.v > 0);
+  const minFornId = mostrarMenorPreco && withTot.length >= 2 ? withTot.reduce((a, b) => b.v < a.v ? b : a).fId : -1;
 
   // ── Linhas dos itens
   let rows = '';
@@ -228,14 +256,13 @@ function renderTabelaPrecos() {
       <td class="col-fixed">${item.unidade || ''}</td>
       <td class="col-fixed">${item.descricao}</td>`;
 
-    fornecedores.forEach((f, i) => {
+    fornecedores.forEach(f => {
       const key   = `${item.id}_${f.id}`;
       const p     = precos[key] || {};
       const cls   = fornCls(f.id);
       const unit  = p.preco_unitario_mes;
       const total = p.preco_total_ano ?? (unit != null ? unit * item.quantidade : null);
-
-      const isMin = i === minTotIdx;
+      const isMin = f.id === minFornId;
 
       row += `
         <td class="${cls}${isMin ? ' col-min' : ''}">${unit != null ? fmtMoeda(unit) : '—'}</td>
@@ -245,13 +272,14 @@ function renderTabelaPrecos() {
     rows += row;
   });
 
-  // ── Footer: VALOR TOTAL (reutiliza minTotIdx já calculado)
+  // ── Footer: VALOR TOTAL
 
   let footer = `<tr class="row-section-header row-sec-totals"><td colspan="4">VALOR TOTAL</td>`;
-  fornecedores.forEach((f, i) => {
+  fornecedores.forEach(f => {
     const cls   = fornCls(f.id);
-    const isMin = i === minTotIdx;
-    footer += `<td class="${cls}${isMin ? ' col-min' : ''}" colspan="2">${totaisForn[i] > 0 ? fmtMoeda(totaisForn[i]) : '—'}</td>`;
+    const isMin = f.id === minFornId;
+    const v     = totaisForn[f.id] || 0;
+    footer += `<td class="${cls}${isMin ? ' col-min' : ''}" colspan="2">${v > 0 ? fmtMoeda(v) : '—'}</td>`;
   });
   footer += '</tr>';
 
@@ -290,8 +318,8 @@ function renderTabelaPrecos() {
   };
   const moedaRowFb = (label, key) => {
     let r = `<tr class="row-rodape"><td class="col-fixed" colspan="4">${label}</td>`;
-    fornecedores.forEach((f, i) => {
-      const v = f[key] ?? (totaisForn[i] > 0 ? totaisForn[i] : null);
+    fornecedores.forEach(f => {
+      const v = f[key] ?? (totaisForn[f.id] > 0 ? totaisForn[f.id] : null);
       r += `<td class="${fornCls(f.id)}" colspan="2">${v != null ? fmtMoeda(v) : '—'}</td>`;
     });
     return r + '</tr>';
@@ -342,19 +370,9 @@ function atualizarPrintBlock() {
   const totalCols = 4 + nForn * 2;
   const ordinals  = ['1º','2º','3º','4º','5º','6º','7º','8º'];
 
-  // Pré-calcula totais por fornecedor
-  const totForn = new Array(nForn).fill(0);
-  itens.forEach(item => {
-    fornecedores.forEach((f, i) => {
-      const p   = precos[`${item.id}_${f.id}`] || {};
-      const tot = p.preco_total_ano ?? (p.preco_unitario_mes != null ? p.preco_unitario_mes * item.quantidade : null);
-      if (tot != null) totForn[i] += parseFloat(tot) || 0;
-    });
-  });
-
-  // Vencedor geral: único fornecedor com menor VALOR TOTAL (destaque em toda a tabela)
-  const withTotP   = totForn.map((v, i) => ({ v, i })).filter(x => x.v > 0);
-  const minTotIdxP = mostrarMenorPreco && withTotP.length >= 2 ? withTotP.reduce((a, b) => b.v < a.v ? b : a).i : -1;
+  // Menor preço (reutiliza totaisForn de módulo)
+  const withTotP  = fornecedores.map(f => ({ fId: f.id, v: totaisForn[f.id] || 0 })).filter(x => x.v > 0);
+  const minFornId = mostrarMenorPreco && withTotP.length >= 2 ? withTotP.reduce((a, b) => b.v < a.v ? b : a).fId : -1;
 
   const vc = (fId) => isVenc(fId);
   const cellCls = (fId, isMin) => {
@@ -395,8 +413,9 @@ function atualizarPrintBlock() {
     h += `<tr><td class="prt-lbl" colspan="2">${label}:</td><td class="prt-val" colspan="2">${val}</td>`;
 
     if (ri === 0) {
-      fornecedores.forEach((f, i) => {
-        h += `<td class="prt-forn-hdr${vc(f.id) ? ' prt-venc-hdr' : ''}" colspan="2">${ordinals[i] || (i+1)+'º'} FORNECEDOR</td>`;
+      fornecedores.forEach(f => {
+        const rank = rankMap[f.id] ?? fornecedores.indexOf(f);
+        h += `<td class="prt-forn-hdr${vc(f.id) ? ' prt-venc-hdr' : ''}" colspan="2">${ordinals[rank] || (rank+1)+'º'} FORNECEDOR</td>`;
       });
     } else if (rf) {
       fornecedores.forEach(f => {
@@ -415,34 +434,36 @@ function atualizarPrintBlock() {
   // ── Sub-cabeçalho dos itens
   h += `<tr class="prt-item-hdr"><th>Item</th><th>Qtde</th><th>Unid.</th><th>DESCRIÇÃO</th>`;
   fornecedores.forEach(f => {
-    h += `<th${cellCls(f.id, false)}>R$ UNIT</th><th${cellCls(f.id, false)}>R$ TOTAL</th>`;
+    h += `<th${cellCls(f.id, false)}>${getColLabel('unit')}</th><th${cellCls(f.id, false)}>${getColLabel('total')}</th>`;
   });
   h += `</tr>`;
 
   // ── Linhas dos itens
   itens.forEach(item => {
     h += `<tr><td class="prt-left">${item.item_num}</td><td class="prt-left">${item.quantidade}</td><td class="prt-left">${item.unidade || ''}</td><td class="prt-left">${item.descricao}</td>`;
-    fornecedores.forEach((f, i) => {
+    fornecedores.forEach(f => {
       const p      = precos[`${item.id}_${f.id}`] || {};
       const u      = p.preco_unitario_mes;
       const tot    = p.preco_total_ano ?? (u != null ? u * item.quantidade : null);
-      const isMin = i === minTotIdxP;
+      const isMin  = f.id === minFornId;
       h += `<td${cellCls(f.id, isMin)}>${u != null ? fmtMoeda(u) : '—'}</td>`;
       h += `<td${cellCls(f.id, isMin)}>${tot != null ? fmtMoeda(tot) : '—'}</td>`;
     });
     h += `</tr>`;
   });
 
-  // ── VALOR TOTAL e RESUMO TOTAL GERAL (reutiliza minTotIdxP já calculado)
+  // ── VALOR TOTAL e RESUMO TOTAL GERAL
   h += `<tr class="prt-sec"><td colspan="4">VALOR TOTAL</td>`;
-  fornecedores.forEach((f, i) => {
-    h += `<td${cellCls(f.id, i === minTotIdxP)} colspan="2" style="font-weight:700">${totForn[i] > 0 ? fmtMoeda(totForn[i]) : '—'}</td>`;
+  fornecedores.forEach(f => {
+    const v = totaisForn[f.id] || 0;
+    h += `<td${cellCls(f.id, f.id === minFornId)} colspan="2" style="font-weight:700">${v > 0 ? fmtMoeda(v) : '—'}</td>`;
   });
   h += `</tr>`;
 
   h += `<tr class="prt-sec"><td colspan="4">RESUMO TOTAL GERAL</td>`;
-  fornecedores.forEach((f, i) => {
-    h += `<td${cellCls(f.id, i === minTotIdxP)} colspan="2" style="font-weight:700">${totForn[i] > 0 ? fmtMoeda(totForn[i]) : '—'}</td>`;
+  fornecedores.forEach(f => {
+    const v = totaisForn[f.id] || 0;
+    h += `<td${cellCls(f.id, f.id === minFornId)} colspan="2" style="font-weight:700">${v > 0 ? fmtMoeda(v) : '—'}</td>`;
   });
   h += `</tr>`;
 
@@ -481,8 +502,8 @@ function atualizarPrintBlock() {
 
   const mRow = (label, key) => {
     let r = `<tr><td class="prt-lbl" colspan="4">${label}</td>`;
-    fornecedores.forEach((f, i) => {
-      const v = f[key] ?? (totForn[i] > 0 ? totForn[i] : null);
+    fornecedores.forEach(f => {
+      const v = f[key] ?? (totaisForn[f.id] > 0 ? totaisForn[f.id] : null);
       r += `<td${cellCls(f.id, false)} colspan="2">${v != null ? fmtMoeda(v) : '—'}</td>`;
     });
     return r + '</tr>';

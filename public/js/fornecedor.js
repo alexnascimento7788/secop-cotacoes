@@ -28,6 +28,29 @@ function toast(msg, type = '') {
   setTimeout(() => { el.className = ''; }, 3500);
 }
 
+// ── Labels de coluna (editáveis, salvas por processo no localStorage) ─────────
+
+const COL_DEFAULTS = { unit: 'R$ UNIT/MÊS', total: 'R$ TOTAL/ANO' };
+
+function getColLabel(key) {
+  return localStorage.getItem(`secop_col_${key}_${processoId}`) || COL_DEFAULTS[key];
+}
+
+function aplicarCabecalhosColuna() {
+  const u = document.getElementById('lbl-col-unit');
+  const t = document.getElementById('lbl-col-total');
+  if (u) u.textContent = getColLabel('unit');
+  if (t) t.textContent = getColLabel('total');
+}
+
+function editarCabecalhoColuna(key) {
+  const novo = prompt('Nome da coluna:', getColLabel(key));
+  if (novo !== null && novo.trim()) {
+    localStorage.setItem(`secop_col_${key}_${processoId}`, novo.trim());
+    aplicarCabecalhosColuna();
+  }
+}
+
 // ── Estado global ─────────────────────────────────────────────────────────────
 
 let processo      = null;
@@ -60,6 +83,7 @@ async function carregar() {
     renderFornecedores();
     renderTabelaPrecos({});
     atualizarBtnQuadro();
+    aplicarCabecalhosColuna();
 
     document.getElementById('loader').style.display  = 'none';
     document.getElementById('content').style.display = 'block';
