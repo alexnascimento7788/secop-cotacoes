@@ -570,6 +570,7 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 .preco-table { min-width: 600px; }
 
 .preco-table thead th { background: var(--surface-2); }
+.preco-table tbody td { border-bottom: 1px solid var(--cinza-b); }
 
 .preco-table td input {
   width: 100%;

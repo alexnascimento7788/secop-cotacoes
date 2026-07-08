@@ -201,7 +201,7 @@ function renderFornecedoresInfo() {
         } else if (c.key === 'telefone') {
           val = `<strong>${f.nome || '—'}</strong>`;
         } else {
-          val = '—';
+          val = '';
         }
       } else {
         val = f[c.key] || '—';
@@ -434,7 +434,7 @@ function atualizarPrintBlock() {
           } else if (rf.key === 'telefone') {
             h += `<td class="${cls}" colspan="2" style="font-weight:700;">${f.nome || '—'}</td>`;
           } else {
-            h += `<td class="${cls}" colspan="2">—</td>`;
+            h += `<td class="${cls}" colspan="2"></td>`;
           }
         } else {
           let fv = f[rf.key] || '—';
