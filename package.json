@@ -1,6 +1,6 @@
 {
   "name": "secop-cotacoes",
-  "version": "3.1.6",
+  "version": "3.1.7",
   "description": "Sistema de Cotações - SECOP / CEASAMINAS",
   "main": "server.js",
   "scripts": {

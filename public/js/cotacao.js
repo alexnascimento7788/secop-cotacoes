@@ -426,13 +426,11 @@ function atualizarPrintBlock() {
       fOrds.forEach(f => {
         const cls = `prt-forn-info${vc(f.id) ? ' prt-venc' : ''}`;
         if (f.pesquisa_internet) {
-          if (rf.key === 'contato') {
-            h += `<td class="${cls}" colspan="2" style="font-weight:700;text-transform:uppercase;text-align:center;">Pesquisa na Internet</td>`;
-          } else if (rf.key === 'telefone') {
-            h += `<td class="${cls}" colspan="2" style="font-weight:700;text-align:center;">${f.nome || '—'}</td>`;
-          } else {
-            h += `<td class="${cls}" colspan="2"></td>`;
+          if (rf.key === 'nome') {
+            const totalInfoRows = rightFields.filter(r => r != null).length;
+            h += `<td class="${cls}" colspan="2" rowspan="${totalInfoRows}" style="text-align:center;vertical-align:middle;"><strong style="display:block;text-transform:uppercase;font-size:8px;letter-spacing:.4px;">Pesquisa na Internet</strong><strong style="display:block;margin-top:2px;">${f.nome || '—'}</strong></td>`;
           }
+          // demais linhas cobertas pelo rowspan — sem <td>
         } else {
           let fv = f[rf.key] || '—';
           if (rf.fmt) fv = rf.fmt(fv) || '—';
