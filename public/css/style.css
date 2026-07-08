@@ -781,6 +781,8 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 
   body { background: #fff; font-size: 11px; }
 
+  .layout { min-height: 0 !important; }
+
   .main { margin-left: 0 !important; padding: 1mm !important; }
 
   .print-only { display: block !important; margin-bottom: 4px; }
