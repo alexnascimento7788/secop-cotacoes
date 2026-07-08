@@ -197,7 +197,7 @@ app.get('/api/fornecedores/:id', (req, res) => {
 app.post('/api/processos/:id/fornecedores', (req, res) => {
   const { nome, contato, telefone, celular, email, data_proposta,
           prazo_pagamento, prazo_entrega, prazo_garantia, frete,
-          proposta_inicial, proposta_final, observacoes } = req.body;
+          proposta_inicial, proposta_final, observacoes, pesquisa_internet } = req.body;
 
   const countRow = db.prepare(`SELECT COUNT(*) AS c FROM fornecedores WHERE processo_id = ?`).get(req.params.id);
   const ordem = (countRow.c || 0) + 1;
@@ -205,11 +205,11 @@ app.post('/api/processos/:id/fornecedores', (req, res) => {
   const info = db.prepare(`
     INSERT INTO fornecedores (processo_id, ordem, nome, contato, telefone, celular, email,
       data_proposta, prazo_pagamento, prazo_entrega, prazo_garantia, frete,
-      proposta_inicial, proposta_final, observacoes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      proposta_inicial, proposta_final, observacoes, pesquisa_internet)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(req.params.id, ordem, n(nome), n(contato), n(telefone), n(celular), n(email),
          n(data_proposta), n(prazo_pagamento), n(prazo_entrega), n(prazo_garantia), n(frete),
-         n(proposta_inicial), n(proposta_final), n(observacoes));
+         n(proposta_inicial), n(proposta_final), n(observacoes), pesquisa_internet ? 1 : 0);
 
   const proc = db.prepare(`SELECT numero_processo FROM processos WHERE id = ?`).get(req.params.id);
   registrarLog(req, 'FORNECEDOR', 'CRIOU', `Adicionou fornecedor "${nome}" ao processo ${proc?.numero_processo || req.params.id}`);
@@ -220,15 +220,16 @@ app.post('/api/processos/:id/fornecedores', (req, res) => {
 app.put('/api/fornecedores/:id', (req, res) => {
   const { nome, contato, telefone, celular, email, data_proposta,
           prazo_pagamento, prazo_entrega, prazo_garantia, frete,
-          proposta_inicial, proposta_final, observacoes } = req.body;
+          proposta_inicial, proposta_final, observacoes, pesquisa_internet } = req.body;
 
   db.prepare(`
     UPDATE fornecedores SET nome=?, contato=?, telefone=?, celular=?, email=?,
       data_proposta=?, prazo_pagamento=?, prazo_entrega=?, prazo_garantia=?, frete=?,
-      proposta_inicial=?, proposta_final=?, observacoes=?
+      proposta_inicial=?, proposta_final=?, observacoes=?, pesquisa_internet=?
     WHERE id=?
   `).run(n(nome), n(contato), n(telefone), n(celular), n(email), n(data_proposta), n(prazo_pagamento),
-         n(prazo_entrega), n(prazo_garantia), n(frete), n(proposta_inicial), n(proposta_final), n(observacoes), req.params.id);
+         n(prazo_entrega), n(prazo_garantia), n(frete), n(proposta_inicial), n(proposta_final), n(observacoes),
+         pesquisa_internet ? 1 : 0, req.params.id);
 
   res.json({ ok: true });
 });

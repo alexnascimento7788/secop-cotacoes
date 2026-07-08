@@ -53,9 +53,18 @@ function computarTotais() {
   });
 }
 
-// Retorna fornecedores ordenados por valor total crescente (sem preço ficam no final)
+// Fornecedor tem preço em todos os itens?
+function fornecedorCompleto(fId) {
+  if (!itens.length) return true;
+  return itens.every(item => {
+    const p = precos[`${item.id}_${fId}`] || {};
+    return p.preco_total_ano != null || p.preco_unitario_mes != null;
+  });
+}
+
+// Completos ordenados por valor crescente → incompletos no final
 function fornecedoresOrdenados() {
-  return [...fornecedores].sort((a, b) => {
+  const sortByTotal = arr => [...arr].sort((a, b) => {
     const ta = totaisForn[a.id] || 0;
     const tb = totaisForn[b.id] || 0;
     if (ta === 0 && tb === 0) return 0;
@@ -63,6 +72,9 @@ function fornecedoresOrdenados() {
     if (tb === 0) return -1;
     return ta - tb;
   });
+  const completos   = fornecedores.filter(f =>  fornecedorCompleto(f.id));
+  const incompletos = fornecedores.filter(f => !fornecedorCompleto(f.id));
+  return [...sortByTotal(completos), ...incompletos];
 }
 
 // ── Carregar dados ────────────────────────────────────────────────────────────
@@ -173,15 +185,22 @@ function renderFornecedoresInfo() {
   let html = `<thead><tr>
     <th class="col-fixed" style="min-width:130px;">—</th>`;
   fOrds.forEach((f, i) => {
-    html += `<th class="${fornCls(f.id)}">${ordinals[i] || (i+1)+'º'} FORNECEDOR</th>`;
+    const incompleto = !fornecedorCompleto(f.id);
+    const badge = incompleto ? ' <span style="color:#e53e3e;font-size:10px;font-weight:400;display:block;">⚠ Cotação Incompleta</span>' : '';
+    html += `<th class="${fornCls(f.id)}">${ordinals[i] || (i+1)+'º'} FORNECEDOR${badge}</th>`;
   });
   html += '</tr></thead><tbody>';
 
   campos.forEach(c => {
     html += `<tr><td class="col-fixed"><strong>${c.label}</strong></td>`;
     fOrds.forEach(f => {
-      let val = f[c.key] || '—';
-      if (c.fmt) val = c.fmt(val) || '—';
+      let val;
+      if (f.pesquisa_internet && c.key !== 'nome') {
+        val = '';
+      } else {
+        val = f[c.key] || '—';
+        if (c.fmt) val = c.fmt(val) || '—';
+      }
       html += `<td class="${fornCls(f.id)}">${val}</td>`;
     });
     html += '</tr>';
@@ -222,7 +241,9 @@ function renderTabelaPrecos() {
     <th class="col-fixed" rowspan="2">Unid.</th>
     <th class="col-fixed" rowspan="2">Descrição</th>`;
   fOrds.forEach((f, i) => {
-    thRow += `<th class="${fornCls(f.id)}" colspan="2">${ordinals[i] || (i+1)+'º'} — ${f.nome || 'Fornecedor'}</th>`;
+    const incompleto = !fornecedorCompleto(f.id);
+    const badge = incompleto ? ' <span style="color:#e53e3e;font-size:10px;font-weight:400;">⚠ Incompleta</span>' : '';
+    thRow += `<th class="${fornCls(f.id)}" colspan="2">${ordinals[i] || (i+1)+'º'} — ${f.nome || 'Fornecedor'}${badge}</th>`;
   });
   thRow += '</tr>';
 
@@ -394,13 +415,19 @@ function atualizarPrintBlock() {
 
     if (ri === 0) {
       fOrds.forEach((f, i) => {
-        h += `<td class="prt-forn-hdr${vc(f.id) ? ' prt-venc-hdr' : ''}" colspan="2">${ordinals[i] || (i+1)+'º'} FORNECEDOR</td>`;
+        const incompleto = !fornecedorCompleto(f.id);
+        const badge = incompleto ? ' ⚠ Incompleta' : '';
+        h += `<td class="prt-forn-hdr${vc(f.id) ? ' prt-venc-hdr' : ''}" colspan="2">${ordinals[i] || (i+1)+'º'} FORNECEDOR${badge}</td>`;
       });
     } else if (rf) {
       fOrds.forEach(f => {
-        let fv = f[rf.key] || '—';
-        if (rf.fmt) fv = rf.fmt(fv) || '—';
-        h += `<td class="prt-forn-info${vc(f.id) ? ' prt-venc' : ''}" colspan="2">${rf.label}: ${fv}</td>`;
+        if (f.pesquisa_internet && rf.key !== 'nome') {
+          h += `<td class="prt-forn-info${vc(f.id) ? ' prt-venc' : ''}" colspan="2"></td>`;
+        } else {
+          let fv = f[rf.key] || '—';
+          if (rf.fmt) fv = rf.fmt(fv) || '—';
+          h += `<td class="prt-forn-info${vc(f.id) ? ' prt-venc' : ''}" colspan="2">${rf.label}: ${fv}</td>`;
+        }
       });
     } else {
       fOrds.forEach(f => {
@@ -435,7 +462,9 @@ function atualizarPrintBlock() {
   h += `<tr class="prt-sec"><td colspan="4">VALOR TOTAL</td>`;
   fOrds.forEach(f => {
     const v = totaisForn[f.id] || 0;
-    h += `<td${cellCls(f.id, f.id === minFornId)} colspan="2" style="font-weight:700">${v > 0 ? fmtMoeda(v) : '—'}</td>`;
+    const incompleto = !fornecedorCompleto(f.id);
+    const display = v > 0 ? fmtMoeda(v) + (incompleto ? ' *' : '') : '—';
+    h += `<td${cellCls(f.id, f.id === minFornId)} colspan="2" style="font-weight:700">${display}</td>`;
   });
   h += `</tr>`;
 
@@ -443,7 +472,9 @@ function atualizarPrintBlock() {
   h += `<tr class="prt-sec"><td colspan="4">RESUMO TOTAL GERAL</td>`;
   fOrds.forEach(f => {
     const v = totaisForn[f.id] || 0;
-    h += `<td${cellCls(f.id, f.id === minFornId)} colspan="2" style="font-weight:700">${v > 0 ? fmtMoeda(v) : '—'}</td>`;
+    const incompleto = !fornecedorCompleto(f.id);
+    const display = v > 0 ? fmtMoeda(v) + (incompleto ? ' *' : '') : '—';
+    h += `<td${cellCls(f.id, f.id === minFornId)} colspan="2" style="font-weight:700">${display}</td>`;
   });
   h += `</tr>`;
 

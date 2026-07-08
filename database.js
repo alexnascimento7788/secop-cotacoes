@@ -118,6 +118,7 @@ try { db.exec(`ALTER TABLE processos    ADD COLUMN data_abertura DATE`);    } ca
 try { db.exec(`ALTER TABLE processos    ADD COLUMN observacoes2 TEXT`);     } catch {}
 try { db.exec(`ALTER TABLE processos    ADD COLUMN mostrar_menor_preco INTEGER DEFAULT 1`); } catch {}
 try { db.exec(`ALTER TABLE fornecedores ADD COLUMN frete TEXT`);            } catch {}
+try { db.exec(`ALTER TABLE fornecedores ADD COLUMN pesquisa_internet INTEGER DEFAULT 0`); } catch {}
 try { db.exec(`ALTER TABLE precos RENAME COLUMN preco_unitario TO preco_unitario_mes`); } catch {}
 try { db.exec(`ALTER TABLE precos RENAME COLUMN preco_total    TO preco_total_ano`);    } catch {}
 

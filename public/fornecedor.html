@@ -91,10 +91,17 @@
         </div>
         <div style="padding:20px 24px;">
 
-          <div class="form-row cols-1" style="margin-bottom:12px;">
+          <div class="form-row" style="grid-template-columns:1fr auto;gap:12px;margin-bottom:12px;align-items:end;">
             <div class="form-group">
               <label>Nome / Empresa</label>
               <input type="text" id="f-nome" placeholder="Razão social ou nome fantasia" />
+            </div>
+            <div class="form-group">
+              <label style="white-space:nowrap;">Tipo</label>
+              <label style="display:flex;align-items:center;gap:7px;padding:8px 12px;border:1.5px solid var(--cinza-b);border-radius:6px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;height:38px;background:var(--surface);">
+                <input type="checkbox" id="f-pesquisa-internet" style="cursor:pointer;" />
+                Pesquisa Internet
+              </label>
             </div>
           </div>
 

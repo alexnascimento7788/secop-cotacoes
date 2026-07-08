@@ -175,6 +175,8 @@ async function editarFornecedor(id) {
     });
     renderTabelaPrecos(precosMap);
 
+    document.getElementById('f-pesquisa-internet').checked = !!f.pesquisa_internet;
+
     document.getElementById('forn-form-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch {
     toast('Erro ao carregar fornecedor.', 'error');
@@ -207,6 +209,7 @@ function limparFormulario() {
   document.getElementById('f-data-proposta').value = '';
   document.getElementById('f-observacoes').value  = '';
   document.querySelectorAll('input[name="f-frete"]').forEach(r => { r.checked = false; });
+  document.getElementById('f-pesquisa-internet').checked = false;
   renderTabelaPrecos({});
 }
 
@@ -298,9 +301,10 @@ async function salvarFornecedorAtual() {
     prazo_entrega:    document.getElementById('f-prazo-ent').value.trim(),
     prazo_pagamento:  document.getElementById('f-prazo-pag').value.trim(),
     prazo_garantia:   document.getElementById('f-prazo-gar').value.trim(),
-    observacoes:      document.getElementById('f-observacoes').value.trim() || null,
-    proposta_inicial: parseFloat(document.getElementById('f-prop-ini').value) || null,
-    proposta_final:   parseFloat(document.getElementById('f-prop-fin').value) || null,
+    observacoes:        document.getElementById('f-observacoes').value.trim() || null,
+    proposta_inicial:   parseFloat(document.getElementById('f-prop-ini').value) || null,
+    proposta_final:     parseFloat(document.getElementById('f-prop-fin').value) || null,
+    pesquisa_internet:  document.getElementById('f-pesquisa-internet').checked ? 1 : 0,
   };
 
   if (!payload.nome) throw new Error('Nome obrigatório');
