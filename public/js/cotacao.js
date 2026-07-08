@@ -197,17 +197,10 @@ function renderFornecedoresInfo() {
       const cls = fornCls(f.id);
       if (f.pesquisa_internet) {
         if (ci === 0) {
-          // Nome: célula invisível para manter estrutura da tabela
-          html += `<td class="${cls}" style="padding:0;border:hidden;height:0;"></td>`;
-        } else if (ci === 1) {
-          // Contato: label "PESQUISA NA INTERNET"
-          html += `<td class="${cls}" style="text-align:center;font-weight:700;text-transform:uppercase;font-size:12px;">Pesquisa na Internet</td>`;
-        } else if (ci === 2) {
-          // Telefone: nome da loja com rowspan cobrindo as demais linhas (Telefone→Frete)
-          const span = campos.length - ci;
-          html += `<td class="${cls}" rowspan="${span}" style="text-align:center;vertical-align:middle;font-weight:700;">${f.nome || '—'}</td>`;
+          // Uma célula cobrindo TODAS as linhas — textos juntos e centralizados
+          html += `<td class="${cls}" rowspan="${campos.length}" style="text-align:center;vertical-align:middle;line-height:1.8;"><strong style="display:block;text-transform:uppercase;font-size:12px;letter-spacing:.4px;">Pesquisa na Internet</strong><strong style="display:block;margin-top:4px;">${f.nome || '—'}</strong></td>`;
         }
-        // ci >= 3: coberto pelo rowspan acima — sem <td>
+        // ci > 0: coberto pelo rowspan — sem <td>
       } else {
         const val = c.fmt ? (c.fmt(f[c.key]) || '—') : (f[c.key] || '—');
         html += `<td class="${cls}">${val}</td>`;
