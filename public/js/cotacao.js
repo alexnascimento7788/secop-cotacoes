@@ -192,22 +192,26 @@ function renderFornecedoresInfo() {
   html += '</tr></thead><tbody>';
 
   campos.forEach(c => {
+    // Linha "Nome" sem dado útil para pesquisa_internet — pular se TODOS forem pesquisa_internet nessa linha
     html += `<tr><td class="col-fixed"><strong>${c.label}</strong></td>`;
     fOrds.forEach(f => {
-      let val;
+      let val    = '';
+      let tdExtra = '';
       if (f.pesquisa_internet) {
-        if (c.key === 'contato') {
-          val = `<strong style="text-transform:uppercase;font-size:12px;">Pesquisa na Internet</strong>`;
-        } else if (c.key === 'telefone') {
-          val = `<strong>${f.nome || '—'}</strong>`;
-        } else {
+        if (c.key === 'nome') {
           val = '';
+        } else if (c.key === 'contato') {
+          val     = `<strong style="text-transform:uppercase;font-size:12px;">Pesquisa na Internet</strong>`;
+          tdExtra = ' style="text-align:center;"';
+        } else if (c.key === 'telefone') {
+          val     = `<strong>${f.nome || '—'}</strong>`;
+          tdExtra = ' style="text-align:center;"';
         }
       } else {
         val = f[c.key] || '—';
         if (c.fmt) val = c.fmt(val) || '—';
       }
-      html += `<td class="${fornCls(f.id)}">${val}</td>`;
+      html += `<td class="${fornCls(f.id)}"${tdExtra}>${val}</td>`;
     });
     html += '</tr>';
   });
@@ -430,9 +434,9 @@ function atualizarPrintBlock() {
         const cls = `prt-forn-info${vc(f.id) ? ' prt-venc' : ''}`;
         if (f.pesquisa_internet) {
           if (rf.key === 'contato') {
-            h += `<td class="${cls}" colspan="2" style="font-weight:700;text-transform:uppercase;">Pesquisa na Internet</td>`;
+            h += `<td class="${cls}" colspan="2" style="font-weight:700;text-transform:uppercase;text-align:center;">Pesquisa na Internet</td>`;
           } else if (rf.key === 'telefone') {
-            h += `<td class="${cls}" colspan="2" style="font-weight:700;">${f.nome || '—'}</td>`;
+            h += `<td class="${cls}" colspan="2" style="font-weight:700;text-align:center;">${f.nome || '—'}</td>`;
           } else {
             h += `<td class="${cls}" colspan="2"></td>`;
           }
