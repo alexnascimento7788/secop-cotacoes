@@ -195,10 +195,14 @@ function renderFornecedoresInfo() {
     html += `<tr><td class="col-fixed"><strong>${c.label}</strong></td>`;
     fOrds.forEach(f => {
       let val;
-      if (f.pesquisa_internet && c.key === 'nome') {
-        val = `<span style="display:block;font-size:10px;color:var(--text-subtle);text-align:center;margin-bottom:3px;font-style:italic;">Pesquisa na Internet</span>${f.nome || '—'}`;
-      } else if (f.pesquisa_internet && c.key !== 'nome') {
-        val = '';
+      if (f.pesquisa_internet) {
+        if (c.key === 'contato') {
+          val = `<strong style="text-transform:uppercase;font-size:12px;">Pesquisa na Internet</strong>`;
+        } else if (c.key === 'telefone') {
+          val = `<strong>${f.nome || '—'}</strong>`;
+        } else {
+          val = '';
+        }
       } else {
         val = f[c.key] || '—';
         if (c.fmt) val = c.fmt(val) || '—';
@@ -423,14 +427,19 @@ function atualizarPrintBlock() {
       });
     } else if (rf) {
       fOrds.forEach(f => {
-        if (f.pesquisa_internet && rf.key === 'nome') {
-          h += `<td class="prt-forn-info${vc(f.id) ? ' prt-venc' : ''}" colspan="2" style="text-align:center;">Pesquisa Internet — ${f.nome || '—'}</td>`;
-        } else if (f.pesquisa_internet && rf.key !== 'nome') {
-          h += `<td class="prt-forn-info${vc(f.id) ? ' prt-venc' : ''}" colspan="2"></td>`;
+        const cls = `prt-forn-info${vc(f.id) ? ' prt-venc' : ''}`;
+        if (f.pesquisa_internet) {
+          if (rf.key === 'contato') {
+            h += `<td class="${cls}" colspan="2" style="font-weight:700;text-transform:uppercase;">Pesquisa na Internet</td>`;
+          } else if (rf.key === 'telefone') {
+            h += `<td class="${cls}" colspan="2" style="font-weight:700;">${f.nome || '—'}</td>`;
+          } else {
+            h += `<td class="${cls}" colspan="2"></td>`;
+          }
         } else {
           let fv = f[rf.key] || '—';
           if (rf.fmt) fv = rf.fmt(fv) || '—';
-          h += `<td class="prt-forn-info${vc(f.id) ? ' prt-venc' : ''}" colspan="2">${rf.label}: ${fv}</td>`;
+          h += `<td class="${cls}" colspan="2">${rf.label}: ${fv}</td>`;
         }
       });
     } else {
