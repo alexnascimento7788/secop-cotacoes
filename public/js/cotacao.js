@@ -195,7 +195,9 @@ function renderFornecedoresInfo() {
     html += `<tr><td class="col-fixed"><strong>${c.label}</strong></td>`;
     fOrds.forEach(f => {
       let val;
-      if (f.pesquisa_internet && c.key !== 'nome') {
+      if (f.pesquisa_internet && c.key === 'nome') {
+        val = `<span style="display:block;font-size:10px;color:var(--text-subtle);text-align:center;margin-bottom:3px;font-style:italic;">Pesquisa na Internet</span>${f.nome || '—'}`;
+      } else if (f.pesquisa_internet && c.key !== 'nome') {
         val = '';
       } else {
         val = f[c.key] || '—';
@@ -421,7 +423,9 @@ function atualizarPrintBlock() {
       });
     } else if (rf) {
       fOrds.forEach(f => {
-        if (f.pesquisa_internet && rf.key !== 'nome') {
+        if (f.pesquisa_internet && rf.key === 'nome') {
+          h += `<td class="prt-forn-info${vc(f.id) ? ' prt-venc' : ''}" colspan="2" style="text-align:center;">Pesquisa Internet — ${f.nome || '—'}</td>`;
+        } else if (f.pesquisa_internet && rf.key !== 'nome') {
           h += `<td class="prt-forn-info${vc(f.id) ? ' prt-venc' : ''}" colspan="2"></td>`;
         } else {
           let fv = f[rf.key] || '—';

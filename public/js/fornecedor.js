@@ -237,6 +237,7 @@ function renderTabelaPrecos(precosMap) {
         <td class="col-fixed">${item.unidade || ''}</td>
         <td class="col-fixed">${item.descricao}</td>
         <td><input type="text" class="preco-unit" data-item="${item.id}" data-qtd="${item.quantidade}"
+          data-had-price="${p.preco_unitario_mes != null || p.preco_total_ano != null ? '1' : '0'}"
           value="${unit !== '' ? fmtMoeda(unit) : ''}" placeholder="R$ 0,00" /></td>
         <td><input type="text" class="preco-total" data-item="${item.id}"
           value="${tot !== '' ? fmtMoeda(tot) : ''}" placeholder="R$ 0,00" /></td>
@@ -329,10 +330,11 @@ async function salvarFornecedorAtual() {
 
   // Salvar preços de cada item
   for (const inp of document.querySelectorAll('#precos-tbody .preco-unit')) {
-    const unit   = parseMoeda(inp.value);
-    const totInp = document.querySelector(`#precos-tbody .preco-total[data-item="${inp.dataset.item}"]`);
-    const tot    = parseMoeda(totInp?.value);
-    if (unit === null && tot === null) continue;
+    const unit     = parseMoeda(inp.value);
+    const totInp   = document.querySelector(`#precos-tbody .preco-total[data-item="${inp.dataset.item}"]`);
+    const tot      = parseMoeda(totInp?.value);
+    const hadPrice = inp.dataset.hadPrice === '1';
+    if (unit === null && tot === null && !hadPrice) continue;
 
     await fetch('/api/precos', {
       method: 'POST',
