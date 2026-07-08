@@ -7,6 +7,7 @@
     const el = document.getElementById('sidebar-username');
     if (el) el.textContent = user.username;
     _injetarToggleDark();
+    _injetarVersao();
   } catch {
     window.location.replace('/login.html');
   }
@@ -45,4 +46,20 @@ function toggleDark() {
   document.documentElement.setAttribute('data-theme', novo);
   const btn = document.getElementById('dark-toggle');
   if (btn) btn.innerHTML = novo === 'dark' ? '☀️' : '🌙';
+}
+
+/* ── Versão ────────────────────────────────────────────────── */
+async function _injetarVersao() {
+  try {
+    const r = await fetch('/api/version');
+    if (!r.ok) return;
+    const { version } = await r.json();
+    const sidebar = document.querySelector('.sidebar');
+    if (!sidebar) return;
+    const el = document.createElement('div');
+    el.id = 'sidebar-version';
+    el.textContent = `v${version}`;
+    el.style.cssText = 'font-size:10px;color:var(--text-subtle);text-align:center;padding:4px 0 6px;opacity:.55;letter-spacing:.4px;';
+    sidebar.appendChild(el);
+  } catch {}
 }

@@ -504,7 +504,15 @@ app.get('*', (req, res) => {
   }
 });
 
+// ── Versão ───────────────────────────────────────────────────────────────────
+
+app.get('/api/version', (_req, res) => {
+  const { version } = require('./package.json');
+  res.json({ version });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`SECOP Cotações rodando em http://localhost:${PORT}`);
+  const { version } = require('./package.json');
+  console.log(`SECOP Cotações v${version} rodando em http://localhost:${PORT}`);
 });
