@@ -31,7 +31,6 @@ let precos            = {}; // { `${item_id}_${forn_id}`: { preco_unitario_mes, 
 let vencedorId        = null;
 let mostrarMenorPreco = true;
 let totaisForn        = {}; // { fornId: totalValue }
-let rankMap           = {}; // { fornId: 0-based rank (menor valor = 0) }
 
 // ── Labels de coluna (lidas do localStorage — editadas em fornecedor.html) ────
 
@@ -39,7 +38,7 @@ function getColLabel(key) {
   return localStorage.getItem(`secop_col_${key}_${processoId}`) || (key === 'unit' ? 'R$ UNIT/MÊS' : 'R$ TOTAL/ANO');
 }
 
-// ── Totais e ranking por valor crescente ──────────────────────────────────────
+// ── Totais e ordenação por valor crescente ────────────────────────────────────
 
 function computarTotais() {
   totaisForn = {};
@@ -54,17 +53,16 @@ function computarTotais() {
   });
 }
 
-function computarRanks() {
-  const sorted = [...fornecedores]
-    .map(f => ({ id: f.id, total: totaisForn[f.id] || 0 }))
-    .sort((a, b) => {
-      if (a.total === 0 && b.total === 0) return 0;
-      if (a.total === 0) return 1;
-      if (b.total === 0) return -1;
-      return a.total - b.total;
-    });
-  rankMap = {};
-  sorted.forEach((item, rank) => { rankMap[item.id] = rank; });
+// Retorna fornecedores ordenados por valor total crescente (sem preço ficam no final)
+function fornecedoresOrdenados() {
+  return [...fornecedores].sort((a, b) => {
+    const ta = totaisForn[a.id] || 0;
+    const tb = totaisForn[b.id] || 0;
+    if (ta === 0 && tb === 0) return 0;
+    if (ta === 0) return 1;
+    if (tb === 0) return -1;
+    return ta - tb;
+  });
 }
 
 // ── Carregar dados ────────────────────────────────────────────────────────────
@@ -102,7 +100,6 @@ async function carregar() {
     });
 
     computarTotais();
-    computarRanks();
     renderCabecalho();
     renderFornecedoresInfo();
     renderTabelaPrecos();
@@ -127,7 +124,6 @@ function renderCabecalho() {
   document.getElementById('ph-numero').textContent    = `Processo ${processo.numero_processo}`;
   document.getElementById('ph-objeto-txt').textContent = processo.objeto || '—';
 
-  // "Editar fornecedores" → fornecedor.html?processo_id=X
   document.getElementById('btn-editar-forn').href = `fornecedor.html?processo_id=${processoId}`;
 
   const meta = [
@@ -162,6 +158,7 @@ function renderFornecedoresInfo() {
   wrap.style.display = 'block';
 
   const ordinals = ['1º','2º','3º','4º','5º','6º','7º','8º'];
+  const fOrds    = fornecedoresOrdenados();
 
   const campos = [
     { label: 'Nome',          key: 'nome' },
@@ -175,20 +172,17 @@ function renderFornecedoresInfo() {
 
   let html = `<thead><tr>
     <th class="col-fixed" style="min-width:130px;">—</th>`;
-  fornecedores.forEach(f => {
-    const cls  = fornCls(f.id);
-    const rank = rankMap[f.id] ?? fornecedores.indexOf(f);
-    html += `<th class="${cls}">${ordinals[rank] || (rank+1)+'º'} FORNECEDOR</th>`;
+  fOrds.forEach((f, i) => {
+    html += `<th class="${fornCls(f.id)}">${ordinals[i] || (i+1)+'º'} FORNECEDOR</th>`;
   });
   html += '</tr></thead><tbody>';
 
   campos.forEach(c => {
     html += `<tr><td class="col-fixed"><strong>${c.label}</strong></td>`;
-    fornecedores.forEach(f => {
-      const cls = fornCls(f.id);
-      let val   = f[c.key] || '—';
+    fOrds.forEach(f => {
+      let val = f[c.key] || '—';
       if (c.fmt) val = c.fmt(val) || '—';
-      html += `<td class="${cls}">${val}</td>`;
+      html += `<td class="${fornCls(f.id)}">${val}</td>`;
     });
     html += '</tr>';
   });
@@ -197,7 +191,7 @@ function renderFornecedoresInfo() {
   table.innerHTML = html;
 }
 
-// ── Tabela de preços (somente leitura) ───────────────────────────────────────
+// ── Tabela de preços (somente tela) ──────────────────────────────────────────
 
 function isVenc(fId) {
   return vencedorId != null && parseInt(fId) === parseInt(vencedorId);
@@ -211,7 +205,6 @@ function renderTabelaPrecos() {
   const thead = document.getElementById('preco-thead');
   const tbody  = document.getElementById('preco-tbody');
   const nForn  = fornecedores.length;
-  const totalCols = 4 + nForn * 2;
 
   if (!itens.length && !nForn) {
     thead.innerHTML = '';
@@ -220,31 +213,30 @@ function renderTabelaPrecos() {
   }
 
   const ordinals = ['1º','2º','3º','4º','5º','6º','7º','8º'];
+  const fOrds    = fornecedoresOrdenados();
 
-  // ── Linha 1: nomes dos fornecedores
+  // ── Linha 1: nomes dos fornecedores (ordenados por valor)
   let thRow = `<tr>
     <th class="col-fixed" rowspan="2">Item</th>
     <th class="col-fixed" rowspan="2">Qtde</th>
     <th class="col-fixed" rowspan="2">Unid.</th>
     <th class="col-fixed" rowspan="2">Descrição</th>`;
-  fornecedores.forEach(f => {
-    const cls  = fornCls(f.id);
-    const rank = rankMap[f.id] ?? fornecedores.indexOf(f);
-    thRow += `<th class="${cls}" colspan="2">${ordinals[rank] || (rank+1)+'º'} — ${f.nome || 'Fornecedor'}</th>`;
+  fOrds.forEach((f, i) => {
+    thRow += `<th class="${fornCls(f.id)}" colspan="2">${ordinals[i] || (i+1)+'º'} — ${f.nome || 'Fornecedor'}</th>`;
   });
   thRow += '</tr>';
 
-  // ── Linha 2: R$ UNIT/MÊS | R$ TOTAL/ANO
+  // ── Linha 2: labels de coluna
   let thSubRow = '<tr>';
-  fornecedores.forEach(f => {
+  fOrds.forEach(f => {
     const cls = fornCls(f.id);
     thSubRow += `<th class="${cls}">${getColLabel('unit')}</th><th class="${cls}">${getColLabel('total')}</th>`;
   });
   thSubRow += '</tr>';
   thead.innerHTML = thRow + thSubRow;
 
-  // ── Menor preço (usa totaisForn de módulo, já computado em carregar)
-  const withTot   = fornecedores.map(f => ({ fId: f.id, v: totaisForn[f.id] || 0 })).filter(x => x.v > 0);
+  // ── Menor preço (fornecedor com menor valor total geral)
+  const withTot   = fOrds.map(f => ({ fId: f.id, v: totaisForn[f.id] || 0 })).filter(x => x.v > 0);
   const minFornId = mostrarMenorPreco && withTot.length >= 2 ? withTot.reduce((a, b) => b.v < a.v ? b : a).fId : -1;
 
   // ── Linhas dos itens
@@ -256,9 +248,8 @@ function renderTabelaPrecos() {
       <td class="col-fixed">${item.unidade || ''}</td>
       <td class="col-fixed">${item.descricao}</td>`;
 
-    fornecedores.forEach(f => {
-      const key   = `${item.id}_${f.id}`;
-      const p     = precos[key] || {};
+    fOrds.forEach(f => {
+      const p     = precos[`${item.id}_${f.id}`] || {};
       const cls   = fornCls(f.id);
       const unit  = p.preco_unitario_mes;
       const total = p.preco_total_ano ?? (unit != null ? unit * item.quantidade : null);
@@ -273,9 +264,8 @@ function renderTabelaPrecos() {
   });
 
   // ── Footer: VALOR TOTAL
-
   let footer = `<tr class="row-section-header row-sec-totals"><td colspan="4">VALOR TOTAL</td>`;
-  fornecedores.forEach(f => {
+  fOrds.forEach(f => {
     const cls   = fornCls(f.id);
     const isMin = f.id === minFornId;
     const v     = totaisForn[f.id] || 0;
@@ -293,7 +283,7 @@ function renderTabelaPrecos() {
 
   const footerRow = (label, key) => {
     let r = `<tr class="row-rodape"><td class="col-fixed" colspan="4">${label}</td>`;
-    fornecedores.forEach(f => {
+    fOrds.forEach(f => {
       r += `<td class="${fornCls(f.id)}" colspan="2">${f[key] || '—'}</td>`;
     });
     return r + '</tr>';
@@ -308,17 +298,9 @@ function renderTabelaPrecos() {
   // ── Footer: HISTÓRICO DE NEGOCIAÇÃO
   footer += secHdrScreen('HISTÓRICO DE NEGOCIAÇÃO');
 
-  const moedaRow = (label, key) => {
-    let r = `<tr class="row-rodape"><td class="col-fixed" colspan="4">${label}</td>`;
-    fornecedores.forEach(f => {
-      const v = f[key];
-      r += `<td class="${fornCls(f.id)}" colspan="2">${v != null ? fmtMoeda(v) : '—'}</td>`;
-    });
-    return r + '</tr>';
-  };
   const moedaRowFb = (label, key) => {
     let r = `<tr class="row-rodape"><td class="col-fixed" colspan="4">${label}</td>`;
-    fornecedores.forEach(f => {
+    fOrds.forEach(f => {
       const v = f[key] ?? (totaisForn[f.id] > 0 ? totaisForn[f.id] : null);
       r += `<td class="${fornCls(f.id)}" colspan="2">${v != null ? fmtMoeda(v) : '—'}</td>`;
     });
@@ -327,11 +309,11 @@ function renderTabelaPrecos() {
   footer += moedaRowFb('Proposta Inicial', 'proposta_inicial');
   footer += moedaRowFb('Proposta Final',   'proposta_final');
 
-  // ── Footer: Proposta Vencedora (com botão Marcar)
+  // ── Footer: Proposta Vencedora
   let vencRow = `<tr class="row-rodape"><td class="col-fixed" colspan="4">Proposta Vencedora</td>`;
-  fornecedores.forEach(f => {
-    const isV  = isVenc(f.id);
-    const cls  = fornCls(f.id);
+  fOrds.forEach(f => {
+    const isV = isVenc(f.id);
+    const cls = fornCls(f.id);
     vencRow += `<td class="${cls}" colspan="2" style="text-align:center;">`;
     if (isV) {
       vencRow += `<span style="font-weight:700;color:var(--verde);">✓ Vencedor</span>`;
@@ -361,7 +343,7 @@ function renderTabelaPrecos() {
   });
 }
 
-// ── Bloco de impressão — tabela unificada ─────────────────────────────────────
+// ── Bloco de impressão ────────────────────────────────────────────────────────
 
 function atualizarPrintBlock() {
   const nForn = fornecedores.length;
@@ -369,10 +351,10 @@ function atualizarPrintBlock() {
 
   const totalCols = 4 + nForn * 2;
   const ordinals  = ['1º','2º','3º','4º','5º','6º','7º','8º'];
+  const fOrds     = fornecedoresOrdenados();
 
-  // Menor preço (reutiliza totaisForn de módulo)
-  const withTotP  = fornecedores.map(f => ({ fId: f.id, v: totaisForn[f.id] || 0 })).filter(x => x.v > 0);
-  const minFornId = mostrarMenorPreco && withTotP.length >= 2 ? withTotP.reduce((a, b) => b.v < a.v ? b : a).fId : -1;
+  const withTot  = fOrds.map(f => ({ fId: f.id, v: totaisForn[f.id] || 0 })).filter(x => x.v > 0);
+  const minFornId = mostrarMenorPreco && withTot.length >= 2 ? withTot.reduce((a, b) => b.v < a.v ? b : a).fId : -1;
 
   const vc = (fId) => isVenc(fId);
   const cellCls = (fId, isMin) => {
@@ -382,49 +364,46 @@ function atualizarPrintBlock() {
     return cls.length ? ` class="${cls.join(' ')}"` : '';
   };
 
-  // ── Linha de processo info + campos de fornecedor (8 linhas)
-  const leftRows  = [
-    ['Objeto',                       processo?.objeto || '—'],
-    ['Data',                         fmtBr(processo?.data_abertura || processo?.criado_em)],
-    ['Tipo de Contratação',          processo?.tipo_contratacao || '—'],
-    ['Setor Solicitante',            processo?.setor_solicitante || '—'],
+  const leftRows = [
+    ['Objeto',                          processo?.objeto || '—'],
+    ['Data',                            fmtBr(processo?.data_abertura || processo?.criado_em)],
+    ['Tipo de Contratação',             processo?.tipo_contratacao || '—'],
+    ['Setor Solicitante',               processo?.setor_solicitante || '—'],
     ['Previsão de início do contrato',  fmtBr(processo?.previsao_inicio)],
     ['Previsão de término do contrato', fmtBr(processo?.previsao_termino)],
-    ['Descrição da contratação',     processo?.descricao || '—'],
-    ['Responsável pela Elaboração',  processo?.responsavel || '—'],
+    ['Descrição da contratação',        processo?.descricao || '—'],
+    ['Responsável pela Elaboração',     processo?.responsavel || '—'],
   ];
 
   const rightFields = [
     null,
-    { label: 'Nome',            key: 'nome' },
-    { label: 'Contato',         key: 'contato' },
-    { label: 'Telefone',        key: 'telefone' },
-    { label: 'Celular',         key: 'celular' },
-    { label: 'E-mail',          key: 'email' },
+    { label: 'Nome',             key: 'nome' },
+    { label: 'Contato',          key: 'contato' },
+    { label: 'Telefone',         key: 'telefone' },
+    { label: 'Celular',          key: 'celular' },
+    { label: 'E-mail',           key: 'email' },
     { label: 'Data da proposta', key: 'data_proposta', fmt: fmtBr },
-    { label: 'Frete',           key: 'frete' },
+    { label: 'Frete',            key: 'frete' },
   ];
 
   let h = `<div class="prt-titulo">QUADRO COMPARATIVO</div><table class="prt-table">`;
 
   leftRows.forEach(([label, val], ri) => {
     const rf = rightFields[ri];
-    // Divide os 4 cols da esquerda: rótulo (2 cols, dir.) + valor (2 cols, esq.)
     h += `<tr><td class="prt-lbl" colspan="2">${label}:</td><td class="prt-val" colspan="2">${val}</td>`;
 
     if (ri === 0) {
-      fornecedores.forEach(f => {
-        const rank = rankMap[f.id] ?? fornecedores.indexOf(f);
-        h += `<td class="prt-forn-hdr${vc(f.id) ? ' prt-venc-hdr' : ''}" colspan="2">${ordinals[rank] || (rank+1)+'º'} FORNECEDOR</td>`;
+      fOrds.forEach((f, i) => {
+        h += `<td class="prt-forn-hdr${vc(f.id) ? ' prt-venc-hdr' : ''}" colspan="2">${ordinals[i] || (i+1)+'º'} FORNECEDOR</td>`;
       });
     } else if (rf) {
-      fornecedores.forEach(f => {
+      fOrds.forEach(f => {
         let fv = f[rf.key] || '—';
         if (rf.fmt) fv = rf.fmt(fv) || '—';
         h += `<td class="prt-forn-info${vc(f.id) ? ' prt-venc' : ''}" colspan="2">${rf.label}: ${fv}</td>`;
       });
     } else {
-      fornecedores.forEach(f => {
+      fOrds.forEach(f => {
         h += `<td class="prt-forn-info${vc(f.id) ? ' prt-venc' : ''}" colspan="2"></td>`;
       });
     }
@@ -433,7 +412,7 @@ function atualizarPrintBlock() {
 
   // ── Sub-cabeçalho dos itens
   h += `<tr class="prt-item-hdr"><th>Item</th><th>Qtde</th><th>Unid.</th><th>DESCRIÇÃO</th>`;
-  fornecedores.forEach(f => {
+  fOrds.forEach(f => {
     h += `<th${cellCls(f.id, false)}>${getColLabel('unit')}</th><th${cellCls(f.id, false)}>${getColLabel('total')}</th>`;
   });
   h += `</tr>`;
@@ -441,27 +420,28 @@ function atualizarPrintBlock() {
   // ── Linhas dos itens
   itens.forEach(item => {
     h += `<tr><td class="prt-left">${item.item_num}</td><td class="prt-left">${item.quantidade}</td><td class="prt-left">${item.unidade || ''}</td><td class="prt-left">${item.descricao}</td>`;
-    fornecedores.forEach(f => {
-      const p      = precos[`${item.id}_${f.id}`] || {};
-      const u      = p.preco_unitario_mes;
-      const tot    = p.preco_total_ano ?? (u != null ? u * item.quantidade : null);
-      const isMin  = f.id === minFornId;
+    fOrds.forEach(f => {
+      const p     = precos[`${item.id}_${f.id}`] || {};
+      const u     = p.preco_unitario_mes;
+      const tot   = p.preco_total_ano ?? (u != null ? u * item.quantidade : null);
+      const isMin = f.id === minFornId;
       h += `<td${cellCls(f.id, isMin)}>${u != null ? fmtMoeda(u) : '—'}</td>`;
       h += `<td${cellCls(f.id, isMin)}>${tot != null ? fmtMoeda(tot) : '—'}</td>`;
     });
     h += `</tr>`;
   });
 
-  // ── VALOR TOTAL e RESUMO TOTAL GERAL
+  // ── VALOR TOTAL
   h += `<tr class="prt-sec"><td colspan="4">VALOR TOTAL</td>`;
-  fornecedores.forEach(f => {
+  fOrds.forEach(f => {
     const v = totaisForn[f.id] || 0;
     h += `<td${cellCls(f.id, f.id === minFornId)} colspan="2" style="font-weight:700">${v > 0 ? fmtMoeda(v) : '—'}</td>`;
   });
   h += `</tr>`;
 
+  // ── RESUMO TOTAL GERAL
   h += `<tr class="prt-sec"><td colspan="4">RESUMO TOTAL GERAL</td>`;
-  fornecedores.forEach(f => {
+  fOrds.forEach(f => {
     const v = totaisForn[f.id] || 0;
     h += `<td${cellCls(f.id, f.id === minFornId)} colspan="2" style="font-weight:700">${v > 0 ? fmtMoeda(v) : '—'}</td>`;
   });
@@ -477,18 +457,18 @@ function atualizarPrintBlock() {
 
   const fRow = (label, key) => {
     let r = `<tr><td class="prt-lbl" colspan="4">${label}</td>`;
-    fornecedores.forEach(f => { r += `<td${cellCls(f.id, false)} colspan="2">${f[key] || '—'}</td>`; });
+    fOrds.forEach(f => { r += `<td${cellCls(f.id, false)} colspan="2">${f[key] || '—'}</td>`; });
     return r + '</tr>';
   };
 
-  h += fRow('Observações',          'observacoes');
-  h += fRow('Condição de Pagamento','prazo_pagamento');
-  h += fRow('Prazo de Entrega',     'prazo_entrega');
+  h += fRow('Observações',           'observacoes');
+  h += fRow('Condição de Pagamento', 'prazo_pagamento');
+  h += fRow('Prazo de Entrega',      'prazo_entrega');
 
-  // ── Incluso Frete: Sim (X) — Não ( ) conforme valor salvo
+  // ── Incluso Frete
   h += `<tr><td class="prt-lbl" colspan="4">Incluso Frete</td>`;
-  fornecedores.forEach(f => {
-    const v = f.frete || '';
+  fOrds.forEach(f => {
+    const v        = f.frete || '';
     const incluso  = v === 'Sim' || v === 'Incluso';
     const simMark  = incluso ? 'X' : ' ';
     const naoMark  = (!incluso && v !== '') ? 'X' : ' ';
@@ -502,7 +482,7 @@ function atualizarPrintBlock() {
 
   const mRow = (label, key) => {
     let r = `<tr><td class="prt-lbl" colspan="4">${label}</td>`;
-    fornecedores.forEach(f => {
+    fOrds.forEach(f => {
       const v = f[key] ?? (totaisForn[f.id] > 0 ? totaisForn[f.id] : null);
       r += `<td${cellCls(f.id, false)} colspan="2">${v != null ? fmtMoeda(v) : '—'}</td>`;
     });
@@ -516,12 +496,12 @@ function atualizarPrintBlock() {
 
   // ── Proposta Vencedora
   h += `<tr><td class="prt-lbl" colspan="4">Proposta Vencedora</td>`;
-  fornecedores.forEach(f => {
+  fOrds.forEach(f => {
     h += `<td${cellCls(f.id, false)} colspan="2" style="text-align:center;font-weight:700">${vc(f.id) ? 'x' : ''}</td>`;
   });
   h += `</tr></table>`;
 
-  // ── OBS (abaixo da tabela, texto simples)
+  // ── OBS
   const obsGeral  = (document.getElementById('obs-geral')?.value  || '').trim();
   const obsPortal = (document.getElementById('obs-portal')?.value || '').trim();
   if (obsGeral || obsPortal) {
