@@ -11,21 +11,21 @@
     .admin-tabs { display:flex; gap:4px; margin-bottom:20px; }
     .admin-tab {
       padding:8px 18px; border-radius:6px; font-size:13px; font-weight:600;
-      cursor:pointer; border:1.5px solid var(--cinza-b); background:#fff; color:var(--cinza-t);
+      cursor:pointer; border:1.5px solid var(--cinza-b); background:var(--surface); color:var(--cinza-t);
       transition:.15s;
     }
     .admin-tab.active { background:var(--verde); color:#fff; border-color:var(--verde); }
     .admin-pane { display:none; }
     .admin-pane.active { display:block; }
     .admin-card {
-      background:#fff; border:1px solid var(--cinza-b); border-radius:10px;
-      padding:28px 32px; max-width:600px;
+      background:var(--surface); border:1px solid var(--cinza-b); border-radius:10px;
+      padding:28px 32px; max-width:760px; overflow-x:auto;
     }
     .admin-section { margin-bottom:28px; }
     .admin-section:last-child { margin-bottom:0; }
     .admin-section-title {
       font-size:12px; font-weight:700; text-transform:uppercase;
-      letter-spacing:.05em; color:#888; margin-bottom:10px;
+      letter-spacing:.05em; color:var(--text-muted); margin-bottom:10px;
     }
     .admin-divider { border:none; border-top:1px solid var(--cinza-b); margin:24px 0; }
     .import-area {
@@ -33,7 +33,7 @@
       text-align:center; transition:border-color .15s;
     }
     .import-area.drag-over { border-color:var(--verde); }
-    .import-filename { font-size:13px; color:#555; margin:8px 0 14px; min-height:18px; }
+    .import-filename { font-size:13px; color:var(--cinza-t); margin:8px 0 14px; min-height:18px; }
     .alert-warn {
       background:#FFF8E1; border:1px solid #FFE082; border-radius:6px;
       padding:10px 14px; font-size:12px; color:#795548; margin-top:14px; line-height:1.5;
@@ -45,15 +45,15 @@
     /* Logs */
     .logs-filters {
       display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;
-      background:#fff; border:1px solid var(--cinza-b); border-radius:8px;
+      background:var(--surface); border:1px solid var(--cinza-b); border-radius:8px;
       padding:14px 16px; margin-bottom:16px;
     }
     .logs-filters .form-group { margin:0; min-width:140px; }
     .logs-table { width:100%; border-collapse:collapse; font-size:12.5px; }
-    .logs-table th { text-align:left; padding:7px 10px; font-size:11px; text-transform:uppercase; color:#888; border-bottom:2px solid var(--cinza-b); white-space:nowrap; }
-    .logs-table td { padding:8px 10px; border-bottom:1px solid var(--cinza-b); vertical-align:top; }
+    .logs-table th { text-align:left; padding:7px 10px; font-size:11px; text-transform:uppercase; color:var(--text-muted); border-bottom:2px solid var(--cinza-b); white-space:nowrap; }
+    .logs-table td { padding:8px 10px; border-bottom:1px solid var(--cinza-b); vertical-align:top; color:var(--text); }
     .logs-table tr:last-child td { border-bottom:none; }
-    .logs-table tr:hover td { background:#fafafa; }
+    .logs-table tr:hover td { background:var(--surface-2); }
     .badge-tipo { display:inline-block; padding:2px 7px; border-radius:10px; font-size:10px; font-weight:700; letter-spacing:.3px; }
     .tipo-AUTH     { background:#E3F2FD; color:#1565C0; }
     .tipo-PROCESSO { background:#E8F5E9; color:#1B5E20; }
@@ -62,30 +62,32 @@
     .tipo-BANCO    { background:#EDE7F6; color:#4527A0; }
     .tipo-SISTEMA  { background:#ECEFF1; color:#455A64; }
     .tipo-ITEM     { background:#F3E5F5; color:#6A1B9A; }
-    .logs-count { font-size:12px; color:#888; margin-bottom:10px; }
-    .log-desc { color:#555; max-width:320px; }
-    .log-ip { color:#aaa; font-size:11px; }
-    .log-hora { color:#777; white-space:nowrap; }
+    .logs-count { font-size:12px; color:var(--text-muted); margin-bottom:10px; }
+    .log-desc { color:var(--cinza-t); max-width:320px; }
+    .log-ip { color:var(--text-subtle); font-size:11px; }
+    .log-hora { color:var(--text-muted); white-space:nowrap; }
 
     /* Usuários */
     .users-table { width:100%; border-collapse:collapse; font-size:13px; }
-    .users-table th { text-align:left; padding:8px 12px; font-size:11px; text-transform:uppercase; color:#888; border-bottom:2px solid var(--cinza-b); }
-    .users-table td { padding:10px 12px; border-bottom:1px solid var(--cinza-b); vertical-align:middle; }
+    .users-table th { text-align:left; padding:8px 12px; font-size:11px; text-transform:uppercase; color:var(--text-muted); border-bottom:2px solid var(--cinza-b); white-space:nowrap; }
+    .users-table td { padding:10px 12px; border-bottom:1px solid var(--cinza-b); vertical-align:middle; color:var(--text); white-space:nowrap; }
     .users-table tr:last-child td { border-bottom:none; }
+    .users-table tr:hover td { background:var(--surface-2); }
     .badge-ativo   { background:#E8F5E9; color:#1B5E20; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
     .badge-inativo { background:#FFEBEE; color:#C62828; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
     .add-user-form { display:grid; grid-template-columns:1fr 1fr auto; gap:10px; align-items:end; margin-top:16px; }
     .add-user-form .form-group { margin:0; }
     .modal-overlay {
-      display:none; position:fixed; inset:0; background:rgba(0,0,0,.4);
+      display:none; position:fixed; inset:0; background:rgba(0,0,0,.5);
       z-index:1000; align-items:center; justify-content:center;
     }
     .modal-overlay.open { display:flex; }
     .modal-box {
-      background:#fff; border-radius:12px; padding:28px; width:100%; max-width:360px;
-      box-shadow:0 8px 32px rgba(0,0,0,.15);
+      background:var(--surface); border:1px solid var(--cinza-b); border-radius:12px;
+      padding:28px; width:100%; max-width:360px;
+      box-shadow:0 8px 32px rgba(0,0,0,.3); color:var(--text);
     }
-    .modal-box h3 { font-size:15px; margin-bottom:16px; }
+    .modal-box h3 { font-size:15px; margin-bottom:16px; color:var(--text); }
   </style>
 </head>
 <body>
