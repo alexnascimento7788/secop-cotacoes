@@ -174,11 +174,8 @@
             </label>
             <div class="import-filename" id="filename-label">Nenhum arquivo selecionado</div>
             <button class="btn btn-primary" id="btn-importar" onclick="importar()" disabled>
-              Importar e reiniciar servidor
+              Importar banco
             </button>
-          </div>
-          <div class="alert-warn">
-            ⚠️ O servidor será <strong>reiniciado automaticamente</strong>. Se usar <code>node server.js</code> direto, reinicie manualmente.
           </div>
           <div id="import-status"></div>
         </div>
@@ -353,15 +350,12 @@ async function importar() {
     });
     if (!res.ok) throw new Error((await res.json()).error || 'Erro');
     status.className = 'ok';
-    let c = 6;
-    status.textContent = `Importado! Recarregando em ${c}s...`;
-    const iv = setInterval(() => {
-      c--; status.textContent = `Importado! Recarregando em ${c}s...`;
-      if (c <= 0) { clearInterval(iv); window.location.href = '/'; }
-    }, 1000);
+    status.className = 'ok';
+    status.textContent = 'Banco importado! Recarregando...';
+    setTimeout(() => { window.location.href = '/'; }, 1500);
   } catch(e) {
     status.className = 'erro'; status.textContent = 'Erro: ' + e.message;
-    btn.disabled = false; btn.textContent = 'Importar e reiniciar servidor';
+    btn.disabled = false; btn.textContent = 'Importar banco';
   }
 }
 

@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { db, gerarNumeroProcesso } = require('./database');
+const { db, setupDb, gerarNumeroProcesso } = require('./database');
 
 const app = express();
 app.use(express.json());
@@ -458,16 +458,16 @@ app.post('/api/admin/import-db',
     if (!Buffer.isBuffer(req.body) || req.body.length === 0)
       return res.status(400).json({ error: 'Arquivo inválido' });
 
-    registrarLog(req, 'BANCO', 'IMPORTOU', 'Importou banco de dados — servidor será reiniciado');
+    registrarLog(req, 'BANCO', 'IMPORTOU', 'Importou banco de dados');
 
     const dbPath = path.join(__dirname, 'data', 'secop.db');
     try { db.close(); } catch {}
     fs.writeFileSync(dbPath, req.body);
     try { fs.unlinkSync(dbPath + '-shm'); } catch {}
     try { fs.unlinkSync(dbPath + '-wal'); } catch {}
+    setupDb();
 
     res.json({ ok: true });
-    setTimeout(() => process.exit(0), 300);
   }
 );
 
