@@ -259,8 +259,8 @@ function renderTabelaPrecos() {
   thSubRow += '</tr>';
   thead.innerHTML = thRow + thSubRow;
 
-  // ── Menor preço (fornecedor com menor valor total geral)
-  const withTot   = fOrds.map(f => ({ fId: f.id, v: totaisForn[f.id] || 0 })).filter(x => x.v > 0);
+  // ── Menor preço (fornecedor com menor valor total geral — exclui incompletos)
+  const withTot   = fOrds.map(f => ({ fId: f.id, v: totaisForn[f.id] || 0 })).filter(x => x.v > 0 && fornecedorCompleto(x.fId));
   const minFornId = mostrarMenorPreco && withTot.length >= 2 ? withTot.reduce((a, b) => b.v < a.v ? b : a).fId : -1;
 
   // ── Linhas dos itens
@@ -377,7 +377,7 @@ function atualizarPrintBlock() {
   const ordinals  = ['1º','2º','3º','4º','5º','6º','7º','8º'];
   const fOrds     = fornecedoresOrdenados();
 
-  const withTot  = fOrds.map(f => ({ fId: f.id, v: totaisForn[f.id] || 0 })).filter(x => x.v > 0);
+  const withTot  = fOrds.map(f => ({ fId: f.id, v: totaisForn[f.id] || 0 })).filter(x => x.v > 0 && fornecedorCompleto(x.fId));
   const minFornId = mostrarMenorPreco && withTot.length >= 2 ? withTot.reduce((a, b) => b.v < a.v ? b : a).fId : -1;
 
   const vc = (fId) => isVenc(fId);
