@@ -88,10 +88,32 @@ document.getElementById('btn-step1-next').addEventListener('click', () => {
 
 document.getElementById('btn-step2-back').addEventListener('click', () => goToStep(1));
 document.getElementById('btn-step2-next').addEventListener('click', () => {
-  const itens = coletarItens();
-  if (itens.length === 0) {
+  const rows = document.querySelectorAll('.item-row');
+  if (!rows.length) {
     toast('Adicione ao menos um item.', 'error');
     return;
+  }
+  let num = 0;
+  for (const row of rows) {
+    num++;
+    const qtd  = parseFloat(row.querySelector('.item-qtd').value);
+    const unid = row.querySelector('.item-unid').value.trim();
+    const desc = row.querySelector('.item-desc').value.trim();
+    if (!qtd || qtd <= 0) {
+      toast(`Item ${num}: Quantidade deve ser maior que zero.`, 'error');
+      row.querySelector('.item-qtd').focus();
+      return;
+    }
+    if (!unid) {
+      toast(`Item ${num}: Unidade é obrigatória.`, 'error');
+      row.querySelector('.item-unid').focus();
+      return;
+    }
+    if (!desc) {
+      toast(`Item ${num}: Descrição é obrigatória.`, 'error');
+      row.querySelector('.item-desc').focus();
+      return;
+    }
   }
   goToStep(3);
 });
@@ -111,9 +133,9 @@ function addItem(data) {
   if (data && data.id) div.dataset.itemId = data.id; // ID do banco (edição)
 
   div.innerHTML = `
-    <div class="form-group">
+    <div class="form-group" style="min-width:52px;max-width:52px;">
       <label>Item</label>
-      <input type="number" class="item-num" value="${data ? (data.item_num || n) : n}" min="1" />
+      <span class="item-num-display" style="display:flex;align-items:center;justify-content:center;height:38px;background:var(--surface-2,#f0f4f8);border:1px solid var(--cinza-b,#d1d9e0);border-radius:6px;font-weight:700;font-size:14px;color:var(--text,#222);">${n}</span>
     </div>
     <div class="form-group">
       <label>Qtde</label>
@@ -136,14 +158,24 @@ function addItem(data) {
 
 function removeItem(btn) {
   btn.closest('.item-row').remove();
+  renumerarItens();
+}
+
+function renumerarItens() {
+  document.querySelectorAll('.item-row').forEach((row, idx) => {
+    const span = row.querySelector('.item-num-display');
+    if (span) span.textContent = idx + 1;
+    row.dataset.itemIndex = idx + 1;
+  });
+  itemCount = document.querySelectorAll('.item-row').length;
 }
 
 document.getElementById('btn-add-item').addEventListener('click', () => addItem());
 
 function coletarItens() {
-  return Array.from(document.querySelectorAll('.item-row')).map(row => ({
+  return Array.from(document.querySelectorAll('.item-row')).map((row, idx) => ({
     id:        row.dataset.itemId ? parseInt(row.dataset.itemId) : null,
-    item_num:  parseInt(row.querySelector('.item-num').value) || 0,
+    item_num:  idx + 1,
     quantidade: parseFloat(row.querySelector('.item-qtd').value) || 0,
     unidade:   row.querySelector('.item-unid').value.trim(),
     descricao: row.querySelector('.item-desc').value.trim()
@@ -317,64 +349,43 @@ async function importarExcel(input) {
     const ws   = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
 
-    // Ignora linha de cabeçalho (row 0); espera colunas: [0]=ID [1]=Produto [2]=Quantidade
+    // Ignora linha de cabeçalho (row 0); colunas: [0]=Quantidade [1]=Unidade [2]=Descrição
     const itens = [];
-    const idsVistos = new Set();
-
     for (let i = 1; i < rows.length; i++) {
       const row  = rows[i];
-      const id   = parseInt(row[0]);
-      const desc = String(row[1] || '').trim();
-      const qtd  = parseFloat(row[2]) || 0;
-
+      const qtd  = parseFloat(row[0]) || 0;
+      const unid = String(row[1] || '').trim();
+      const desc = String(row[2] || '').trim();
       if (!desc) continue;
-      if (isNaN(id) || id < 1) {
-        aviso.style.display = 'block';
-        aviso.className = '';
-        aviso.style.background = '#FFEBEE';
-        aviso.style.borderColor = '#EF9A9A';
-        aviso.style.color = '#C62828';
-        aviso.textContent = `Linha ${i+1}: ID inválido ou ausente ("${row[0]}"). Verifique a planilha.`;
-        return;
-      }
-      if (idsVistos.has(id)) {
-        aviso.style.display = 'block';
-        aviso.style.background = '#FFEBEE';
-        aviso.style.borderColor = '#EF9A9A';
-        aviso.style.color = '#C62828';
-        aviso.textContent = `ID duplicado encontrado: ${id}. Cada linha deve ter um ID único.`;
-        return;
-      }
-      idsVistos.add(id);
-      itens.push({ item_num: id, descricao: desc, quantidade: qtd });
+      itens.push({ quantidade: qtd, unidade: unid, descricao: desc });
     }
 
     if (!itens.length) {
-      aviso.style.display = 'block';
+      aviso.style.display    = 'block';
       aviso.style.background = '#FFF8E1';
       aviso.style.borderColor = '#FFE082';
-      aviso.style.color = '#795548';
-      aviso.textContent = 'Nenhum item válido encontrado na planilha.';
+      aviso.style.color      = '#795548';
+      aviso.textContent      = 'Nenhum item válido encontrado na planilha.';
       return;
     }
 
-    // Substitui itens existentes
     document.getElementById('itens-container').innerHTML = '';
     itemCount = 0;
     itens.forEach(item => addItem(item));
+    renumerarItens();
 
-    aviso.style.display = 'block';
+    aviso.style.display    = 'block';
     aviso.style.background = '#E8F5E9';
     aviso.style.borderColor = '#A5D6A7';
-    aviso.style.color = '#1B5E20';
-    aviso.textContent = `✓ ${itens.length} iten${itens.length>1?'s':''} importado${itens.length>1?'s':''} de "${file.name}".`;
+    aviso.style.color      = '#1B5E20';
+    aviso.textContent      = `✓ ${itens.length} iten${itens.length>1?'s':''} importado${itens.length>1?'s':''} de "${file.name}".`;
 
   } catch(e) {
-    aviso.style.display = 'block';
+    aviso.style.display    = 'block';
     aviso.style.background = '#FFEBEE';
     aviso.style.borderColor = '#EF9A9A';
-    aviso.style.color = '#C62828';
-    aviso.textContent = 'Erro ao ler o arquivo: ' + e.message;
+    aviso.style.color      = '#C62828';
+    aviso.textContent      = 'Erro ao ler o arquivo: ' + e.message;
   }
 }
 

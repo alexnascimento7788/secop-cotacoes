@@ -30,7 +30,9 @@ function toast(msg, type = '') {
 
 // ── Labels de coluna (editáveis, salvas por processo no localStorage) ─────────
 
-const COL_DEFAULTS = { unit: 'R$ UNIT/MÊS', total: 'R$ TOTAL/ANO' };
+const COL_DEFAULTS  = { unit: 'R$ UNIT/MÊS', total: 'R$ TOTAL/ANO' };
+const MODE_LABELS   = { '*': '×', '=': '=', 'digitar': '✎' };
+const MODE_TITLES   = { '*': 'Total = Qtde × Unit', '=': 'Total = Unit', 'digitar': 'Digitar total' };;
 
 function getColLabel(key) {
   return localStorage.getItem(`secop_col_${key}_${processoId}`) || COL_DEFAULTS[key];
@@ -215,6 +217,14 @@ function limparFormulario() {
 
 // ── Tabela de preços ──────────────────────────────────────────────────────────
 
+function aplicarModo(unitInp, totInp, mode) {
+  const unit = parseMoeda(unitInp.value);
+  if (unit === null) return;
+  const qty = parseFloat(unitInp.dataset.qtd) || 0;
+  totInp.value = mode === '=' ? fmtMoeda(unit) : fmtMoeda(unit * qty);
+  recalcTotal();
+}
+
 function renderTabelaPrecos(precosMap) {
   const tbody = document.getElementById('precos-tbody');
 
@@ -226,10 +236,23 @@ function renderTabelaPrecos(precosMap) {
   let total = 0;
   let rows  = '';
   itens.forEach(item => {
-    const p    = precosMap[item.id] || {};
-    const unit = p.preco_unitario_mes ?? '';
-    const tot  = p.preco_total_ano    ?? (unit !== '' ? parseFloat(unit) * item.quantidade : '');
+    const p         = precosMap[item.id] || {};
+    const unit      = p.preco_unitario_mes ?? '';
+    const storedTot = p.preco_total_ano;
+    const tot       = storedTot ?? (unit !== '' ? parseFloat(unit) * item.quantidade : '');
     if (tot !== '') total += parseFloat(tot) || 0;
+
+    // Detectar modo inicial com base nos valores armazenados
+    let initialMode = '*';
+    if (storedTot != null && unit !== '') {
+      const u = parseFloat(unit) || 0;
+      const t = parseFloat(storedTot) || 0;
+      const q = parseFloat(item.quantidade) || 0;
+      if (u > 0 && Math.abs(t - u) < 0.01)       initialMode = '=';
+      else if (u > 0 && Math.abs(t - u * q) >= 0.01) initialMode = 'digitar';
+    }
+
+    const hadPrice = p.preco_unitario_mes != null || p.preco_total_ano != null;
     rows += `
       <tr>
         <td class="col-fixed">${item.item_num}</td>
@@ -237,9 +260,12 @@ function renderTabelaPrecos(precosMap) {
         <td class="col-fixed">${item.unidade || ''}</td>
         <td class="col-fixed">${item.descricao}</td>
         <td><input type="text" class="preco-unit" data-item="${item.id}" data-qtd="${item.quantidade}"
-          data-had-price="${p.preco_unitario_mes != null || p.preco_total_ano != null ? '1' : '0'}"
+          data-had-price="${hadPrice ? '1' : '0'}"
           value="${unit !== '' ? fmtMoeda(unit) : ''}" placeholder="R$ 0,00" /></td>
+        <td class="mode-btn-td"><button type="button" class="mode-cycle-btn" data-mode="${initialMode}"
+          title="${MODE_TITLES[initialMode]}">${MODE_LABELS[initialMode]}</button></td>
         <td><input type="text" class="preco-total" data-item="${item.id}"
+          ${initialMode !== 'digitar' ? 'readonly' : ''}
           value="${tot !== '' ? fmtMoeda(tot) : ''}" placeholder="R$ 0,00" /></td>
       </tr>`;
   });
@@ -247,7 +273,8 @@ function renderTabelaPrecos(precosMap) {
   rows += `
     <tr class="row-section-header">
       <td colspan="4">VALOR TOTAL</td>
-      <td colspan="2" id="total-geral">${total > 0 ? fmtMoeda(total) : '—'}</td>
+      <td colspan="2"></td>
+      <td id="total-geral">${total > 0 ? fmtMoeda(total) : '—'}</td>
     </tr>`;
 
   tbody.innerHTML = rows;
@@ -255,23 +282,36 @@ function renderTabelaPrecos(precosMap) {
   // ── Listeners nos campos de preço ─────────────────────────────────────────
 
   tbody.querySelectorAll('.preco-unit').forEach(inp => {
-    // 'input': calcula total da linha imediatamente enquanto o usuário digita
     inp.addEventListener('input', () => {
-      const qty  = parseFloat(inp.dataset.qtd) || 0;
-      const unit = parseMoeda(inp.value);
-      if (unit === null) return;
-      const tot    = unit * qty;
-      const totInp = tbody.querySelector(`.preco-total[data-item="${inp.dataset.item}"]`);
-      if (totInp) totInp.value = fmtMoeda(tot);
-      recalcTotal();
+      const row     = inp.closest('tr');
+      const modeBtn = row.querySelector('.mode-cycle-btn');
+      const mode    = modeBtn?.dataset.mode || '*';
+      const totInp  = row.querySelector('.preco-total');
+      if (mode !== 'digitar') aplicarModo(inp, totInp, mode);
+      else recalcTotal();
     });
-    // 'blur': formata o valor digitado como moeda
     inp.addEventListener('blur', () => { inp.value = fmtMoeda(parseMoeda(inp.value)); });
   });
 
   tbody.querySelectorAll('.preco-total').forEach(inp => {
     inp.addEventListener('input',  recalcTotal);
     inp.addEventListener('blur',   () => { inp.value = fmtMoeda(parseMoeda(inp.value)); });
+  });
+
+  // ── Listeners nos botões de modo ──────────────────────────────────────────
+  tbody.querySelectorAll('.mode-cycle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const row     = btn.closest('tr');
+      const unitInp = row.querySelector('.preco-unit');
+      const totInp  = row.querySelector('.preco-total');
+      const modes   = ['*', '=', 'digitar'];
+      const newMode = modes[(modes.indexOf(btn.dataset.mode) + 1) % modes.length];
+      btn.dataset.mode  = newMode;
+      btn.textContent   = MODE_LABELS[newMode];
+      btn.title         = MODE_TITLES[newMode];
+      totInp.readOnly   = newMode !== 'digitar';
+      if (newMode !== 'digitar') aplicarModo(unitInp, totInp, newMode);
+    });
   });
 
   recalcTotal();
@@ -309,6 +349,19 @@ async function salvarFornecedorAtual() {
   };
 
   if (!payload.nome) throw new Error('Nome obrigatório');
+
+  // Validação de preços mínimos
+  const precoInputs = Array.from(document.querySelectorAll('#precos-tbody .preco-unit'));
+  if (precoInputs.length > 0) {
+    const preenchidos = precoInputs.filter(inp => {
+      const u = parseMoeda(inp.value);
+      const totInp = document.querySelector(`#precos-tbody .preco-total[data-item="${inp.dataset.item}"]`);
+      const t = parseMoeda(totInp?.value);
+      return (u !== null && u > 0) || (t !== null && t > 0);
+    });
+    if (itens.length === 1 && preenchidos.length === 0) throw new Error('preco_obrigatorio');
+    if (itens.length > 1  && preenchidos.length === 0) throw new Error('preco_minimo');
+  }
 
   let resolvedId = currentFornId;
   if (!resolvedId) {
@@ -365,6 +418,10 @@ document.getElementById('btn-salvar-forn').addEventListener('click', async () =>
   } catch (e) {
     if (e.message === 'Nome obrigatório') {
       toast('Informe o nome do fornecedor.', 'error');
+    } else if (e.message === 'preco_obrigatorio') {
+      toast('O único item não pode ficar sem preço ou com valor zero.', 'error');
+    } else if (e.message === 'preco_minimo') {
+      toast('Preencha o preço de pelo menos 1 item.', 'error');
     } else {
       toast('Erro ao salvar fornecedor.', 'error');
       console.error(e);

@@ -572,6 +572,20 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 .preco-table thead th { background: var(--surface-2); }
 .preco-table tbody td { border-bottom: 1px solid var(--cinza-b); }
 
+.mode-btn-td { padding: 2px 4px !important; text-align: center; width: 30px; }
+.mode-cycle-btn {
+  width: 26px; height: 26px;
+  border: 1px solid var(--cinza-b, #d1d9e0);
+  border-radius: 4px;
+  background: var(--surface-2, #f0f4f8);
+  cursor: pointer;
+  font-size: 13px; font-weight: 700;
+  color: var(--text, #333);
+  padding: 0; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.mode-cycle-btn:hover { background: var(--verde, #1A6B35); color: #fff; border-color: var(--verde, #1A6B35); }
+
 .preco-table td input {
   width: 100%;
   padding: 5px 7px;

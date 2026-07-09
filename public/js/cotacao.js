@@ -293,7 +293,7 @@ function renderTabelaPrecos() {
     const cls   = fornCls(f.id);
     const isMin = f.id === minFornId;
     const v     = totaisForn[f.id] || 0;
-    footer += `<td class="${cls}${isMin ? ' col-min' : ''}" colspan="2">${v > 0 ? fmtMoeda(v) : '—'}</td>`;
+    footer += `<td class="${cls}${isMin ? ' col-min' : ''}"></td><td class="${cls}${isMin ? ' col-min' : ''}">${v > 0 ? fmtMoeda(v) : '—'}</td>`;
   });
   footer += '</tr>';
 
