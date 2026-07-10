@@ -288,12 +288,12 @@ function renderTabelaPrecos() {
   });
 
   // ── Footer: VALOR TOTAL
-  let footer = `<tr class="row-section-header row-sec-totals"><td colspan="4">VALOR TOTAL</td>`;
+  let footer = `<tr class="row-section-header row-sec-totals"><td colspan="${4 + nForn}">VALOR TOTAL</td>`;
   fOrds.forEach(f => {
     const cls   = fornCls(f.id);
     const isMin = f.id === minFornId;
     const v     = totaisForn[f.id] || 0;
-    footer += `<td class="${cls}${isMin ? ' col-min' : ''}"></td><td class="${cls}${isMin ? ' col-min' : ''}">${v > 0 ? fmtMoeda(v) : '—'}</td>`;
+    footer += `<td class="${cls}${isMin ? ' col-min' : ''}">${v > 0 ? fmtMoeda(v) : '—'}</td>`;
   });
   footer += '</tr>';
 

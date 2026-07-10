@@ -272,8 +272,7 @@ function renderTabelaPrecos(precosMap) {
 
   rows += `
     <tr class="row-section-header">
-      <td colspan="4">VALOR TOTAL</td>
-      <td colspan="2"></td>
+      <td colspan="6">VALOR TOTAL</td>
       <td id="total-geral">${total > 0 ? fmtMoeda(total) : '—'}</td>
     </tr>`;
 
@@ -287,8 +286,15 @@ function renderTabelaPrecos(precosMap) {
       const modeBtn = row.querySelector('.mode-cycle-btn');
       const mode    = modeBtn?.dataset.mode || '*';
       const totInp  = row.querySelector('.preco-total');
-      if (mode !== 'digitar') aplicarModo(inp, totInp, mode);
-      else recalcTotal();
+      const unit    = parseMoeda(inp.value);
+      if (unit === null && mode !== 'digitar') {
+        totInp.value = '';
+        recalcTotal();
+      } else if (mode !== 'digitar') {
+        aplicarModo(inp, totInp, mode);
+      } else {
+        recalcTotal();
+      }
     });
     inp.addEventListener('blur', () => { inp.value = fmtMoeda(parseMoeda(inp.value)); });
   });
