@@ -6,6 +6,9 @@
   <title>Administração — SECOP Cotações</title>
   <link rel="stylesheet" href="css/style.css" />
   <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#1A6B35">
+  <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
   <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');</script>
   <style>
     .admin-tabs { display:flex; gap:4px; margin-bottom:20px; }
@@ -353,6 +356,7 @@
 </div>
 
 <div id="toast"></div>
+<script src="js/pwa.js"></script>
 <script src="js/auth.js"></script>
 <script>
 function toast(msg, type='') {

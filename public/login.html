@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Login — SECOP Cotações</title>
   <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#1A6B35">
+  <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
   <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');</script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -174,6 +177,7 @@
   <div class="login-footer">CEASAMINAS · Centrais de Abastecimento de Minas Gerais</div>
 </div>
 
+<script src="js/pwa.js"></script>
 <script>
 async function fazerLogin(e) {
   e.preventDefault();
