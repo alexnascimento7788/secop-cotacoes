@@ -202,7 +202,9 @@ function renderFornecedoresInfo() {
     <th class="col-fixed" style="min-width:130px;">—</th>`;
   fOrds.forEach((f, i) => {
     const incompleto = !fornecedorCompleto(f.id);
-    const badge = incompleto ? ' <span style="color:#e53e3e;font-size:10px;font-weight:400;display:block;">⚠ Cotação Incompleta</span>' : '';
+    const badge = f.declinio
+      ? ' <span style="color:#E65100;font-size:10px;font-weight:400;display:block;">⚠ Declínio</span>'
+      : (incompleto ? ' <span style="color:#e53e3e;font-size:10px;font-weight:400;display:block;">⚠ Cotação Incompleta</span>' : '');
     html += `<th class="${fornCls(f.id)}">${ordinals[i] || (i+1)+'º'} FORNECEDOR${badge}</th>`;
   });
   html += '</tr></thead><tbody>';
@@ -267,7 +269,9 @@ function renderTabelaPrecos() {
     <th class="col-fixed" rowspan="2">Descrição</th>`;
   fOrds.forEach((f, i) => {
     const incompleto = !fornecedorCompleto(f.id);
-    const badge = incompleto ? ' <span style="color:#e53e3e;font-size:10px;font-weight:400;">⚠ Incompleta</span>' : '';
+    const badge = f.declinio
+      ? ' <span style="color:#E65100;font-size:10px;font-weight:400;">⚠ Declínio</span>'
+      : (incompleto ? ' <span style="color:#e53e3e;font-size:10px;font-weight:400;">⚠ Incompleta</span>' : '');
     thRow += `<th class="${fornCls(f.id)}" colspan="2">${ordinals[i] || (i+1)+'º'} — ${f.nome || 'Fornecedor'}${badge}</th>`;
   });
   thRow += '</tr>';
@@ -443,7 +447,7 @@ function atualizarPrintBlock() {
     if (ri === 0) {
       fOrds.forEach((f, i) => {
         const incompleto = !fornecedorCompleto(f.id);
-        const badge = incompleto ? ' ⚠ Incompleta' : '';
+        const badge = f.declinio ? ' ⚠ Declínio' : (incompleto ? ' ⚠ Incompleta' : '');
         h += `<td class="prt-forn-hdr${vc(f.id) ? ' prt-venc-hdr' : ''}" colspan="2">${ordinals[i] || (i+1)+'º'} FORNECEDOR${badge}</td>`;
       });
     } else if (rf) {
