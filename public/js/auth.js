@@ -1,16 +1,27 @@
 // Verifica autenticação em todas as páginas (exceto login.html)
-(async () => {
+// getCurrentUser() fica disponível pra outras páginas reaproveitarem sem novo fetch (promise cacheada)
+window.getCurrentUser = () => window._userPromise || (window._userPromise = (async () => {
   try {
     const res = await fetch('/api/auth/me');
-    if (!res.ok) { window.location.replace('/login.html'); return; }
-    const user = await res.json();
-    const el = document.getElementById('sidebar-username');
-    if (el) el.textContent = user.username;
-    _injetarToggleDark();
-    _injetarVersao();
+    if (!res.ok) { window.location.replace('/login.html'); return null; }
+    return await res.json();
   } catch {
     window.location.replace('/login.html');
+    return null;
   }
+})());
+
+(async () => {
+  const user = await window.getCurrentUser();
+  if (!user) return;
+
+  const el = document.getElementById('sidebar-username');
+  if (el) el.textContent = user.username;
+  if (user.role !== 'admin') {
+    document.querySelectorAll('a.sidebar-gear[href="admin.html"]').forEach(a => a.remove());
+  }
+  _injetarToggleDark();
+  _injetarVersao();
 })();
 
 async function logout() {

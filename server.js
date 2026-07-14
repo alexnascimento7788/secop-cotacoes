@@ -49,6 +49,41 @@ app.use('/api', (req, res, next) => {
   requireAuth(req, res, next);
 });
 
+function requireAdmin(req, res, next) {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso restrito a administradores' });
+  next();
+}
+app.use('/api/admin', requireAdmin);
+
+// ── Permissões de cotação (dono ou admin) ──────────────────────────────────────
+
+function podeEditarProcesso(user, processoId) {
+  if (user.role === 'admin') return true;
+  const proc = db.prepare('SELECT criado_por_id FROM processos WHERE id = ?').get(processoId);
+  return !!proc && proc.criado_por_id === user.user_id;
+}
+
+function requireEditProcesso(resolveId) {
+  return (req, res, next) => {
+    const id = resolveId(req);
+    if (id == null) return res.status(404).json({ error: 'Não encontrado' });
+    if (!podeEditarProcesso(req.user, id)) {
+      return res.status(403).json({ error: 'Você não tem permissão para editar esta cotação' });
+    }
+    next();
+  };
+}
+
+function processoIdDoFornecedor(fornecedorId) {
+  const row = db.prepare('SELECT processo_id FROM fornecedores WHERE id = ?').get(fornecedorId);
+  return row ? row.processo_id : null;
+}
+
+function processoIdDoItem(itemId) {
+  const row = db.prepare('SELECT processo_id FROM itens WHERE id = ?').get(itemId);
+  return row ? row.processo_id : null;
+}
+
 // ── Endpoints de autenticação ─────────────────────────────────────────────────
 
 app.post('/api/auth/login', (req, res) => {
@@ -105,14 +140,20 @@ app.get('/api/auth/me', (req, res) => {
 
 app.get('/api/processos', (req, res) => {
   const { status, setor, busca } = req.query;
-  let sql = `SELECT *, CAST((julianday('now') - julianday(criado_em)) AS INTEGER) AS dias_em_aberto FROM processos WHERE 1=1`;
+  let sql = `
+    SELECT p.*, u.username AS criado_por_username,
+      CAST((julianday('now') - julianday(p.criado_em)) AS INTEGER) AS dias_em_aberto
+    FROM processos p
+    LEFT JOIN users u ON u.id = p.criado_por_id
+    WHERE 1=1
+  `;
   const params = [];
 
-  if (status) { sql += ` AND status = ?`; params.push(status); }
-  if (setor)  { sql += ` AND setor_solicitante = ?`; params.push(setor); }
-  if (busca)  { sql += ` AND (objeto LIKE ? OR numero_processo LIKE ? OR responsavel LIKE ?)`; params.push(`%${busca}%`, `%${busca}%`, `%${busca}%`); }
+  if (status) { sql += ` AND p.status = ?`; params.push(status); }
+  if (setor)  { sql += ` AND p.setor_solicitante = ?`; params.push(setor); }
+  if (busca)  { sql += ` AND (p.objeto LIKE ? OR p.numero_processo LIKE ? OR p.responsavel LIKE ?)`; params.push(`%${busca}%`, `%${busca}%`, `%${busca}%`); }
 
-  sql += ` ORDER BY id DESC`;
+  sql += ` ORDER BY p.id DESC`;
   res.json(db.prepare(sql).all(...params));
 });
 
@@ -125,10 +166,11 @@ app.post('/api/processos', (req, res) => {
   const numero_processo = gerarNumeroProcesso();
   const info = db.prepare(`
     INSERT INTO processos (numero_processo, objeto, setor_solicitante, tipo_contratacao,
-      responsavel, descricao, previsao_inicio, previsao_termino, observacoes, observacoes2, data_abertura)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      responsavel, descricao, previsao_inicio, previsao_termino, observacoes, observacoes2, data_abertura, criado_por_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(numero_processo, n(objeto), n(setor_solicitante), n(tipo_contratacao), n(responsavel),
-         n(descricao), n(previsao_inicio), n(previsao_termino), n(observacoes), n(observacoes2), n(data_abertura));
+         n(descricao), n(previsao_inicio), n(previsao_termino), n(observacoes), n(observacoes2), n(data_abertura),
+         req.user.user_id);
 
   registrarLog(req, 'PROCESSO', 'CRIOU', `Criou processo ${numero_processo}: ${objeto}`);
 
@@ -137,8 +179,11 @@ app.post('/api/processos', (req, res) => {
 
 app.get('/api/processos/:id', (req, res) => {
   const processo = db.prepare(`
-    SELECT *, CAST((julianday('now') - julianday(criado_em)) AS INTEGER) AS dias_em_aberto
-    FROM processos WHERE id = ?
+    SELECT p.*, u.username AS criado_por_username,
+      CAST((julianday('now') - julianday(p.criado_em)) AS INTEGER) AS dias_em_aberto
+    FROM processos p
+    LEFT JOIN users u ON u.id = p.criado_por_id
+    WHERE p.id = ?
   `).get(req.params.id);
   if (!processo) return res.status(404).json({ error: 'Não encontrado' });
 
@@ -153,7 +198,7 @@ app.get('/api/processos/:id', (req, res) => {
   res.json({ ...processo, fornecedores, itens, precos });
 });
 
-app.put('/api/processos/:id', (req, res) => {
+app.put('/api/processos/:id', requireEditProcesso(req => req.params.id), (req, res) => {
   const { objeto, setor_solicitante, tipo_contratacao, responsavel, descricao,
           previsao_inicio, previsao_termino, status, observacoes, observacoes2, data_abertura } = req.body;
 
@@ -174,7 +219,7 @@ app.put('/api/processos/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-app.delete('/api/processos/:id', (req, res) => {
+app.delete('/api/processos/:id', requireEditProcesso(req => req.params.id), (req, res) => {
   const proc = db.prepare(`SELECT numero_processo, objeto FROM processos WHERE id = ?`).get(req.params.id);
   db.prepare(`DELETE FROM processos WHERE id = ?`).run(req.params.id);
   if (proc) registrarLog(req, 'PROCESSO', 'EXCLUIU', `Excluiu processo ${proc.numero_processo}: ${proc.objeto}`);
@@ -194,10 +239,10 @@ app.get('/api/fornecedores/:id', (req, res) => {
   res.json({ ...f, precos });
 });
 
-app.post('/api/processos/:id/fornecedores', (req, res) => {
+app.post('/api/processos/:id/fornecedores', requireEditProcesso(req => req.params.id), (req, res) => {
   const { nome, contato, telefone, celular, email, data_proposta,
           prazo_pagamento, prazo_entrega, prazo_garantia, frete,
-          proposta_inicial, proposta_final, observacoes, pesquisa_internet } = req.body;
+          proposta_inicial, proposta_final, observacoes, pesquisa_internet, declinio } = req.body;
 
   const countRow = db.prepare(`SELECT COUNT(*) AS c FROM fornecedores WHERE processo_id = ?`).get(req.params.id);
   const ordem = (countRow.c || 0) + 1;
@@ -205,11 +250,11 @@ app.post('/api/processos/:id/fornecedores', (req, res) => {
   const info = db.prepare(`
     INSERT INTO fornecedores (processo_id, ordem, nome, contato, telefone, celular, email,
       data_proposta, prazo_pagamento, prazo_entrega, prazo_garantia, frete,
-      proposta_inicial, proposta_final, observacoes, pesquisa_internet)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      proposta_inicial, proposta_final, observacoes, pesquisa_internet, declinio)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(req.params.id, ordem, n(nome), n(contato), n(telefone), n(celular), n(email),
          n(data_proposta), n(prazo_pagamento), n(prazo_entrega), n(prazo_garantia), n(frete),
-         n(proposta_inicial), n(proposta_final), n(observacoes), pesquisa_internet ? 1 : 0);
+         n(proposta_inicial), n(proposta_final), n(observacoes), pesquisa_internet ? 1 : 0, declinio ? 1 : 0);
 
   const proc = db.prepare(`SELECT numero_processo FROM processos WHERE id = ?`).get(req.params.id);
   registrarLog(req, 'FORNECEDOR', 'CRIOU', `Adicionou fornecedor "${nome}" ao processo ${proc?.numero_processo || req.params.id}`);
@@ -217,24 +262,24 @@ app.post('/api/processos/:id/fornecedores', (req, res) => {
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
-app.put('/api/fornecedores/:id', (req, res) => {
+app.put('/api/fornecedores/:id', requireEditProcesso(req => processoIdDoFornecedor(req.params.id)), (req, res) => {
   const { nome, contato, telefone, celular, email, data_proposta,
           prazo_pagamento, prazo_entrega, prazo_garantia, frete,
-          proposta_inicial, proposta_final, observacoes, pesquisa_internet } = req.body;
+          proposta_inicial, proposta_final, observacoes, pesquisa_internet, declinio } = req.body;
 
   db.prepare(`
     UPDATE fornecedores SET nome=?, contato=?, telefone=?, celular=?, email=?,
       data_proposta=?, prazo_pagamento=?, prazo_entrega=?, prazo_garantia=?, frete=?,
-      proposta_inicial=?, proposta_final=?, observacoes=?, pesquisa_internet=?
+      proposta_inicial=?, proposta_final=?, observacoes=?, pesquisa_internet=?, declinio=?
     WHERE id=?
   `).run(n(nome), n(contato), n(telefone), n(celular), n(email), n(data_proposta), n(prazo_pagamento),
          n(prazo_entrega), n(prazo_garantia), n(frete), n(proposta_inicial), n(proposta_final), n(observacoes),
-         pesquisa_internet ? 1 : 0, req.params.id);
+         pesquisa_internet ? 1 : 0, declinio ? 1 : 0, req.params.id);
 
   res.json({ ok: true });
 });
 
-app.delete('/api/fornecedores/:id', (req, res) => {
+app.delete('/api/fornecedores/:id', requireEditProcesso(req => processoIdDoFornecedor(req.params.id)), (req, res) => {
   const f = db.prepare(`SELECT nome, processo_id FROM fornecedores WHERE id = ?`).get(req.params.id);
   db.prepare(`DELETE FROM fornecedores WHERE id = ?`).run(req.params.id);
   if (f) {
@@ -255,7 +300,7 @@ app.get('/api/processos/:id/itens', (req, res) => {
   res.json(result);
 });
 
-app.post('/api/processos/:id/itens', (req, res) => {
+app.post('/api/processos/:id/itens', requireEditProcesso(req => req.params.id), (req, res) => {
   const { item_num, quantidade, unidade, descricao } = req.body;
   const info = db.prepare(`
     INSERT INTO itens (processo_id, item_num, quantidade, unidade, descricao)
@@ -264,21 +309,21 @@ app.post('/api/processos/:id/itens', (req, res) => {
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
-app.put('/api/itens/:id', (req, res) => {
+app.put('/api/itens/:id', requireEditProcesso(req => processoIdDoItem(req.params.id)), (req, res) => {
   const { item_num, quantidade, unidade, descricao } = req.body;
   db.prepare(`UPDATE itens SET item_num=?, quantidade=?, unidade=?, descricao=? WHERE id=?`)
     .run(n(item_num), n(quantidade), n(unidade), n(descricao), req.params.id);
   res.json({ ok: true });
 });
 
-app.delete('/api/itens/:id', (req, res) => {
+app.delete('/api/itens/:id', requireEditProcesso(req => processoIdDoItem(req.params.id)), (req, res) => {
   db.prepare(`DELETE FROM itens WHERE id = ?`).run(req.params.id);
   res.json({ ok: true });
 });
 
 // ── Preços ────────────────────────────────────────────────────────────────────
 
-app.post('/api/precos', (req, res) => {
+app.post('/api/precos', requireEditProcesso(req => processoIdDoItem(req.body.item_id)), (req, res) => {
   const { item_id, fornecedor_id, preco_unitario_mes, preco_total_ano } = req.body;
   db.prepare(`
     INSERT INTO precos (item_id, fornecedor_id, preco_unitario_mes, preco_total_ano)
@@ -330,7 +375,7 @@ app.get('/api/dashboard/resumo', (req, res) => {
 
 // ── Vencedor ──────────────────────────────────────────────────────────────────
 
-app.put('/api/processos/:id/vencedor/:fornecedor_id', (req, res) => {
+app.put('/api/processos/:id/vencedor/:fornecedor_id', requireEditProcesso(req => req.params.id), (req, res) => {
   db.prepare(`UPDATE processos SET proposta_vencedora_id=?, atualizado_em=CURRENT_TIMESTAMP WHERE id=?`)
     .run(req.params.fornecedor_id, req.params.id);
   res.json({ ok: true });
@@ -338,7 +383,7 @@ app.put('/api/processos/:id/vencedor/:fornecedor_id', (req, res) => {
 
 // ── Menor preço ───────────────────────────────────────────────────────────────
 
-app.patch('/api/processos/:id/mostrar-menor-preco', (req, res) => {
+app.patch('/api/processos/:id/mostrar-menor-preco', requireEditProcesso(req => req.params.id), (req, res) => {
   const { mostrar } = req.body;
   db.prepare(`UPDATE processos SET mostrar_menor_preco=?, atualizado_em=CURRENT_TIMESTAMP WHERE id=?`)
     .run(mostrar ? 1 : 0, req.params.id);
@@ -347,7 +392,7 @@ app.patch('/api/processos/:id/mostrar-menor-preco', (req, res) => {
 
 // ── Status rápido ─────────────────────────────────────────────────────────────
 
-app.patch('/api/processos/:id/status', (req, res) => {
+app.patch('/api/processos/:id/status', requireEditProcesso(req => req.params.id), (req, res) => {
   const { status } = req.body;
   const atual = db.prepare(`SELECT status, numero_processo FROM processos WHERE id=?`).get(req.params.id);
   if (!atual) return res.status(404).json({ error: 'Não encontrado' });
@@ -383,6 +428,35 @@ app.delete('/api/status/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Tipos de contratação ─────────────────────────────────────────────────────
+
+app.get('/api/tipos-contratacao', (req, res) => {
+  res.json(db.prepare(`SELECT * FROM tipos_contratacao ORDER BY ordem`).all());
+});
+
+app.post('/api/tipos-contratacao', requireAdmin, (req, res) => {
+  const { nome, ordem } = req.body;
+  if (!nome) return res.status(400).json({ error: 'Nome é obrigatório' });
+  try {
+    const info = db.prepare(`INSERT INTO tipos_contratacao (nome, ordem) VALUES (?, ?)`).run(nome, n(ordem) ?? 0);
+    res.status(201).json({ id: info.lastInsertRowid });
+  } catch (e) {
+    res.status(400).json({ error: 'Tipo já existe' });
+  }
+});
+
+app.put('/api/tipos-contratacao/:id', requireAdmin, (req, res) => {
+  const { nome, ordem } = req.body;
+  if (!nome) return res.status(400).json({ error: 'Nome é obrigatório' });
+  db.prepare(`UPDATE tipos_contratacao SET nome=?, ordem=? WHERE id=?`).run(nome, n(ordem) ?? 0, req.params.id);
+  res.json({ ok: true });
+});
+
+app.delete('/api/tipos-contratacao/:id', requireAdmin, (req, res) => {
+  db.prepare(`DELETE FROM tipos_contratacao WHERE id=?`).run(req.params.id);
+  res.json({ ok: true });
+});
+
 // ── Setores (lista única para filtros) ────────────────────────────────────────
 
 app.get('/api/setores', (req, res) => {
@@ -404,7 +478,7 @@ app.post('/api/admin/users', (req, res) => {
   try {
     const info = db.prepare(
       "INSERT INTO users (username, senha_hash, salt, role, ativo) VALUES (?, ?, ?, ?, 1)"
-    ).run(username, hash, salt, role || 'admin');
+    ).run(username, hash, salt, role || 'usuario');
     registrarLog(req, 'USUARIO', 'CRIOU', `Criou usuário "${username}"`);
     res.status(201).json({ id: info.lastInsertRowid });
   } catch (e) {
@@ -430,7 +504,9 @@ app.patch('/api/admin/users/:id', (req, res) => {
     registrarLog(req, 'USUARIO', 'SENHA', `Alterou senha do usuário "${user.username}"`);
   }
   if (role !== undefined) {
+    if (user.username === 'master') return res.status(400).json({ error: 'Não é possível alterar o perfil do master' });
     db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, req.params.id);
+    registrarLog(req, 'USUARIO', 'PERFIL', `Alterou perfil do usuário "${user.username}" para "${role}"`);
   }
   res.json({ ok: true });
 });
@@ -439,6 +515,8 @@ app.delete('/api/admin/users/:id', (req, res) => {
   const user = db.prepare("SELECT username FROM users WHERE id = ?").get(req.params.id);
   if (!user) return res.status(404).json({ error: 'Não encontrado' });
   if (user.username === 'master') return res.status(400).json({ error: 'Não é possível excluir o master' });
+  // As cotações do usuário excluído permanecem no sistema, apenas ficam sem dono (só admin edita)
+  db.prepare("UPDATE processos SET criado_por_id = NULL WHERE criado_por_id = ?").run(req.params.id);
   db.prepare("DELETE FROM users WHERE id = ?").run(req.params.id);
   registrarLog(req, 'USUARIO', 'EXCLUIU', `Excluiu usuário "${user.username}"`);
   res.json({ ok: true });

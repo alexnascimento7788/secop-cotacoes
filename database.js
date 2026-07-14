@@ -108,8 +108,29 @@ function setupDb() {
   try { _db.exec(`ALTER TABLE processos    ADD COLUMN mostrar_menor_preco INTEGER DEFAULT 1`); } catch {}
   try { _db.exec(`ALTER TABLE fornecedores ADD COLUMN frete TEXT`);            } catch {}
   try { _db.exec(`ALTER TABLE fornecedores ADD COLUMN pesquisa_internet INTEGER DEFAULT 0`); } catch {}
+  try { _db.exec(`ALTER TABLE fornecedores ADD COLUMN declinio INTEGER DEFAULT 0`); } catch {}
   try { _db.exec(`ALTER TABLE precos RENAME COLUMN preco_unitario TO preco_unitario_mes`); } catch {}
   try { _db.exec(`ALTER TABLE precos RENAME COLUMN preco_total    TO preco_total_ano`);    } catch {}
+
+  // ── Tipos de contratação ──────────────────────────────────────────────────────
+
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS tipos_contratacao (
+      id    INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome  TEXT    NOT NULL UNIQUE,
+      ordem INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+
+  [
+    { nome: 'Direta',     ordem: 1 },
+    { nome: 'Licitação',  ordem: 2 },
+    { nome: 'Dispensa',   ordem: 3 },
+  ].forEach(t => {
+    try {
+      _db.prepare(`INSERT INTO tipos_contratacao (nome, ordem) VALUES (?, ?)`).run(t.nome, t.ordem);
+    } catch {}
+  });
 
   // ── Auth ────────────────────────────────────────────────────────────────────
 
@@ -141,6 +162,8 @@ function setupDb() {
         .run('master', hash, salt);
     }
   } catch {}
+
+  try { _db.exec(`ALTER TABLE processos ADD COLUMN criado_por_id INTEGER REFERENCES users(id)`); } catch {}
 
   _db.exec(`
     CREATE TABLE IF NOT EXISTS logs (

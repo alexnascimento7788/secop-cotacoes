@@ -59,6 +59,23 @@ let processo      = null;
 let fornecedores  = [];
 let itens         = [];
 let currentFornId = null;
+let podeEditarForn = true;
+
+function aplicarPermissaoUI() {
+  if (podeEditarForn) return;
+
+  document.getElementById('btn-novo-forn').style.display   = 'none';
+  document.getElementById('btn-salvar-forn').style.display = 'none';
+  document.getElementById('btn-cancelar').style.display    = 'none';
+
+  document.querySelectorAll('#forn-form-card input, #forn-form-card textarea')
+    .forEach(el => { el.disabled = true; });
+
+  const aviso = document.createElement('div');
+  aviso.style.cssText = 'background:#FFF8E1;border:1px solid #FFE082;border-radius:6px;padding:10px 14px;font-size:13px;color:#795548;margin-bottom:16px;line-height:1.5;';
+  aviso.textContent = 'Somente visualização — você não tem permissão para editar esta cotação.';
+  document.getElementById('content').prepend(aviso);
+}
 
 const FRETE_INCLUSO_VALS = ['Sim', 'Incluso'];
 
@@ -78,6 +95,9 @@ async function carregar() {
     fornecedores = data.fornecedores || [];
     itens        = data.itens || [];
 
+    const user = await getCurrentUser();
+    podeEditarForn = !!user && (user.role === 'admin' || data.criado_por_id === user.id);
+
     document.getElementById('bread-processo').textContent =
       `Processo ${processo.numero_processo} — ${processo.objeto}`;
     document.title = `Fornecedores — ${processo.numero_processo}`;
@@ -86,6 +106,7 @@ async function carregar() {
     renderTabelaPrecos({});
     atualizarBtnQuadro();
     aplicarCabecalhosColuna();
+    aplicarPermissaoUI();
 
     document.getElementById('loader').style.display  = 'none';
     document.getElementById('content').style.display = 'block';
@@ -115,8 +136,8 @@ function renderFornecedores() {
   container.innerHTML = fornecedores.map(f => `
     <div style="display:inline-flex;align-items:center;gap:6px;background:#f0f4f8;border:1.5px solid #d1d9e0;border-radius:8px;padding:7px 12px;">
       <span style="font-size:13px;font-weight:600;color:#222;">${f.nome || '(sem nome)'}</span>
-      <button class="btn btn-secondary btn-sm" onclick="editarFornecedor(${f.id})">Editar</button>
-      <button class="btn btn-danger btn-sm" onclick="removerFornecedor(${f.id}, '${(f.nome || '').replace(/'/g, "\\'")}')">Remover</button>
+      <button class="btn btn-secondary btn-sm" onclick="editarFornecedor(${f.id})">${podeEditarForn ? 'Editar' : 'Ver'}</button>
+      ${podeEditarForn ? `<button class="btn btn-danger btn-sm" onclick="removerFornecedor(${f.id}, '${(f.nome || '').replace(/'/g, "\\'")}')">Remover</button>` : ''}
     </div>
   `).join('');
 }
@@ -178,6 +199,7 @@ async function editarFornecedor(id) {
     renderTabelaPrecos(precosMap);
 
     document.getElementById('f-pesquisa-internet').checked = !!f.pesquisa_internet;
+    document.getElementById('f-declinio').checked = !!f.declinio;
 
     document.getElementById('forn-form-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch {
@@ -212,6 +234,7 @@ function limparFormulario() {
   document.getElementById('f-observacoes').value  = '';
   document.querySelectorAll('input[name="f-frete"]').forEach(r => { r.checked = false; });
   document.getElementById('f-pesquisa-internet').checked = false;
+  document.getElementById('f-declinio').checked = false;
   renderTabelaPrecos({});
 }
 
@@ -260,12 +283,12 @@ function renderTabelaPrecos(precosMap) {
         <td class="col-fixed">${item.unidade || ''}</td>
         <td class="col-fixed">${item.descricao}</td>
         <td><input type="text" class="preco-unit" data-item="${item.id}" data-qtd="${item.quantidade}"
-          data-had-price="${hadPrice ? '1' : '0'}"
+          data-had-price="${hadPrice ? '1' : '0'}" ${podeEditarForn ? '' : 'disabled'}
           value="${unit !== '' ? fmtMoeda(unit) : ''}" placeholder="R$ 0,00" /></td>
-        <td class="mode-btn-td"><button type="button" class="mode-cycle-btn" data-mode="${initialMode}"
+        <td class="mode-btn-td"><button type="button" class="mode-cycle-btn" data-mode="${initialMode}" ${podeEditarForn ? '' : 'disabled'}
           title="${MODE_TITLES[initialMode]}">${MODE_LABELS[initialMode]}</button></td>
         <td><input type="text" class="preco-total" data-item="${item.id}"
-          ${initialMode !== 'digitar' ? 'readonly' : ''}
+          ${initialMode !== 'digitar' || !podeEditarForn ? 'readonly' : ''}
           value="${tot !== '' ? fmtMoeda(tot) : ''}" placeholder="R$ 0,00" /></td>
       </tr>`;
   });
@@ -352,6 +375,7 @@ async function salvarFornecedorAtual() {
     proposta_inicial:   parseFloat(document.getElementById('f-prop-ini').value) || null,
     proposta_final:     parseFloat(document.getElementById('f-prop-fin').value) || null,
     pesquisa_internet:  document.getElementById('f-pesquisa-internet').checked ? 1 : 0,
+    declinio:           document.getElementById('f-declinio').checked ? 1 : 0,
   };
 
   if (!payload.nome) throw new Error('Nome obrigatório');
@@ -461,6 +485,15 @@ document.getElementById('btn-novo-forn').addEventListener('click', async () => {
 
 document.getElementById('btn-cancelar').addEventListener('click', limparFormulario);
 
+
+// ── Pesquisa Internet / Declínio são mutuamente exclusivos ────────────────────
+
+document.getElementById('f-pesquisa-internet').addEventListener('change', function () {
+  if (this.checked) document.getElementById('f-declinio').checked = false;
+});
+document.getElementById('f-declinio').addEventListener('change', function () {
+  if (this.checked) document.getElementById('f-pesquisa-internet').checked = false;
+});
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 

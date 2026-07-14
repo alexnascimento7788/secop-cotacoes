@@ -31,6 +31,15 @@ let precos            = {}; // { `${item_id}_${forn_id}`: { preco_unitario_mes, 
 let vencedorId        = null;
 let mostrarMenorPreco = true;
 let totaisForn        = {}; // { fornId: totalValue }
+let podeEditarCotacao = true;
+
+function aplicarPermissaoUI() {
+  document.getElementById('status-select').disabled  = !podeEditarCotacao;
+  document.getElementById('chk-menor-preco').disabled = !podeEditarCotacao;
+  document.getElementById('btn-salvar-obs').style.display = podeEditarCotacao ? '' : 'none';
+  document.getElementById('obs-geral').readOnly  = !podeEditarCotacao;
+  document.getElementById('obs-portal').readOnly = !podeEditarCotacao;
+}
 
 // ── Labels de coluna (lidas do localStorage — editadas em fornecedor.html) ────
 
@@ -102,6 +111,10 @@ async function carregar() {
     mostrarMenorPreco = data.mostrar_menor_preco !== 0;
     precos            = {};
 
+    const user = await getCurrentUser();
+    podeEditarCotacao = !!user && (user.role === 'admin' || data.criado_por_id === user.id);
+    aplicarPermissaoUI();
+
     document.getElementById('chk-menor-preco').checked = mostrarMenorPreco;
 
     data.precos.forEach(p => {
@@ -145,6 +158,7 @@ function renderCabecalho() {
     { label: 'Data Abertura',  value: fmtBr(processo.data_abertura) },
     { label: 'Início',         value: fmtBr(processo.previsao_inicio) },
     { label: 'Término',        value: fmtBr(processo.previsao_termino) },
+    { label: 'Criado por',     value: processo.criado_por_username || 'Admin (legado)' },
   ];
 
   document.getElementById('ph-meta').innerHTML = meta
@@ -195,7 +209,13 @@ function renderFornecedoresInfo() {
     html += `<tr><td class="col-fixed"><strong>${c.label}</strong></td>`;
     fOrds.forEach(f => {
       const cls = fornCls(f.id);
-      if (f.pesquisa_internet) {
+      if (f.declinio) {
+        if (ci === 0) {
+          // Uma célula cobrindo TODAS as linhas — textos juntos e centralizados
+          html += `<td class="${cls} col-declinio" rowspan="${campos.length}" style="text-align:center;vertical-align:middle;line-height:1.8;"><strong style="display:block;text-transform:uppercase;font-size:12px;letter-spacing:.4px;">Declínio</strong><strong style="display:block;margin-top:4px;">${f.nome || '—'}</strong></td>`;
+        }
+        // ci > 0: coberto pelo rowspan — sem <td>
+      } else if (f.pesquisa_internet) {
         if (ci === 0) {
           // Uma célula cobrindo TODAS as linhas — textos juntos e centralizados
           html += `<td class="${cls}" rowspan="${campos.length}" style="text-align:center;vertical-align:middle;line-height:1.8;"><strong style="display:block;text-transform:uppercase;font-size:12px;letter-spacing:.4px;">Pesquisa na Internet</strong><strong style="display:block;margin-top:4px;">${f.nome || '—'}</strong></td>`;
@@ -341,8 +361,10 @@ function renderTabelaPrecos() {
     vencRow += `<td class="${cls}" colspan="2" style="text-align:center;">`;
     if (isV) {
       vencRow += `<span style="font-weight:700;color:var(--verde);">✓ Vencedor</span>`;
-    } else {
+    } else if (podeEditarCotacao) {
       vencRow += `<button class="btn btn-outline btn-sm btn-marcar-venc no-print" data-id="${f.id}">Marcar</button>`;
+    } else {
+      vencRow += `<span style="color:var(--text-subtle);">—</span>`;
     }
     vencRow += '</td>';
   });
@@ -425,7 +447,13 @@ function atualizarPrintBlock() {
     } else if (rf) {
       fOrds.forEach(f => {
         const cls = `prt-forn-info${vc(f.id) ? ' prt-venc' : ''}`;
-        if (f.pesquisa_internet) {
+        if (f.declinio) {
+          if (rf.key === 'nome') {
+            const totalInfoRows = rightFields.filter(r => r != null).length;
+            h += `<td class="${cls} prt-declinio" colspan="2" rowspan="${totalInfoRows}" style="text-align:center;vertical-align:middle;"><strong style="display:block;text-transform:uppercase;font-size:8px;letter-spacing:.4px;">Declínio</strong><strong style="display:block;margin-top:2px;">${f.nome || '—'}</strong></td>`;
+          }
+          // demais linhas cobertas pelo rowspan — sem <td>
+        } else if (f.pesquisa_internet) {
           if (rf.key === 'nome') {
             const totalInfoRows = rightFields.filter(r => r != null).length;
             h += `<td class="${cls}" colspan="2" rowspan="${totalInfoRows}" style="text-align:center;vertical-align:middle;"><strong style="display:block;text-transform:uppercase;font-size:8px;letter-spacing:.4px;">Pesquisa na Internet</strong><strong style="display:block;margin-top:2px;">${f.nome || '—'}</strong></td>`;

@@ -612,6 +612,9 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 [data-theme="dark"] .preco-table .col-min { background: #2a1a00 !important; color: #f9a825 !important; }
 [data-theme="dark"] .preco-table .col-fornecedor.vencedor.col-min { background: #0a2010 !important; color: #66bb6a !important; }
 
+.preco-table .col-declinio { background: #FFE0B2 !important; color: #E65100 !important; }
+[data-theme="dark"] .preco-table .col-declinio { background: #3d2410 !important; color: #ffb74d !important; }
+
 .row-section-header td {
   background: #8B6914 !important;
   color: #fff !important;
@@ -847,6 +850,7 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
   .prt-venc      { background: #e8f5e9 !important; }
   .prt-min       { background: #FFFDE7 !important; font-weight: 700; color: #E65100 !important; }
   .prt-venc.prt-min { background: #C8E6C9 !important; color: #1B5E20 !important; }
+  .prt-declinio  { background: #FFE0B2 !important; color: #E65100 !important; }
 
   .prt-item-hdr th {
     background: #e8e8e8 !important;

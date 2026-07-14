@@ -24,6 +24,11 @@ function badgeStatus(s) {
 let processos = [];
 let deleteId  = null;
 let statusList = [];
+let currentUser = null;
+
+function podeEditar(p) {
+  return currentUser && (currentUser.role === 'admin' || p.criado_por_id === currentUser.id);
+}
 
 async function carregarStatus() {
   try {
@@ -66,6 +71,7 @@ async function carregarProcessos() {
   tbody.innerHTML = `<tr><td colspan="8" class="loader">Carregando...</td></tr>`;
 
   try {
+    if (!currentUser) currentUser = await getCurrentUser();
     const res = await fetch(`/api/processos?${params}`);
     processos = await res.json();
     renderTable(processos);
@@ -87,15 +93,16 @@ function renderTable(list) {
   tbody.innerHTML = list.map(p => {
     const dias = p.dias_em_aberto ?? 0;
     const diasClass = dias > 15 ? 'text-red' : '';
+    const editavel = podeEditar(p);
     return `
       <tr>
         <td><strong>${p.numero_processo}</strong></td>
-        <td>${p.objeto}</td>
+        <td>${p.objeto}${p.criado_por_username ? `<div style="font-size:11px;color:var(--text-subtle);margin-top:2px;">Criado por ${p.criado_por_username}</div>` : ''}</td>
         <td>${p.setor_solicitante || '—'}</td>
         <td>${p.tipo_contratacao || '—'}</td>
         <td>${p.responsavel || '—'}</td>
         <td>
-          <select class="status-select status-inline" data-id="${p.id}" style="font-size:12px;padding:3px 6px;">
+          <select class="status-select status-inline" data-id="${p.id}" style="font-size:12px;padding:3px 6px;" ${editavel ? '' : 'disabled'}>
             ${statusList.map(s => `<option value="${s.nome}"${s.nome === p.status ? ' selected' : ''}>${s.nome}</option>`).join('')}
           </select>
         </td>
@@ -104,8 +111,10 @@ function renderTable(list) {
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <a href="cotacao.html?id=${p.id}" class="btn btn-primary btn-sm">Abrir quadro</a>
             <a href="fornecedor.html?processo_id=${p.id}" class="btn btn-outline btn-sm">Fornecedores</a>
-            <a href="novo-processo.html?id=${p.id}" class="btn btn-secondary btn-sm">Editar</a>
-            <button class="btn btn-danger btn-sm" onclick="confirmarDelete(${p.id})">Excluir</button>
+            ${editavel ? `
+              <a href="novo-processo.html?id=${p.id}" class="btn btn-secondary btn-sm">Editar</a>
+              <button class="btn btn-danger btn-sm" onclick="confirmarDelete(${p.id})">Excluir</button>
+            ` : ''}
           </div>
         </td>
       </tr>`;

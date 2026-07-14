@@ -141,8 +141,50 @@
 
     <div class="admin-tabs">
       <button class="admin-tab active" onclick="mudarAba('usuarios')">Usuários</button>
+      <button class="admin-tab" onclick="mudarAba('tipos')">Tipos de Contratação</button>
       <button class="admin-tab" onclick="mudarAba('banco')">Banco de Dados</button>
       <button class="admin-tab" onclick="mudarAba('logs')">Logs</button>
+    </div>
+
+    <!-- Aba Tipos de Contratação -->
+    <div class="admin-pane" id="pane-tipos">
+      <div class="admin-card" style="max-width:560px;">
+        <div class="admin-section">
+          <div class="admin-section-title">Tipos de contratação</div>
+          <table class="users-table">
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Ordem</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tipos-tbody">
+              <tr><td colspan="3" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <hr class="admin-divider">
+
+        <div class="admin-section">
+          <div class="admin-section-title">Adicionar tipo</div>
+          <div class="add-user-form">
+            <div class="form-group">
+              <label>Nome</label>
+              <input type="text" id="new-tipo-nome" placeholder="Ex: Adesão a Ata" />
+            </div>
+            <div class="form-group" style="max-width:90px;">
+              <label>Ordem</label>
+              <input type="number" id="new-tipo-ordem" placeholder="0" />
+            </div>
+            <button class="btn btn-primary" onclick="adicionarTipo()" style="white-space:nowrap;">
+              + Adicionar
+            </button>
+          </div>
+          <div id="tipo-msg" style="margin-top:10px;font-size:13px;font-weight:600;min-height:18px;"></div>
+        </div>
+      </div>
     </div>
 
     <!-- Aba Banco -->
@@ -266,7 +308,7 @@
 
         <div class="admin-section">
           <div class="admin-section-title">Adicionar usuário</div>
-          <div class="add-user-form">
+          <div class="add-user-form" style="grid-template-columns:1fr 1fr auto auto;">
             <div class="form-group">
               <label>Usuário</label>
               <input type="text" id="new-username" placeholder="nome.usuario" />
@@ -274,6 +316,13 @@
             <div class="form-group">
               <label>Senha</label>
               <input type="password" id="new-senha" placeholder="••••••••" />
+            </div>
+            <div class="form-group">
+              <label>Perfil</label>
+              <select id="new-role" style="padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text);">
+                <option value="usuario" selected>Usuário</option>
+                <option value="admin">Admin</option>
+              </select>
             </div>
             <button class="btn btn-primary" onclick="adicionarUsuario()" style="white-space:nowrap;">
               + Adicionar
@@ -313,14 +362,91 @@ function toast(msg, type='') {
   setTimeout(() => { el.className = ''; }, 3000);
 }
 
-const _abas = ['usuarios', 'banco', 'logs'];
+const _abas = ['usuarios', 'tipos', 'banco', 'logs'];
 function mudarAba(aba) {
   document.querySelectorAll('.admin-tab').forEach((t, i) => t.classList.toggle('active', _abas[i] === aba));
   _abas.forEach(a => document.getElementById(`pane-${a}`).classList.toggle('active', a === aba));
   if (aba === 'usuarios') carregarUsuarios();
+  if (aba === 'tipos') carregarTipos();
   if (aba === 'logs') { carregarUsuariosLog(); carregarLogs(); }
 }
-carregarUsuarios();
+
+(async () => {
+  const user = await getCurrentUser();
+  if (user && user.role !== 'admin') { window.location.replace('/index.html'); return; }
+  carregarUsuarios();
+})();
+
+// ── Tipos de contratação ─────────────────────────────────────────────────────
+
+async function carregarTipos() {
+  try {
+    const res = await fetch('/api/tipos-contratacao');
+    const tipos = await res.json();
+    document.getElementById('tipos-tbody').innerHTML = tipos.map(t => `
+      <tr>
+        <td><strong>${t.nome}</strong></td>
+        <td>${t.ordem}</td>
+        <td style="white-space:nowrap;text-align:right;">
+          <button class="btn btn-secondary btn-sm" onclick="editarTipo(${t.id},'${t.nome.replace(/'/g,"\\'")}',${t.ordem})">Editar</button>
+          <button class="btn btn-danger btn-sm" onclick="excluirTipo(${t.id},'${t.nome.replace(/'/g,"\\'")}')">Excluir</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch {
+    toast('Erro ao carregar tipos de contratação', 'error');
+  }
+}
+
+async function adicionarTipo() {
+  const nome  = document.getElementById('new-tipo-nome').value.trim();
+  const ordem = parseInt(document.getElementById('new-tipo-ordem').value) || 0;
+  const msg = document.getElementById('tipo-msg');
+  msg.style.color = '';
+  if (!nome) { msg.style.color='#c00'; msg.textContent='Informe o nome do tipo.'; return; }
+  try {
+    const res = await fetch('/api/tipos-contratacao', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ nome, ordem })
+    });
+    if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
+    msg.style.color = '#2E7D32';
+    msg.textContent = `Tipo "${nome}" criado com sucesso.`;
+    document.getElementById('new-tipo-nome').value  = '';
+    document.getElementById('new-tipo-ordem').value = '';
+    carregarTipos();
+  } catch(e) {
+    msg.style.color='#c00'; msg.textContent = 'Erro: ' + e.message;
+  }
+}
+
+async function editarTipo(id, nomeAtual, ordemAtual) {
+  const nome = prompt('Nome do tipo:', nomeAtual);
+  if (nome === null || !nome.trim()) return;
+  const ordemStr = prompt('Ordem:', ordemAtual);
+  if (ordemStr === null) return;
+  try {
+    const res = await fetch(`/api/tipos-contratacao/${id}`, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ nome: nome.trim(), ordem: parseInt(ordemStr) || 0 })
+    });
+    if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
+    carregarTipos();
+  } catch(e) {
+    toast('Erro: ' + e.message, 'error');
+  }
+}
+
+async function excluirTipo(id, nome) {
+  if (!confirm(`Excluir o tipo "${nome}"?`)) return;
+  try {
+    const res = await fetch(`/api/tipos-contratacao/${id}`, { method:'DELETE' });
+    if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
+    carregarTipos();
+  } catch(e) {
+    toast('Erro: ' + e.message, 'error');
+  }
+}
 
 // ── Banco ──────────────────────────────────────────────────────────────────────
 
@@ -387,7 +513,14 @@ async function carregarUsuarios() {
     document.getElementById('users-tbody').innerHTML = users.map(u => `
       <tr>
         <td><strong>${u.username}</strong>${u.username==='master'?' <span style="font-size:10px;color:#888;">(master)</span>':''}</td>
-        <td>${u.role}</td>
+        <td>
+          ${u.username!=='master'?`
+            <select onchange="alterarRole(${u.id},this.value)" style="padding:4px 6px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text);">
+              <option value="usuario"${u.role==='usuario'?' selected':''}>Usuário</option>
+              <option value="admin"${u.role==='admin'?' selected':''}>Admin</option>
+            </select>
+          `:'Admin'}
+        </td>
         <td><span class="${u.ativo?'badge-ativo':'badge-inativo'}">${u.ativo?'Ativo':'Inativo'}</span></td>
         <td>${fmtData(u.criado_em)}</td>
         <td style="white-space:nowrap;text-align:right;">
@@ -407,22 +540,38 @@ async function carregarUsuarios() {
 async function adicionarUsuario() {
   const username = document.getElementById('new-username').value.trim();
   const senha    = document.getElementById('new-senha').value;
+  const role     = document.getElementById('new-role').value;
   const msg = document.getElementById('user-msg');
   msg.style.color = '';
   if (!username || !senha) { msg.style.color='#c00'; msg.textContent='Preencha usuário e senha.'; return; }
   try {
     const res = await fetch('/api/admin/users', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ username, senha })
+      body: JSON.stringify({ username, senha, role })
     });
     if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
     msg.style.color = '#2E7D32';
     msg.textContent = `Usuário "${username}" criado com sucesso.`;
     document.getElementById('new-username').value = '';
     document.getElementById('new-senha').value    = '';
+    document.getElementById('new-role').value     = 'usuario';
     carregarUsuarios();
   } catch(e) {
     msg.style.color='#c00'; msg.textContent = 'Erro: ' + e.message;
+  }
+}
+
+async function alterarRole(id, role) {
+  try {
+    const res = await fetch(`/api/admin/users/${id}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ role })
+    });
+    if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
+    toast('Perfil atualizado com sucesso', 'success');
+  } catch(e) {
+    toast('Erro: ' + e.message, 'error');
+    carregarUsuarios();
   }
 }
 

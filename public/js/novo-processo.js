@@ -27,12 +27,32 @@ if (editId) {
   document.getElementById('btn-salvar').textContent = 'Salvar Alterações';
 }
 
+async function carregarTiposContratacao() {
+  try {
+    const res = await fetch('/api/tipos-contratacao');
+    const tipos = res.ok ? await res.json() : [];
+    const sel = document.getElementById('tipo_contratacao');
+    tipos.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.nome; opt.textContent = t.nome;
+      sel.appendChild(opt);
+    });
+  } catch {}
+}
+
 async function carregarProcessoParaEdicao() {
   if (!editId) return;
   try {
     const res = await fetch(`/api/processos/${editId}`);
     if (!res.ok) { toast('Processo não encontrado.', 'error'); return; }
     const p = await res.json();
+
+    const user = await getCurrentUser();
+    if (user && user.role !== 'admin' && p.criado_por_id !== user.id) {
+      toast('Você não tem permissão para editar esta cotação.', 'error');
+      setTimeout(() => { window.location.href = 'processos.html'; }, 1200);
+      return;
+    }
 
     document.getElementById('objeto').value            = p.objeto || '';
     document.getElementById('setor_solicitante').value = p.setor_solicitante || '';
@@ -391,4 +411,4 @@ async function importarExcel(input) {
 
 // ── Inicialização ─────────────────────────────────────────────────────────────
 
-carregarProcessoParaEdicao();
+carregarTiposContratacao().then(carregarProcessoParaEdicao);
