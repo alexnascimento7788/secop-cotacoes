@@ -16,7 +16,8 @@ function badgeStatus(s) {
     'Em cotação': 'badge-cotacao',
     'Ag. aprovação': 'badge-aprovacao',
     'Concluído': 'badge-concluido',
-    'Parado': 'badge-parado'
+    'Parado': 'badge-parado',
+    'Cancelado': 'badge-cancelado'
   };
   return `<span class="badge ${map[s] || ''}">${s}</span>`;
 }
@@ -25,6 +26,31 @@ let processos = [];
 let deleteId  = null;
 let statusList = [];
 let currentUser = null;
+let abaAtual   = 'andamento';
+let cfgAlertas = { laranja: 5, vermelho: 10 };
+
+// Em qual aba o processo aparece, conforme o status
+function abaDoProcesso(p) {
+  if (p.status === 'Concluído') return 'concluido';
+  if (p.status === 'Cancelado') return 'cancelado';
+  return 'andamento'; // Em cotação (ou legado sem status), Ag. aprovação, Parado
+}
+
+function mudarAbaProc(aba) {
+  abaAtual = aba;
+  document.querySelectorAll('.page-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === aba));
+  renderTable(processos);
+}
+
+async function carregarConfig() {
+  try {
+    const res = await fetch('/api/config');
+    if (!res.ok) return;
+    const cfg = await res.json();
+    cfgAlertas.laranja  = parseInt(cfg.alerta_dias_laranja)  || cfgAlertas.laranja;
+    cfgAlertas.vermelho = parseInt(cfg.alerta_dias_vermelho) || cfgAlertas.vermelho;
+  } catch {}
+}
 
 function podeEditar(p) {
   return currentUser && (currentUser.role === 'admin' || p.criado_por_id === currentUser.id);
@@ -82,7 +108,17 @@ async function carregarProcessos() {
 
 function renderTable(list) {
   const tbody = document.getElementById('processos-tbody');
-  if (!list.length) {
+
+  // Contadores das abas (sobre a lista filtrada pelos filtros atuais)
+  const counts = { andamento: 0, concluido: 0, cancelado: 0 };
+  list.forEach(p => { counts[abaDoProcesso(p)]++; });
+  ['andamento', 'concluido', 'cancelado'].forEach(a => {
+    document.getElementById(`count-${a}`).textContent = counts[a];
+  });
+
+  const visiveis = list.filter(p => abaDoProcesso(p) === abaAtual);
+
+  if (!visiveis.length) {
     tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state">
       <strong>Nenhum processo encontrado</strong>
       <p>Tente ajustar os filtros ou crie um novo processo.</p>
@@ -90,12 +126,18 @@ function renderTable(list) {
     return;
   }
 
-  tbody.innerHTML = list.map(p => {
+  tbody.innerHTML = visiveis.map(p => {
     const dias = p.dias_em_aberto ?? 0;
     const diasClass = dias > 15 ? 'text-red' : '';
     const editavel = podeEditar(p);
+    // Alerta visual: só na aba Em andamento, para processos em cotação
+    let rowClass = '';
+    if (abaAtual === 'andamento' && (!p.status || p.status === 'Em cotação')) {
+      if (dias > cfgAlertas.vermelho)     rowClass = 'row-alerta-vermelho';
+      else if (dias > cfgAlertas.laranja) rowClass = 'row-alerta-laranja';
+    }
     return `
-      <tr>
+      <tr class="${rowClass}">
         <td><strong>${p.numero_processo}</strong></td>
         <td>${p.objeto}${p.criado_por_username ? `<div style="font-size:11px;color:var(--text-subtle);margin-top:2px;">Criado por ${p.criado_por_username}</div>` : ''}</td>
         <td>${p.setor_solicitante || '—'}</td>
@@ -182,9 +224,12 @@ document.getElementById('processos-tbody').addEventListener('change', async e =>
       body: JSON.stringify({ status: sel.value })
     });
     toast('Status atualizado!', 'success');
+    // Reflete na lista local e re-renderiza — processo muda de aba na hora, se for o caso
+    const p = processos.find(x => x.id === parseInt(sel.dataset.id));
+    if (p) { p.status = sel.value; renderTable(processos); }
   } catch { toast('Erro ao atualizar status.', 'error'); }
 });
 
 carregarStatus();
 carregarSetores();
-carregarProcessos();
+carregarConfig().then(carregarProcessos);

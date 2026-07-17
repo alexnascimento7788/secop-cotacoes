@@ -145,6 +145,7 @@
     <div class="admin-tabs">
       <button class="admin-tab active" onclick="mudarAba('usuarios')">Usuários</button>
       <button class="admin-tab" onclick="mudarAba('tipos')">Tipos de Contratação</button>
+      <button class="admin-tab" onclick="mudarAba('parametros')">Parâmetros</button>
       <button class="admin-tab" onclick="mudarAba('banco')">Banco de Dados</button>
       <button class="admin-tab" onclick="mudarAba('logs')">Logs</button>
     </div>
@@ -186,6 +187,35 @@
             </button>
           </div>
           <div id="tipo-msg" style="margin-top:10px;font-size:13px;font-weight:600;min-height:18px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Aba Parâmetros -->
+    <div class="admin-pane" id="pane-parametros">
+      <div class="admin-card" style="max-width:560px;">
+        <div class="admin-section">
+          <div class="admin-section-title">Alerta de dias em cotação</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Na listagem de processos (aba Em andamento), processos com status
+            <strong>Em cotação</strong> há mais dias que os limites abaixo ganham
+            destaque de cor na linha: laranja claro acima do primeiro limite e
+            vermelho claro acima do segundo.
+          </p>
+          <div class="add-user-form">
+            <div class="form-group" style="max-width:160px;">
+              <label>Laranja acima de (dias)</label>
+              <input type="number" id="cfg-dias-laranja" min="1" />
+            </div>
+            <div class="form-group" style="max-width:160px;">
+              <label>Vermelho acima de (dias)</label>
+              <input type="number" id="cfg-dias-vermelho" min="1" />
+            </div>
+            <button class="btn btn-primary" onclick="salvarParametros()" style="white-space:nowrap;">
+              Salvar
+            </button>
+          </div>
+          <div id="param-msg" style="margin-top:10px;font-size:13px;font-weight:600;min-height:18px;"></div>
         </div>
       </div>
     </div>
@@ -366,13 +396,49 @@ function toast(msg, type='') {
   setTimeout(() => { el.className = ''; }, 3000);
 }
 
-const _abas = ['usuarios', 'tipos', 'banco', 'logs'];
+const _abas = ['usuarios', 'tipos', 'parametros', 'banco', 'logs'];
 function mudarAba(aba) {
   document.querySelectorAll('.admin-tab').forEach((t, i) => t.classList.toggle('active', _abas[i] === aba));
   _abas.forEach(a => document.getElementById(`pane-${a}`).classList.toggle('active', a === aba));
   if (aba === 'usuarios') carregarUsuarios();
   if (aba === 'tipos') carregarTipos();
+  if (aba === 'parametros') carregarParametros();
   if (aba === 'logs') { carregarUsuariosLog(); carregarLogs(); }
+}
+
+// ── Parâmetros ───────────────────────────────────────────────────────────────
+
+async function carregarParametros() {
+  try {
+    const res = await fetch('/api/config');
+    const cfg = res.ok ? await res.json() : {};
+    document.getElementById('cfg-dias-laranja').value  = cfg.alerta_dias_laranja  || 5;
+    document.getElementById('cfg-dias-vermelho').value = cfg.alerta_dias_vermelho || 10;
+  } catch {}
+}
+
+async function salvarParametros() {
+  const msg      = document.getElementById('param-msg');
+  const laranja  = parseInt(document.getElementById('cfg-dias-laranja').value);
+  const vermelho = parseInt(document.getElementById('cfg-dias-vermelho').value);
+  if (!laranja || !vermelho || laranja < 1 || vermelho < 1) {
+    msg.style.color = 'var(--vermelho)'; msg.textContent = 'Informe valores válidos (dias ≥ 1).'; return;
+  }
+  if (vermelho <= laranja) {
+    msg.style.color = 'var(--vermelho)'; msg.textContent = 'O limite vermelho deve ser maior que o laranja.'; return;
+  }
+  try {
+    const res = await fetch('/api/admin/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alerta_dias_laranja: laranja, alerta_dias_vermelho: vermelho })
+    });
+    if (!res.ok) throw new Error();
+    msg.style.color = 'var(--verde)'; msg.textContent = 'Parâmetros salvos.';
+    toast('Parâmetros salvos!', 'success');
+  } catch {
+    msg.style.color = 'var(--vermelho)'; msg.textContent = 'Erro ao salvar parâmetros.';
+  }
 }
 
 (async () => {

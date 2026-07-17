@@ -83,6 +83,7 @@ function setupDb() {
   [
     { nome: 'Em cotação',    ordem: 1 },
     { nome: 'Ag. aprovação', ordem: 2 },
+    { nome: 'Cancelado',     ordem: 5 },
     { nome: 'Concluído',     ordem: 3 },
     { nome: 'Parado',        ordem: 4 },
   ].forEach(s => {
@@ -100,7 +101,22 @@ function setupDb() {
       alterado_em  DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (processo_id) REFERENCES processos(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS config (
+      chave TEXT PRIMARY KEY,
+      valor TEXT NOT NULL
+    );
   `);
+
+  // Parâmetros padrão (ignora se já existirem)
+  [
+    { chave: 'alerta_dias_laranja',  valor: '5'  },
+    { chave: 'alerta_dias_vermelho', valor: '10' },
+  ].forEach(c => {
+    try {
+      _db.prepare(`INSERT INTO config (chave, valor) VALUES (?, ?)`).run(c.chave, c.valor);
+    } catch {}
+  });
 
   // Migrações — falham silenciosamente se coluna/renomeação já existir
   try { _db.exec(`ALTER TABLE processos    ADD COLUMN data_abertura DATE`);    } catch {}

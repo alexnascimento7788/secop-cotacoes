@@ -17,7 +17,8 @@ function badgeStatus(s) {
     'Em cotação':   'badge-cotacao',
     'Ag. aprovação':'badge-aprovacao',
     'Concluído':    'badge-concluido',
-    'Parado':       'badge-parado'
+    'Parado':       'badge-parado',
+    'Cancelado':    'badge-cancelado'
   };
   return `<span class="badge ${map[label] || 'badge-cotacao'}">${label}</span>`;
 }

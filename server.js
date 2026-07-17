@@ -352,7 +352,7 @@ app.get('/api/dashboard/resumo', (req, res) => {
       CAST((julianday('now') - julianday(criado_em)) AS INTEGER) AS dias_em_aberto
     FROM processos
     WHERE status = 'Parado'
-       OR (status != 'Concluído' AND CAST((julianday('now') - julianday(atualizado_em)) AS INTEGER) > 15)
+       OR (status NOT IN ('Concluído', 'Cancelado') AND CAST((julianday('now') - julianday(atualizado_em)) AS INTEGER) > 15)
     ORDER BY dias_em_aberto DESC
     LIMIT 20
   `).all();
@@ -401,6 +401,25 @@ app.patch('/api/processos/:id/status', requireEditProcesso(req => req.params.id)
   db.prepare(`INSERT INTO status_historico (processo_id, status_de, status_para) VALUES (?,?,?)`)
     .run(req.params.id, atual.status, status);
   registrarLog(req, 'PROCESSO', 'STATUS', `Processo ${atual.numero_processo}: "${atual.status || 'Em cotação'}" → "${status}"`);
+  res.json({ ok: true });
+});
+
+// ── Configurações (parâmetros do sistema) ─────────────────────────────────────
+
+app.get('/api/config', (req, res) => {
+  const rows = db.prepare(`SELECT chave, valor FROM config`).all();
+  const cfg = {};
+  rows.forEach(r => { cfg[r.chave] = r.valor; });
+  res.json(cfg);
+});
+
+app.put('/api/admin/config', (req, res) => {
+  const entries = Object.entries(req.body || {});
+  if (!entries.length) return res.status(400).json({ error: 'Nenhum parâmetro informado' });
+  const upsert = db.prepare(`INSERT INTO config (chave, valor) VALUES (?, ?)
+    ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor`);
+  entries.forEach(([chave, valor]) => upsert.run(chave, String(valor)));
+  registrarLog(req, 'CONFIG', 'ALTEROU', `Parâmetros atualizados: ${entries.map(([c, v]) => `${c}=${v}`).join(', ')}`);
   res.json({ ok: true });
 });
 

@@ -332,6 +332,41 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 .badge-aprovacao{ background: #fef9c3; color: #854d0e; }
 .badge-concluido{ background: #dcfce7; color: #15803d; }
 .badge-parado   { background: #fee2e2; color: #991b1b; }
+.badge-cancelado{ background: #e5e7eb; color: #4b5563; }
+
+/* ── Abas da listagem de processos ────────────────────── */
+.page-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+.page-tab {
+  padding: 8px 16px;
+  border: 1px solid var(--cinza-b);
+  border-radius: 8px 8px 0 0;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.page-tab.active { background: var(--verde); color: #fff; border-color: var(--verde); }
+.page-tab-count {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 20px;
+  font-size: 11px;
+  background: rgba(0,0,0,.12);
+}
+.page-tab.active .page-tab-count { background: rgba(255,255,255,.25); }
+
+/* ── Alerta de dias em cotação (linhas da listagem) ───── */
+tbody tr.row-alerta-laranja  td { background: #FFF8EC; }
+tbody tr.row-alerta-vermelho td { background: #FFF0F0; }
+tbody tr.row-alerta-laranja:hover  td { background: #FFF1D9; }
+tbody tr.row-alerta-vermelho:hover td { background: #FFE4E4; }
+[data-theme="dark"] tbody tr.row-alerta-laranja  td { background: #2a1e08; }
+[data-theme="dark"] tbody tr.row-alerta-vermelho td { background: #2a0f0f; }
+[data-theme="dark"] tbody tr.row-alerta-laranja:hover  td { background: #33250c; }
+[data-theme="dark"] tbody tr.row-alerta-vermelho:hover td { background: #331414; }
 
 /* ── Badges de dias em aberto ─────────────────────────── */
 .badge-dias {
