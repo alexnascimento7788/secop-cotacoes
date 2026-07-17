@@ -613,9 +613,12 @@ textarea:focus::placeholder { color: transparent; }
 
 .preco-table .col-fixed      { background: var(--surface-2); white-space: nowrap; }
 .preco-table .col-fornecedor { background: var(--surface); }
-.preco-table .col-fornecedor.vencedor { background: var(--surface-2); }
 
-[data-theme="dark"] .preco-table .col-fornecedor.vencedor { background: rgba(26,107,53,.1); }
+/* Vencedor na tela — mesmo destaque da impressão: coluna verde-clara + cabeçalho verde-escuro */
+.preco-table td.col-fornecedor.vencedor { background: #e8f5e9; }
+.preco-table th.col-fornecedor.vencedor { background: #005000; color: #fff; }
+
+[data-theme="dark"] .preco-table td.col-fornecedor.vencedor { background: rgba(26,107,53,.22); }
 
 .preco-table .col-min { background: #FFFDE7 !important; color: #E65100 !important; font-weight: 700; }
 .preco-table .col-fornecedor.vencedor.col-min { background: #C8E6C9 !important; color: #1B5E20 !important; }
