@@ -442,6 +442,10 @@ textarea::placeholder {
   opacity: .75;
 }
 
+/* Ao focar o campo, a sugestão some imediatamente — nada a "apagar" */
+input:focus::placeholder,
+textarea:focus::placeholder { color: transparent; }
+
 .form-group textarea { resize: vertical; min-height: 80px; }
 
 /* ── Itens do formulário ──────────────────────────────── */
