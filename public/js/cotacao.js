@@ -71,7 +71,7 @@ function fornecedorCompleto(fId) {
   });
 }
 
-// Completos ordenados por valor crescente → incompletos → pesquisa na internet → declínio sempre no final
+// Completos ordenados por valor crescente → incompletos → pesquisa na internet → pesquisa compra pública → declínio sempre no final
 function fornecedoresOrdenados() {
   const sortByTotal = arr => [...arr].sort((a, b) => {
     const ta = totaisForn[a.id] || 0;
@@ -81,12 +81,13 @@ function fornecedoresOrdenados() {
     if (tb === 0) return -1;
     return ta - tb;
   });
-  const ativos      = fornecedores.filter(f => !f.declinio && !f.pesquisa_internet);
-  const pesquisas   = fornecedores.filter(f => !f.declinio &&  f.pesquisa_internet);
-  const declinados  = fornecedores.filter(f =>  f.declinio);
-  const completos   = ativos.filter(f =>  fornecedorCompleto(f.id));
-  const incompletos = ativos.filter(f => !fornecedorCompleto(f.id));
-  return [...sortByTotal(completos), ...incompletos, ...sortByTotal(pesquisas), ...declinados];
+  const ativos       = fornecedores.filter(f => !f.declinio && !f.pesquisa_internet && !f.pesquisa_compra_publica);
+  const pesqInternet = fornecedores.filter(f => !f.declinio &&  f.pesquisa_internet);
+  const pesqCompras  = fornecedores.filter(f => !f.declinio && !f.pesquisa_internet && f.pesquisa_compra_publica);
+  const declinados   = fornecedores.filter(f =>  f.declinio);
+  const completos    = ativos.filter(f =>  fornecedorCompleto(f.id));
+  const incompletos  = ativos.filter(f => !fornecedorCompleto(f.id));
+  return [...sortByTotal(completos), ...incompletos, ...sortByTotal(pesqInternet), ...sortByTotal(pesqCompras), ...declinados];
 }
 
 // ── Carregar dados ────────────────────────────────────────────────────────────
@@ -220,10 +221,11 @@ function renderFornecedoresInfo() {
           html += `<td class="${cls} col-declinio" rowspan="${campos.length}" style="text-align:center;vertical-align:middle;line-height:1.8;"><strong style="display:block;text-transform:uppercase;font-size:12px;letter-spacing:.4px;">Declínio</strong><strong style="display:block;margin-top:4px;">${f.nome || '—'}</strong></td>`;
         }
         // ci > 0: coberto pelo rowspan — sem <td>
-      } else if (f.pesquisa_internet) {
+      } else if (f.pesquisa_internet || f.pesquisa_compra_publica) {
         if (ci === 0) {
           // Uma célula cobrindo TODAS as linhas — textos juntos e centralizados
-          html += `<td class="${cls}" rowspan="${campos.length}" style="text-align:center;vertical-align:middle;line-height:1.8;"><strong style="display:block;text-transform:uppercase;font-size:12px;letter-spacing:.4px;">Pesquisa na Internet</strong><strong style="display:block;margin-top:4px;">${f.nome || '—'}</strong></td>`;
+          const rotulo = f.pesquisa_internet ? 'Pesquisa na Internet' : 'Pesquisa Compra Pública';
+          html += `<td class="${cls}" rowspan="${campos.length}" style="text-align:center;vertical-align:middle;line-height:1.8;"><strong style="display:block;text-transform:uppercase;font-size:12px;letter-spacing:.4px;">${rotulo}</strong><strong style="display:block;margin-top:4px;">${f.nome || '—'}</strong></td>`;
         }
         // ci > 0: coberto pelo rowspan — sem <td>
       } else {
@@ -460,10 +462,11 @@ function atualizarPrintBlock() {
             h += `<td class="${cls} prt-declinio" colspan="2" rowspan="${totalInfoRows}" style="text-align:center;vertical-align:middle;"><strong style="display:block;text-transform:uppercase;font-size:8px;letter-spacing:.4px;">Declínio</strong><strong style="display:block;margin-top:2px;">${f.nome || '—'}</strong></td>`;
           }
           // demais linhas cobertas pelo rowspan — sem <td>
-        } else if (f.pesquisa_internet) {
+        } else if (f.pesquisa_internet || f.pesquisa_compra_publica) {
           if (rf.key === 'nome') {
             const totalInfoRows = rightFields.filter(r => r != null).length;
-            h += `<td class="${cls}" colspan="2" rowspan="${totalInfoRows}" style="text-align:center;vertical-align:middle;"><strong style="display:block;text-transform:uppercase;font-size:8px;letter-spacing:.4px;">Pesquisa na Internet</strong><strong style="display:block;margin-top:2px;">${f.nome || '—'}</strong></td>`;
+            const rotulo = f.pesquisa_internet ? 'Pesquisa na Internet' : 'Pesquisa Compra Pública';
+            h += `<td class="${cls}" colspan="2" rowspan="${totalInfoRows}" style="text-align:center;vertical-align:middle;"><strong style="display:block;text-transform:uppercase;font-size:8px;letter-spacing:.4px;">${rotulo}</strong><strong style="display:block;margin-top:2px;">${f.nome || '—'}</strong></td>`;
           }
           // demais linhas cobertas pelo rowspan — sem <td>
         } else {
