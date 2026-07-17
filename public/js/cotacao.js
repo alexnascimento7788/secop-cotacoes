@@ -337,7 +337,8 @@ function renderTabelaPrecos() {
   const footerRow = (label, key) => {
     let r = `<tr class="row-rodape"><td class="col-fixed" colspan="4">${label}</td>`;
     fOrds.forEach(f => {
-      r += `<td class="${fornCls(f.id)}" colspan="2">${f[key] || '—'}</td>`;
+      const isMin = f.id === minFornId && !!f[key];
+      r += `<td class="${fornCls(f.id)}${isMin ? ' col-min' : ''}" colspan="2">${f[key] || '—'}</td>`;
     });
     return r + '</tr>';
   };
@@ -355,7 +356,8 @@ function renderTabelaPrecos() {
     let r = `<tr class="row-rodape"><td class="col-fixed" colspan="4">${label}</td>`;
     fOrds.forEach(f => {
       const v = f[key] ?? (totaisForn[f.id] > 0 ? totaisForn[f.id] : null);
-      r += `<td class="${fornCls(f.id)}" colspan="2">${v != null ? fmtMoeda(v) : '—'}</td>`;
+      const isMin = f.id === minFornId && v != null;
+      r += `<td class="${fornCls(f.id)}${isMin ? ' col-min' : ''}" colspan="2">${v != null ? fmtMoeda(v) : '—'}</td>`;
     });
     return r + '</tr>';
   };
@@ -532,15 +534,18 @@ function atualizarPrintBlock() {
   };
   h += secHdrPrint('CONDIÇÕES GERAIS');
 
-  const fRow = (label, key) => {
+  const fRow = (label, key, destacarMin = false) => {
     let r = `<tr><td class="prt-lbl" colspan="4">${label}</td>`;
-    fOrds.forEach(f => { r += `<td${cellCls(f.id, false)} colspan="2">${f[key] || '—'}</td>`; });
+    fOrds.forEach(f => {
+      const isMin = destacarMin && f.id === minFornId && !!f[key];
+      r += `<td${cellCls(f.id, isMin)} colspan="2">${f[key] || '—'}</td>`;
+    });
     return r + '</tr>';
   };
 
   h += fRow('Observações',           'observacoes');
-  h += fRow('Condição de Pagamento', 'prazo_pagamento');
-  h += fRow('Prazo de Entrega',      'prazo_entrega');
+  h += fRow('Condição de Pagamento', 'prazo_pagamento', true);
+  h += fRow('Prazo de Entrega',      'prazo_entrega',   true);
 
   // ── Incluso Frete
   h += `<tr><td class="prt-lbl" colspan="4">Incluso Frete</td>`;
@@ -554,14 +559,15 @@ function atualizarPrintBlock() {
   h += `</tr>`;
 
   h += secHdrPrint('GARANTIA');
-  h += fRow('Prazo de Garantia', 'prazo_garantia');
+  h += fRow('Prazo de Garantia', 'prazo_garantia', true);
   h += secHdrPrint('HISTÓRICO DE NEGOCIAÇÃO');
 
   const mRow = (label, key) => {
     let r = `<tr><td class="prt-lbl" colspan="4">${label}</td>`;
     fOrds.forEach(f => {
       const v = f[key] ?? (totaisForn[f.id] > 0 ? totaisForn[f.id] : null);
-      r += `<td${cellCls(f.id, false)} colspan="2">${v != null ? fmtMoeda(v) : '—'}</td>`;
+      const isMin = f.id === minFornId && v != null;
+      r += `<td${cellCls(f.id, isMin)} colspan="2">${v != null ? fmtMoeda(v) : '—'}</td>`;
     });
     return r + '</tr>';
   };
