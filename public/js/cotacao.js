@@ -563,9 +563,15 @@ function atualizarPrintBlock() {
     return r + '</tr>';
   };
 
+  const spacerRow = () => {
+    let r = `<tr style="height:10px;"><td class="prt-lbl" colspan="4"></td>`;
+    fOrds.forEach(f => { r += `<td${cellCls(f.id, false)} colspan="2"></td>`; });
+    return r + '</tr>';
+  };
+
   h += mRow('Proposta Inicial', 'proposta_inicial');
-  h += `<tr style="height:10px;"><td colspan="${totalCols}"></td></tr>`;
-  h += `<tr style="height:10px;"><td colspan="${totalCols}"></td></tr>`;
+  h += spacerRow();
+  h += spacerRow();
   h += mRow('Proposta Final',   'proposta_final');
 
   // ── Proposta Vencedora
