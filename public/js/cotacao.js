@@ -71,7 +71,7 @@ function fornecedorCompleto(fId) {
   });
 }
 
-// Completos ordenados por valor crescente → incompletos → declínio sempre no final
+// Completos ordenados por valor crescente → incompletos → pesquisa na internet → declínio sempre no final
 function fornecedoresOrdenados() {
   const sortByTotal = arr => [...arr].sort((a, b) => {
     const ta = totaisForn[a.id] || 0;
@@ -81,11 +81,12 @@ function fornecedoresOrdenados() {
     if (tb === 0) return -1;
     return ta - tb;
   });
-  const ativos      = fornecedores.filter(f => !f.declinio);
+  const ativos      = fornecedores.filter(f => !f.declinio && !f.pesquisa_internet);
+  const pesquisas   = fornecedores.filter(f => !f.declinio &&  f.pesquisa_internet);
   const declinados  = fornecedores.filter(f =>  f.declinio);
   const completos   = ativos.filter(f =>  fornecedorCompleto(f.id));
   const incompletos = ativos.filter(f => !fornecedorCompleto(f.id));
-  return [...sortByTotal(completos), ...incompletos, ...declinados];
+  return [...sortByTotal(completos), ...incompletos, ...sortByTotal(pesquisas), ...declinados];
 }
 
 // ── Carregar dados ────────────────────────────────────────────────────────────
