@@ -435,6 +435,13 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 .form-group select:focus,
 .form-group textarea:focus { border-color: var(--verde); }
 
+/* Placeholders bem mais claros que texto digitado, para não confundir com dado preenchido */
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-subtle);
+  opacity: .75;
+}
+
 .form-group textarea { resize: vertical; min-height: 80px; }
 
 /* ── Itens do formulário ──────────────────────────────── */
