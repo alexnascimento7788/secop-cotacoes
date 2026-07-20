@@ -412,3 +412,7 @@ async function importarExcel(input) {
 // ── Inicialização ─────────────────────────────────────────────────────────────
 
 carregarTiposContratacao().then(carregarProcessoParaEdicao);
+initDatalistAutocomplete('objeto',             'objeto');
+initDatalistAutocomplete('setor_solicitante',  'setor_solicitante');
+initDatalistAutocomplete('responsavel',        'responsavel');
+initSuggestAutocomplete('descricao', 'descricao');

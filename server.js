@@ -476,6 +476,34 @@ app.delete('/api/tipos-contratacao/:id', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Autocomplete (histórico de valores já digitados) ───────────────────────────
+
+const AUTOCOMPLETE_FIELDS = {
+  objeto:                 { table: 'processos',    col: 'objeto' },
+  descricao:              { table: 'processos',    col: 'descricao' },
+  setor_solicitante:      { table: 'processos',    col: 'setor_solicitante' },
+  responsavel:            { table: 'processos',    col: 'responsavel' },
+  observacoes:            { table: 'processos',    col: 'observacoes' },
+  observacoes2:           { table: 'processos',    col: 'observacoes2' },
+  fornecedor_nome:        { table: 'fornecedores', col: 'nome' },
+  fornecedor_contato:     { table: 'fornecedores', col: 'contato' },
+  fornecedor_observacoes: { table: 'fornecedores', col: 'observacoes' },
+  prazo_entrega:          { table: 'fornecedores', col: 'prazo_entrega' },
+  prazo_pagamento:        { table: 'fornecedores', col: 'prazo_pagamento' },
+  prazo_garantia:         { table: 'fornecedores', col: 'prazo_garantia' },
+};
+
+app.get('/api/autocomplete/:campo', (req, res) => {
+  const def = AUTOCOMPLETE_FIELDS[req.params.campo];
+  if (!def) return res.status(404).json({ error: 'Campo desconhecido' });
+  const rows = db.prepare(`
+    SELECT ${def.col} AS v, COUNT(*) AS n FROM ${def.table}
+    WHERE ${def.col} IS NOT NULL AND TRIM(${def.col}) != ''
+    GROUP BY ${def.col} ORDER BY n DESC, ${def.col} ASC LIMIT 200
+  `).all();
+  res.json(rows.map(r => r.v));
+});
+
 // ── Setores (lista única para filtros) ────────────────────────────────────────
 
 app.get('/api/setores', (req, res) => {

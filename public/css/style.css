@@ -708,6 +708,34 @@ textarea:focus::placeholder { color: transparent; }
 }
 .obs-area textarea:focus { border-color: var(--verde); }
 
+/* ── Autocomplete (sugestões de histórico) ───────────────────────────────── */
+.autocomplete-panel {
+  display: none;
+  position: absolute;
+  left: 0; right: 0; top: 100%;
+  margin-top: 3px;
+  z-index: 50;
+  background: var(--surface);
+  border: 1px solid var(--cinza-b);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.14);
+  max-height: 190px;
+  overflow-y: auto;
+}
+.autocomplete-panel.open { display: block; }
+.autocomplete-item {
+  padding: 7px 11px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text);
+  cursor: pointer;
+  white-space: pre-wrap;
+  border-bottom: 1px solid var(--cinza-b);
+}
+.autocomplete-item:last-child { border-bottom: none; }
+.autocomplete-item:hover,
+.autocomplete-item.highlighted { background: var(--surface-2); }
+
 /* ── Action bar ───────────────────────────────────────── */
 .action-bar {
   display: flex;

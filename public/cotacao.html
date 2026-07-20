@@ -118,10 +118,16 @@
 
       <!-- ═══ OBSERVAÇÕES ═══ -->
       <div class="obs-area no-print">
-        <label>OBS</label>
-        <textarea id="obs-geral" rows="2" placeholder="Ex: Os orçamentos vieram prontos, apenas elaboramos o QC."></textarea>
-        <label style="margin-top:10px;">OBS — Portal de Compras Governamentais</label>
-        <textarea id="obs-portal" rows="2" placeholder="Pesquisa realizada no Portal de Compras Governamentais (comprasnet.gov.br)..."></textarea>
+        <label>
+          <span id="lbl-obs-geral">OBS-1</span>
+          <button type="button" onclick="editarObsLabel('geral')" title="Renomear" style="margin-left:4px;background:none;border:none;cursor:pointer;font-size:10px;color:#aaa;padding:0;line-height:1;">✏</button>
+        </label>
+        <textarea id="obs-geral" rows="2" spellcheck="true" lang="pt-BR" placeholder="Ex: Os orçamentos vieram prontos, apenas elaboramos o QC."></textarea>
+        <label style="margin-top:10px;">
+          <span id="lbl-obs-portal">OBS-2</span>
+          <button type="button" onclick="editarObsLabel('portal')" title="Renomear" style="margin-left:4px;background:none;border:none;cursor:pointer;font-size:10px;color:#aaa;padding:0;line-height:1;">✏</button>
+        </label>
+        <textarea id="obs-portal" rows="2" spellcheck="true" lang="pt-BR" placeholder="Pesquisa realizada no Portal de Compras Governamentais (comprasnet.gov.br)..."></textarea>
       </div>
 
     </div>
@@ -131,6 +137,7 @@
 <div id="toast"></div>
 <script src="js/pwa.js"></script>
 <script src="js/auth.js"></script>
+<script src="js/autocomplete.js"></script>
 <script src="js/cotacao.js"></script>
 </body>
 </html>

@@ -503,3 +503,9 @@ tipoFlags.forEach(id => {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 carregar();
+initDatalistAutocomplete('f-nome',     'fornecedor_nome');
+initDatalistAutocomplete('f-contato',  'fornecedor_contato');
+initDatalistAutocomplete('f-prazo-ent','prazo_entrega');
+initDatalistAutocomplete('f-prazo-pag','prazo_pagamento');
+initDatalistAutocomplete('f-prazo-gar','prazo_garantia');
+initSuggestAutocomplete('f-observacoes', 'fornecedor_observacoes');

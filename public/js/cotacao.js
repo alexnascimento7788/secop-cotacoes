@@ -47,6 +47,25 @@ function getColLabel(key) {
   return localStorage.getItem(`secop_col_${key}_${processoId}`) || (key === 'unit' ? 'R$ UNIT/MÊS' : 'R$ TOTAL/ANO');
 }
 
+// ── Labels das observações (editáveis aqui mesmo, salvos por processo) ────────
+
+function getObsLabel(key) {
+  return localStorage.getItem(`secop_obs_${key}_${processoId}`) || (key === 'geral' ? 'OBS-1' : 'OBS-2');
+}
+
+function aplicarLabelsObs() {
+  document.getElementById('lbl-obs-geral').textContent  = getObsLabel('geral');
+  document.getElementById('lbl-obs-portal').textContent = getObsLabel('portal');
+}
+
+function editarObsLabel(key) {
+  const novo = prompt('Nome da observação:', getObsLabel(key));
+  if (novo !== null && novo.trim()) {
+    localStorage.setItem(`secop_obs_${key}_${processoId}`, novo.trim());
+    aplicarLabelsObs();
+  }
+}
+
 // ── Totais e ordenação por valor crescente ────────────────────────────────────
 
 function computarTotais() {
@@ -120,6 +139,7 @@ async function carregar() {
     aplicarPermissaoUI();
 
     document.getElementById('chk-menor-preco').checked = mostrarMenorPreco;
+    aplicarLabelsObs();
 
     data.precos.forEach(p => {
       precos[`${p.item_id}_${p.fornecedor_id}`] = {
@@ -595,8 +615,8 @@ function atualizarPrintBlock() {
   const obsPortal = (document.getElementById('obs-portal')?.value || '').trim();
   if (obsGeral || obsPortal) {
     h += `<div class="prt-obs">`;
-    if (obsGeral)  h += `<p><strong>OBS:</strong> ${obsGeral}</p>`;
-    if (obsPortal) h += `<p><strong>OBS — Portal de Compras Governamentais:</strong> ${obsPortal}</p>`;
+    if (obsGeral)  h += `<p><strong>${getObsLabel('geral')}:</strong> ${obsGeral}</p>`;
+    if (obsPortal) h += `<p><strong>${getObsLabel('portal')}:</strong> ${obsPortal}</p>`;
     h += `</div>`;
   }
 
@@ -680,3 +700,5 @@ document.getElementById('btn-print').addEventListener('click', () => {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 carregar();
+initSuggestAutocomplete('obs-geral',  'observacoes');
+initSuggestAutocomplete('obs-portal', 'observacoes2');
