@@ -735,6 +735,15 @@ textarea:focus::placeholder { color: transparent; }
 .autocomplete-item:last-child { border-bottom: none; }
 .autocomplete-item:hover,
 .autocomplete-item.highlighted { background: var(--surface-2); }
+.autocomplete-item strong { color: var(--verde); }
+.autocomplete-tag {
+  float: right;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  color: var(--text-subtle);
+}
 
 /* ── Action bar ───────────────────────────────────────── */
 .action-bar {

@@ -504,6 +504,37 @@ app.get('/api/autocomplete/:campo', (req, res) => {
   res.json(rows.map(r => r.v));
 });
 
+// Frequência de palavras (não de frases inteiras) — permite prever/completar a
+// palavra em digitação mesmo quando ainda há pouco histórico de frases completas.
+const PALAVRA_RE = /[\p{L}\p{N}]+/gu;
+
+app.get('/api/autocomplete/:campo/palavras', (req, res) => {
+  const def = AUTOCOMPLETE_FIELDS[req.params.campo];
+  if (!def) return res.status(404).json({ error: 'Campo desconhecido' });
+  const rows = db.prepare(`
+    SELECT ${def.col} AS v FROM ${def.table}
+    WHERE ${def.col} IS NOT NULL AND TRIM(${def.col}) != ''
+  `).all();
+
+  const freq = new Map();
+  for (const row of rows) {
+    const vistas = new Set(); // conta no máx. 1x por registro, pra 1 observação longa não dominar o ranking
+    for (const m of String(row.v).matchAll(PALAVRA_RE)) {
+      const palavra = m[0].toLowerCase();
+      if (palavra.length < 3 || vistas.has(palavra)) continue;
+      vistas.add(palavra);
+      freq.set(palavra, (freq.get(palavra) || 0) + 1);
+    }
+  }
+
+  const palavras = [...freq.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 500)
+    .map(([palavra]) => palavra);
+
+  res.json(palavras);
+});
+
 // ── Setores (lista única para filtros) ────────────────────────────────────────
 
 app.get('/api/setores', (req, res) => {
