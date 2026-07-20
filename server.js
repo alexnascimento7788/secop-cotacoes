@@ -4,6 +4,13 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { db, setupDb, gerarNumeroProcesso } = require('./database');
 
+// Dicionário geral de português (já vem ordenado por frequência de uso do idioma)
+// — recorte das mais comuns, serve de apoio ao autocomplete quando o histórico
+// real da cotação ainda não tem a palavra digitada.
+const DICIONARIO_PT = require('an-array-of-portuguese-words')
+  .filter(w => w.length >= 3)
+  .slice(0, 30000);
+
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -533,6 +540,10 @@ app.get('/api/autocomplete/:campo/palavras', (req, res) => {
     .map(([palavra]) => palavra);
 
   res.json(palavras);
+});
+
+app.get('/api/dicionario-pt', (req, res) => {
+  res.json(DICIONARIO_PT);
 });
 
 // ── Setores (lista única para filtros) ────────────────────────────────────────

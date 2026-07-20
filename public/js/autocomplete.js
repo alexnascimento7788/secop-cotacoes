@@ -25,6 +25,7 @@ async function _fetchJSON(url) {
 
 function _fetchHistorico(campo) { return _fetchJSON(`/api/autocomplete/${campo}`); }
 function _fetchPalavras(campo)  { return _fetchJSON(`/api/autocomplete/${campo}/palavras`); }
+function _fetchDicionario()     { return _fetchJSON('/api/dicionario-pt'); } // buscado 1x só, cacheado por URL
 
 // Palavra (letras/números) que termina exatamente no cursor
 function _palavraAtual(el) {
@@ -65,8 +66,10 @@ async function initDatalistAutocomplete(inputId, campo) {
 async function initSuggestAutocomplete(fieldId, campo) {
   const el = document.getElementById(fieldId);
   if (!el) return;
-  const [frases, palavras] = await Promise.all([_fetchHistorico(campo), _fetchPalavras(campo)]);
-  if (!frases.length && !palavras.length) return;
+  const [frases, palavras, dicionario] = await Promise.all([
+    _fetchHistorico(campo), _fetchPalavras(campo), _fetchDicionario()
+  ]);
+  if (!frases.length && !palavras.length && !dicionario.length) return;
 
   let wrap = el.parentElement;
   if (!wrap.classList.contains('autocomplete-wrap')) {
@@ -95,7 +98,8 @@ async function initSuggestAutocomplete(fieldId, campo) {
       const cls = `autocomplete-item${i === highlighted ? ' highlighted' : ''}`;
       if (item.tipo === 'palavra') {
         const resto = item.texto.slice(item.prefixo.length);
-        return `<div class="${cls}" data-i="${i}"><strong>${item.prefixo}</strong>${resto} <span class="autocomplete-tag">completar palavra</span></div>`;
+        const tag = item.fonte === 'historico' ? 'já usado aqui' : 'sugestão';
+        return `<div class="${cls}" data-i="${i}"><strong>${item.prefixo}</strong>${resto} <span class="autocomplete-tag">${tag}</span></div>`;
       }
       const texto = item.texto.length > 140 ? item.texto.slice(0, 140) + '…' : item.texto;
       return `<div class="${cls}" data-i="${i}">${texto.replace(/</g, '&lt;')}</div>`;
@@ -104,9 +108,19 @@ async function initSuggestAutocomplete(fieldId, campo) {
 
   function abrir() {
     const prefixo = _palavraAtual(el).toLowerCase();
-    const itensPalavra = prefixo.length >= 2
-      ? palavras.filter(p => p.startsWith(prefixo) && p !== prefixo).slice(0, 5).map(p => ({ tipo: 'palavra', texto: p, prefixo }))
-      : [];
+    let itensPalavra = [];
+    if (prefixo.length >= 2) {
+      const doHistorico = palavras.filter(p => p.startsWith(prefixo) && p !== prefixo).slice(0, 5);
+      const jaTem = new Set(doHistorico);
+      const vagas = 5 - doHistorico.length;
+      const doDicionario = vagas > 0
+        ? dicionario.filter(p => p.startsWith(prefixo) && p !== prefixo && !jaTem.has(p)).slice(0, vagas)
+        : [];
+      itensPalavra = [
+        ...doHistorico.map(p => ({ tipo: 'palavra', texto: p, prefixo, fonte: 'historico' })),
+        ...doDicionario.map(p => ({ tipo: 'palavra', texto: p, prefixo, fonte: 'dicionario' })),
+      ];
+    }
 
     const termoCompleto = el.value.trim().toLowerCase();
     const restante = 6 - itensPalavra.length;
