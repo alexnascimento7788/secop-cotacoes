@@ -571,11 +571,9 @@ function atualizarPrintBlock() {
   // ── Incluso Frete
   h += `<tr><td class="prt-lbl" colspan="4">Incluso Frete</td>`;
   fOrds.forEach(f => {
-    const v        = f.frete || '';
-    const incluso  = v === 'Sim' || v === 'Incluso';
-    const simMark  = incluso ? 'X' : ' ';
-    const naoMark  = (!incluso && v !== '') ? 'X' : ' ';
-    h += `<td${cellCls(f.id, false)} colspan="2">Sim (${simMark}) — Não (${naoMark})</td>`;
+    const v = (f.frete === 'Incluso' ? 'Sim' : f.frete) || ''; // "Incluso" é valor legado
+    const mark = opt => v === opt ? 'X' : ' ';
+    h += `<td${cellCls(f.id, false)} colspan="2">Sim (${mark('Sim')}) — Não (${mark('Não')}) — CIF (${mark('CIF')}) — FOB (${mark('FOB')})</td>`;
   });
   h += `</tr>`;
 

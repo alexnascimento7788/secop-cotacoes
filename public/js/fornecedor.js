@@ -97,7 +97,8 @@ function aplicarPermissaoUI() {
   document.getElementById('content').prepend(aviso);
 }
 
-const FRETE_INCLUSO_VALS = ['Sim', 'Incluso'];
+// Opções atuais: Sim / Não / CIF / FOB. "Incluso" é valor legado (antes só existia Sim/Não).
+const FRETE_LEGACY_MAP = { 'Incluso': 'Sim' };
 
 // ── Carregar processo ─────────────────────────────────────────────────────────
 
@@ -200,11 +201,9 @@ async function editarFornecedor(id) {
     }
     document.getElementById('f-data-proposta').value = dp;
 
-    // Frete Sim/Não — compatível com valores antigos (Incluso → Sim, etc.)
-    const freteVal = f.frete || '';
-    const freteSimNao = FRETE_INCLUSO_VALS.includes(freteVal) ? 'Sim'
-      : (freteVal && freteVal !== '' ? 'Não' : '');
-    document.querySelectorAll('input[name="f-frete"]').forEach(r => { r.checked = r.value === freteSimNao; });
+    // Frete: Sim / Não / CIF / FOB — compatível com valores antigos (Incluso → Sim)
+    const freteVal = FRETE_LEGACY_MAP[f.frete] || f.frete || '';
+    document.querySelectorAll('input[name="f-frete"]').forEach(r => { r.checked = r.value === freteVal; });
 
     document.getElementById('f-prazo-ent').value   = f.prazo_entrega   || '';
     document.getElementById('f-prazo-pag').value   = f.prazo_pagamento || '';
