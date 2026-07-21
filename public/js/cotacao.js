@@ -11,6 +11,14 @@ function fmtBr(iso) {
   return `${d[2]}/${d[1]}/${d[0]}`;
 }
 
+// "Incluso Frete" (Sim/Não) e "Termo" (CIF/FOB) são marcações independentes
+function fmtFrete(f) {
+  const partes = [];
+  if (f.frete) partes.push(f.frete === 'Incluso' ? 'Sim' : f.frete);
+  if (f.frete_termo) partes.push(f.frete_termo);
+  return partes.length ? partes.join(' — ') : '—';
+}
+
 function fmtMoeda(v) {
   if (v === null || v === undefined || v === '' || isNaN(Number(v))) return '';
   return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -250,7 +258,8 @@ function renderFornecedoresInfo() {
         }
         // ci > 0: coberto pelo rowspan — sem <td>
       } else {
-        const val = c.fmt ? (c.fmt(f[c.key]) || '—') : (f[c.key] || '—');
+        const val = c.key === 'frete' ? fmtFrete(f)
+          : c.fmt ? (c.fmt(f[c.key]) || '—') : (f[c.key] || '—');
         html += `<td class="${cls}">${val}</td>`;
       }
     });
@@ -493,7 +502,7 @@ function atualizarPrintBlock() {
           }
           // demais linhas cobertas pelo rowspan — sem <td>
         } else {
-          let fv = f[rf.key] || '—';
+          let fv = rf.key === 'frete' ? fmtFrete(f) : (f[rf.key] || '—');
           if (rf.fmt) fv = rf.fmt(fv) || '—';
           h += `<td class="${cls}" colspan="2">${rf.label}: ${fv}</td>`;
         }
@@ -568,12 +577,13 @@ function atualizarPrintBlock() {
   h += fRow('Condição de Pagamento', 'prazo_pagamento', true);
   h += fRow('Prazo de Entrega',      'prazo_entrega',   true);
 
-  // ── Incluso Frete
+  // ── Incluso Frete (Sim/Não) e Termo (CIF/FOB) — marcações independentes
   h += `<tr><td class="prt-lbl" colspan="4">Incluso Frete</td>`;
   fOrds.forEach(f => {
     const v = (f.frete === 'Incluso' ? 'Sim' : f.frete) || ''; // "Incluso" é valor legado
-    const mark = opt => v === opt ? 'X' : ' ';
-    h += `<td${cellCls(f.id, false)} colspan="2">Sim (${mark('Sim')}) — Não (${mark('Não')}) — CIF (${mark('CIF')}) — FOB (${mark('FOB')})</td>`;
+    const t = f.frete_termo || '';
+    const mark = (val, opt) => val === opt ? 'X' : ' ';
+    h += `<td${cellCls(f.id, false)} colspan="2">Sim (${mark(v,'Sim')}) — Não (${mark(v,'Não')}) — CIF (${mark(t,'CIF')}) — FOB (${mark(t,'FOB')})</td>`;
   });
   h += `</tr>`;
 

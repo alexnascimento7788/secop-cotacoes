@@ -97,7 +97,7 @@ function aplicarPermissaoUI() {
   document.getElementById('content').prepend(aviso);
 }
 
-// Opções atuais: Sim / Não / CIF / FOB. "Incluso" é valor legado (antes só existia Sim/Não).
+// "Incluso Frete" (Sim/Não) é valor legado "Incluso" mapeado pra Sim; CIF/FOB é campo à parte.
 const FRETE_LEGACY_MAP = { 'Incluso': 'Sim' };
 
 // ── Carregar processo ─────────────────────────────────────────────────────────
@@ -201,9 +201,10 @@ async function editarFornecedor(id) {
     }
     document.getElementById('f-data-proposta').value = dp;
 
-    // Frete: Sim / Não / CIF / FOB — compatível com valores antigos (Incluso → Sim)
+    // Incluso Frete (Sim/Não) e Termo (CIF/FOB) são marcações independentes
     const freteVal = FRETE_LEGACY_MAP[f.frete] || f.frete || '';
     document.querySelectorAll('input[name="f-frete"]').forEach(r => { r.checked = r.value === freteVal; });
+    document.querySelectorAll('input[name="f-frete-termo"]').forEach(r => { r.checked = r.value === (f.frete_termo || ''); });
 
     document.getElementById('f-prazo-ent').value   = f.prazo_entrega   || '';
     document.getElementById('f-prazo-pag').value   = f.prazo_pagamento || '';
@@ -284,6 +285,7 @@ function limparFormulario() {
   document.getElementById('f-data-proposta').value = '';
   document.getElementById('f-observacoes').value  = '';
   document.querySelectorAll('input[name="f-frete"]').forEach(r => { r.checked = false; });
+  document.querySelectorAll('input[name="f-frete-termo"]').forEach(r => { r.checked = false; });
   document.getElementById('f-pesquisa-internet').checked = false;
   document.getElementById('f-pesquisa-compra-publica').checked = false;
   document.getElementById('f-declinio').checked = false;
@@ -410,7 +412,8 @@ function recalcTotal() {
 // ── Salvar fornecedor (lógica extraída para reuso) ────────────────────────────
 
 async function salvarFornecedorAtual() {
-  const frete = document.querySelector('input[name="f-frete"]:checked')?.value || '';
+  const frete       = document.querySelector('input[name="f-frete"]:checked')?.value || '';
+  const frete_termo = document.querySelector('input[name="f-frete-termo"]:checked')?.value || '';
 
   const payload = {
     nome:             document.getElementById('f-nome').value.trim(),
@@ -420,6 +423,7 @@ async function salvarFornecedorAtual() {
     email:            document.getElementById('f-email').value.trim(),
     data_proposta:    document.getElementById('f-data-proposta').value,
     frete,
+    frete_termo,
     prazo_entrega:    document.getElementById('f-prazo-ent').value.trim(),
     prazo_pagamento:  document.getElementById('f-prazo-pag').value.trim(),
     prazo_garantia:   document.getElementById('f-prazo-gar').value.trim(),
