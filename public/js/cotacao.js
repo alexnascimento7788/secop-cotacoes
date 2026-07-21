@@ -11,11 +11,22 @@ function fmtBr(iso) {
   return `${d[2]}/${d[1]}/${d[0]}`;
 }
 
-// "Incluso Frete" (Sim/Não) e "Termo" (CIF/FOB) são marcações independentes
+// "Incluso Frete" (Sim/Não) e "Termo" (CIF/FOB) são marcações independentes.
+// Normaliza também registros salvos na janela entre v3.8.2 e v3.8.3, quando
+// CIF/FOB ainda podiam vir gravados direto em "frete" (sem frete_termo existir).
+function normalizarFrete(f) {
+  let frete = f.frete || '';
+  let termo = f.frete_termo || '';
+  if (!termo && (frete === 'CIF' || frete === 'FOB')) { termo = frete; frete = ''; }
+  else if (frete === 'Incluso') { frete = 'Sim'; }
+  return { frete, termo };
+}
+
 function fmtFrete(f) {
+  const { frete, termo } = normalizarFrete(f);
   const partes = [];
-  if (f.frete) partes.push(f.frete === 'Incluso' ? 'Sim' : f.frete);
-  if (f.frete_termo) partes.push(f.frete_termo);
+  if (frete) partes.push(frete);
+  if (termo) partes.push(termo);
   return partes.length ? partes.join(' — ') : '—';
 }
 
@@ -580,8 +591,7 @@ function atualizarPrintBlock() {
   // ── Incluso Frete (Sim/Não) e Termo (CIF/FOB) — marcações independentes
   h += `<tr><td class="prt-lbl" colspan="4">Incluso Frete</td>`;
   fOrds.forEach(f => {
-    const v = (f.frete === 'Incluso' ? 'Sim' : f.frete) || ''; // "Incluso" é valor legado
-    const t = f.frete_termo || '';
+    const { frete: v, termo: t } = normalizarFrete(f);
     const mark = (val, opt) => val === opt ? 'X' : ' ';
     h += `<td${cellCls(f.id, false)} colspan="2">Sim (${mark(v,'Sim')}) — Não (${mark(v,'Não')}) — CIF (${mark(t,'CIF')}) — FOB (${mark(t,'FOB')})</td>`;
   });

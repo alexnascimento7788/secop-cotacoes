@@ -97,8 +97,16 @@ function aplicarPermissaoUI() {
   document.getElementById('content').prepend(aviso);
 }
 
-// "Incluso Frete" (Sim/Não) é valor legado "Incluso" mapeado pra Sim; CIF/FOB é campo à parte.
-const FRETE_LEGACY_MAP = { 'Incluso': 'Sim' };
+// "Incluso Frete" (Sim/Não) e "Termo" (CIF/FOB) são marcações independentes.
+// Normaliza também registros salvos na janela entre v3.8.2 e v3.8.3, quando
+// CIF/FOB ainda podiam vir gravados direto em "frete" (sem frete_termo existir).
+function normalizarFrete(f) {
+  let frete = f.frete || '';
+  let termo = f.frete_termo || '';
+  if (!termo && (frete === 'CIF' || frete === 'FOB')) { termo = frete; frete = ''; }
+  else if (frete === 'Incluso') { frete = 'Sim'; }
+  return { frete, termo };
+}
 
 // ── Carregar processo ─────────────────────────────────────────────────────────
 
@@ -202,9 +210,9 @@ async function editarFornecedor(id) {
     document.getElementById('f-data-proposta').value = dp;
 
     // Incluso Frete (Sim/Não) e Termo (CIF/FOB) são marcações independentes
-    const freteVal = FRETE_LEGACY_MAP[f.frete] || f.frete || '';
+    const { frete: freteVal, termo: termoVal } = normalizarFrete(f);
     document.querySelectorAll('input[name="f-frete"]').forEach(r => { r.checked = r.value === freteVal; });
-    document.querySelectorAll('input[name="f-frete-termo"]').forEach(r => { r.checked = r.value === (f.frete_termo || ''); });
+    document.querySelectorAll('input[name="f-frete-termo"]').forEach(r => { r.checked = r.value === termoVal; });
 
     document.getElementById('f-prazo-ent').value   = f.prazo_entrega   || '';
     document.getElementById('f-prazo-pag').value   = f.prazo_pagamento || '';
