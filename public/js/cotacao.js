@@ -5,7 +5,8 @@ const processoId = params.get('id');
 
 function fmtBr(iso) {
   if (!iso) return '—';
-  const d = iso.split('T')[0].split('-');
+  // Separador entre data e hora varia: 'T' em datas ISO, espaço em DATETIME do SQLite (criado_em)
+  const d = iso.split(/[T ]/)[0].split('-');
   if (d.length < 3) return iso;
   return `${d[2]}/${d[1]}/${d[0]}`;
 }
@@ -623,7 +624,7 @@ function atualizarPrintBlock() {
   // ── Rodapé de impressão
   const now = new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
   h += `<div class="prt-footer">
-    <span>CEASA Minas Centrais de Abastecimento de Minas Gerais</span>
+    <span>CeasaMinas Centrais de Abastecimento de Minas Gerais</span>
     <span>Gerado em: ${now}</span>
   </div>`;
 

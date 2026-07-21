@@ -483,6 +483,14 @@ textarea:focus::placeholder { color: transparent; }
 
 .form-group textarea { resize: vertical; min-height: 80px; }
 
+.form-group input:disabled,
+.form-group select:disabled,
+.form-group textarea:disabled {
+  background: var(--surface-2);
+  color: var(--text-subtle);
+  cursor: not-allowed;
+}
+
 /* ── Itens do formulário ──────────────────────────────── */
 .item-row {
   display: grid;
@@ -981,3 +989,16 @@ textarea:focus::placeholder { color: transparent; }
     padding-top: 3px;
   }
 }
+
+/* ── Modal genérico (confirmação, senha, etc.) ───────────────────────────── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5);
+  z-index: 1000; align-items: center; justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal-box {
+  background: var(--surface); border: 1px solid var(--cinza-b); border-radius: 12px;
+  padding: 28px; width: 100%; max-width: 360px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.3); color: var(--text);
+}
+.modal-box h3 { font-size: 15px; margin-bottom: 16px; color: var(--text); }

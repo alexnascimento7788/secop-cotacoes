@@ -5,7 +5,8 @@ const processoId = params.get('processo_id');
 
 function fmtBr(iso) {
   if (!iso) return '—';
-  const d = iso.split('T')[0].split('-');
+  // Separador entre data e hora varia: 'T' em datas ISO, espaço em DATETIME do SQLite (criado_em)
+  const d = iso.split(/[T ]/)[0].split('-');
   if (d.length < 3) return iso;
   return `${d[2]}/${d[1]}/${d[0]}`;
 }
@@ -60,6 +61,25 @@ let fornecedores  = [];
 let itens         = [];
 let currentFornId = null;
 let podeEditarForn = true;
+let fornecedorAtivo = false; // só true depois de clicar "+ Novo fornecedor" ou "Editar" — trava edição acidental antes disso
+
+function campoHabilitado() {
+  return podeEditarForn && fornecedorAtivo;
+}
+
+// Bloqueia/libera os campos estáticos do formulário (fora da tabela de preços,
+// que se regenera sozinha em renderTabelaPrecos usando campoHabilitado()).
+function aplicarBloqueioSelecao() {
+  if (!podeEditarForn) return; // aplicarPermissaoUI já cuida desse caso
+  const habilitado = fornecedorAtivo;
+  document.querySelectorAll('#forn-form-card input, #forn-form-card textarea')
+    .forEach(el => { el.disabled = !habilitado; });
+  document.getElementById('btn-salvar-forn').disabled = !habilitado;
+  if (!habilitado) {
+    document.getElementById('forn-form-title').textContent =
+      'Selecione "+ Novo fornecedor" ou clique em "Editar" num fornecedor da lista';
+  }
+}
 
 function aplicarPermissaoUI() {
   if (podeEditarForn) return;
@@ -107,6 +127,7 @@ async function carregar() {
     atualizarBtnQuadro();
     aplicarCabecalhosColuna();
     aplicarPermissaoUI();
+    aplicarBloqueioSelecao();
 
     document.getElementById('loader').style.display  = 'none';
     document.getElementById('content').style.display = 'block';
@@ -161,6 +182,8 @@ async function editarFornecedor(id) {
     const f = await res.json();
 
     currentFornId = f.id;
+    fornecedorAtivo = true;
+    aplicarBloqueioSelecao();
     document.getElementById('forn-form-title').textContent = `Editando: ${f.nome || 'Fornecedor'}`;
 
     document.getElementById('f-nome').value     = f.nome     || '';
@@ -209,18 +232,46 @@ async function editarFornecedor(id) {
 }
 
 // ── Remover fornecedor ────────────────────────────────────────────────────────
+// Confirmação reforçada com modal (em vez do confirm() nativo, fácil de clicar
+// sem prestar atenção) — o botão "Sim, remover" nunca fica com foco padrão.
 
-async function removerFornecedor(id, nome) {
-  if (!confirm(`Remover fornecedor "${nome}" e todos os seus preços?`)) return;
+let _removerPendente = null;
+
+function removerFornecedor(id, nome) {
+  _removerPendente = { id, nome };
+  document.getElementById('modal-remover-texto').textContent =
+    `Tem certeza que deseja remover "${nome}" e todos os preços já preenchidos para ele? Essa ação não pode ser desfeita.`;
+  document.getElementById('modal-remover-forn').classList.add('open');
+  setTimeout(() => document.getElementById('btn-cancelar-remover').focus(), 50);
+}
+
+function fecharModalRemover() {
+  _removerPendente = null;
+  document.getElementById('modal-remover-forn').classList.remove('open');
+}
+
+document.getElementById('btn-cancelar-remover').addEventListener('click', fecharModalRemover);
+document.getElementById('modal-remover-forn').addEventListener('click', e => {
+  if (e.target === document.getElementById('modal-remover-forn')) fecharModalRemover();
+});
+
+document.getElementById('btn-confirmar-remover').addEventListener('click', async () => {
+  if (!_removerPendente) return;
+  const { id } = _removerPendente;
+  fecharModalRemover();
   try {
     await fetch(`/api/fornecedores/${id}`, { method: 'DELETE' });
     toast('Fornecedor removido.', 'success');
     await recarregarFornecedores();
-    if (currentFornId === id) limparFormulario();
+    if (currentFornId === id) {
+      fornecedorAtivo = false;
+      limparFormulario();
+      aplicarBloqueioSelecao();
+    }
   } catch {
     toast('Erro ao remover fornecedor.', 'error');
   }
-}
+});
 
 // ── Limpar formulário ─────────────────────────────────────────────────────────
 
@@ -285,12 +336,12 @@ function renderTabelaPrecos(precosMap) {
         <td class="col-fixed">${item.unidade || ''}</td>
         <td class="col-fixed">${item.descricao}</td>
         <td><input type="text" class="preco-unit" data-item="${item.id}" data-qtd="${item.quantidade}"
-          data-had-price="${hadPrice ? '1' : '0'}" ${podeEditarForn ? '' : 'disabled'}
+          data-had-price="${hadPrice ? '1' : '0'}" ${campoHabilitado() ? '' : 'disabled'}
           value="${unit !== '' ? fmtMoeda(unit) : ''}" placeholder="R$ 0,00" /></td>
-        <td class="mode-btn-td"><button type="button" class="mode-cycle-btn" data-mode="${initialMode}" ${podeEditarForn ? '' : 'disabled'}
+        <td class="mode-btn-td"><button type="button" class="mode-cycle-btn" data-mode="${initialMode}" ${campoHabilitado() ? '' : 'disabled'}
           title="${MODE_TITLES[initialMode]}">${MODE_LABELS[initialMode]}</button></td>
         <td><input type="text" class="preco-total" data-item="${item.id}"
-          ${initialMode !== 'digitar' || !podeEditarForn ? 'readonly' : ''}
+          ${initialMode !== 'digitar' || !campoHabilitado() ? 'readonly' : ''}
           value="${tot !== '' ? fmtMoeda(tot) : ''}" placeholder="R$ 0,00" /></td>
       </tr>`;
   });
@@ -481,12 +532,18 @@ document.getElementById('btn-novo-forn').addEventListener('click', async () => {
   }
   // Sempre re-busca a lista do banco antes de limpar
   await recarregarFornecedores();
+  fornecedorAtivo = true;
   limparFormulario();
+  aplicarBloqueioSelecao();
 });
 
 // ── Cancelar ──────────────────────────────────────────────────────────────────
 
-document.getElementById('btn-cancelar').addEventListener('click', limparFormulario);
+document.getElementById('btn-cancelar').addEventListener('click', () => {
+  fornecedorAtivo = false;
+  limparFormulario();
+  aplicarBloqueioSelecao();
+});
 
 
 // ── Pesquisa Internet / Pesquisa Compra Pública / Declínio são mutuamente exclusivos ──
