@@ -890,6 +890,14 @@ textarea:focus::placeholder { color: transparent; }
 
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 
+  /* Impressão sempre em cores claras, mesmo com tema escuro ativo na tela */
+  :root, [data-theme="dark"] {
+    --text: #222222;
+    --cinza-t: #5a6478;
+    --text-muted: #888888;
+    --text-subtle: #aaaaaa;
+  }
+
   .no-print,
   .sidebar,
   .status-select,
