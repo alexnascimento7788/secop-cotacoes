@@ -101,10 +101,12 @@ function computarTotais() {
   });
 }
 
-// Fornecedor tem preço em todos os itens?
+// Fornecedor tem preço em todos os itens? Linhas extras (ex: TAXA) são
+// específicas de quem as criou — não contam pra completude dos demais fornecedores.
 function fornecedorCompleto(fId) {
-  if (!itens.length) return true;
-  return itens.every(item => {
+  const itensReais = itens.filter(i => !i.extra);
+  if (!itensReais.length) return true;
+  return itensReais.every(item => {
     const p = precos[`${item.id}_${fId}`] || {};
     return p.preco_total_ano != null || p.preco_unitario_mes != null;
   });
@@ -330,14 +332,14 @@ function renderTabelaPrecos() {
   thead.innerHTML = thRow + thSubRow;
 
   // ── Menor preço (fornecedor com menor valor total geral — exclui incompletos)
-  const withTot   = fOrds.map(f => ({ fId: f.id, v: totaisForn[f.id] || 0 })).filter(x => x.v > 0 && fornecedorCompleto(x.fId));
+  const withTot   = fOrds.map(f => ({ fId: f.id, v: totaisForn[f.id] || 0 })).filter(x => x.v !== 0 && fornecedorCompleto(x.fId));
   const minFornId = mostrarMenorPreco && withTot.length >= 2 ? withTot.reduce((a, b) => b.v < a.v ? b : a).fId : -1;
 
   // ── Linhas dos itens
   let rows = '';
   itens.forEach(item => {
-    let row = `<tr>
-      <td class="col-fixed">${item.item_num}</td>
+    let row = `<tr class="${item.extra ? 'row-extra' : ''}">
+      <td class="col-fixed">${item.extra ? 'EXTRA' : item.item_num}</td>
       <td class="col-fixed">${item.quantidade}</td>
       <td class="col-fixed">${item.unidade || ''}</td>
       <td class="col-fixed">${item.descricao}</td>`;
@@ -363,7 +365,7 @@ function renderTabelaPrecos() {
     const cls   = fornCls(f.id);
     const isMin = f.id === minFornId;
     const v     = totaisForn[f.id] || 0;
-    footer += `<td></td><td class="${cls}${isMin ? ' col-min' : ''}">${v > 0 ? fmtMoeda(v) : '—'}</td>`;
+    footer += `<td></td><td class="${cls}${isMin ? ' col-min' : ''}">${v !== 0 ? fmtMoeda(v) : '—'}</td>`;
   });
   footer += '</tr>';
 
@@ -451,7 +453,7 @@ function atualizarPrintBlock() {
   const ordinals  = ['1º','2º','3º','4º','5º','6º','7º','8º'];
   const fOrds     = fornecedoresOrdenados();
 
-  const withTot  = fOrds.map(f => ({ fId: f.id, v: totaisForn[f.id] || 0 })).filter(x => x.v > 0 && fornecedorCompleto(x.fId));
+  const withTot  = fOrds.map(f => ({ fId: f.id, v: totaisForn[f.id] || 0 })).filter(x => x.v !== 0 && fornecedorCompleto(x.fId));
   const minFornId = mostrarMenorPreco && withTot.length >= 2 ? withTot.reduce((a, b) => b.v < a.v ? b : a).fId : -1;
 
   const vc = (fId) => isVenc(fId);
@@ -535,7 +537,7 @@ function atualizarPrintBlock() {
 
   // ── Linhas dos itens
   itens.forEach(item => {
-    h += `<tr><td class="prt-left">${item.item_num}</td><td class="prt-left">${item.quantidade}</td><td class="prt-left">${item.unidade || ''}</td><td class="prt-left">${item.descricao}</td>`;
+    h += `<tr class="${item.extra ? 'prt-extra' : ''}"><td class="prt-left">${item.extra ? 'EXTRA' : item.item_num}</td><td class="prt-left">${item.quantidade}</td><td class="prt-left">${item.unidade || ''}</td><td class="prt-left">${item.descricao}</td>`;
     fOrds.forEach(f => {
       const p     = precos[`${item.id}_${f.id}`] || {};
       const u     = p.preco_unitario_mes;
@@ -552,7 +554,7 @@ function atualizarPrintBlock() {
   fOrds.forEach(f => {
     const v = totaisForn[f.id] || 0;
     const incompleto = !fornecedorCompleto(f.id);
-    const display = v > 0 ? fmtMoeda(v) + (incompleto ? ' *' : '') : '—';
+    const display = v !== 0 ? fmtMoeda(v) + (incompleto ? ' *' : '') : '—';
     h += `<td${cellCls(f.id, f.id === minFornId)} colspan="2" style="font-weight:700">${display}</td>`;
   });
   h += `</tr>`;
@@ -562,7 +564,7 @@ function atualizarPrintBlock() {
   fOrds.forEach(f => {
     const v = totaisForn[f.id] || 0;
     const incompleto = !fornecedorCompleto(f.id);
-    const display = v > 0 ? fmtMoeda(v) + (incompleto ? ' *' : '') : '—';
+    const display = v !== 0 ? fmtMoeda(v) + (incompleto ? ' *' : '') : '—';
     h += `<td${cellCls(f.id, f.id === minFornId)} colspan="2" style="font-weight:700">${display}</td>`;
   });
   h += `</tr>`;

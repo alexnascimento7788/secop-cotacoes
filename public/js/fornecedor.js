@@ -59,6 +59,7 @@ function editarCabecalhoColuna(key) {
 let processo      = null;
 let fornecedores  = [];
 let itens         = [];
+let tiposExtra    = []; // catálogo Unidade+Descrição (Configurações → Itens Extras)
 let currentFornId = null;
 let podeEditarForn = true;
 let fornecedorAtivo = false; // só true depois de clicar "+ Novo fornecedor" ou "Editar" — trava edição acidental antes disso
@@ -75,6 +76,7 @@ function aplicarBloqueioSelecao() {
   document.querySelectorAll('#forn-form-card input, #forn-form-card textarea')
     .forEach(el => { el.disabled = !habilitado; });
   document.getElementById('btn-salvar-forn').disabled = !habilitado;
+  document.getElementById('btn-novo-extra').disabled  = !habilitado;
   if (!habilitado) {
     document.getElementById('forn-form-title').textContent =
       'Selecione "+ Novo fornecedor" ou clique em "Editar" num fornecedor da lista';
@@ -87,6 +89,7 @@ function aplicarPermissaoUI() {
   document.getElementById('btn-novo-forn').style.display   = 'none';
   document.getElementById('btn-salvar-forn').style.display = 'none';
   document.getElementById('btn-cancelar').style.display    = 'none';
+  document.getElementById('btn-novo-extra').style.display  = 'none';
 
   document.querySelectorAll('#forn-form-card input, #forn-form-card textarea')
     .forEach(el => { el.disabled = true; });
@@ -123,6 +126,11 @@ async function carregar() {
     processo    = data;
     fornecedores = data.fornecedores || [];
     itens        = data.itens || [];
+
+    try {
+      const resExtra = await fetch('/api/tipos-extra');
+      tiposExtra = resExtra.ok ? await resExtra.json() : [];
+    } catch { tiposExtra = []; }
 
     const user = await getCurrentUser();
     podeEditarForn = !!user && (user.role === 'admin' || data.criado_por_id === user.id);
@@ -338,19 +346,42 @@ function renderTabelaPrecos(precosMap) {
     }
 
     const hadPrice = p.preco_unitario_mes != null || p.preco_total_ano != null;
-    rows += `
-      <tr>
+    const habilitado = campoHabilitado();
+
+    // Colunas Item/Qtde/Unid./Descrição: fixas pra item normal, editáveis pra linha extra
+    const colsEsquerda = item.extra
+      ? `
+        <td class="col-fixed">
+          <span style="font-size:10px;font-weight:700;">EXTRA</span>
+          <button type="button" onclick="removerItemExtra(${item.id})" title="Remover linha extra" ${habilitado ? '' : 'disabled'}
+            style="margin-left:4px;background:none;border:none;cursor:pointer;color:inherit;">✕</button>
+        </td>
+        <td class="col-fixed"><input type="number" class="extra-qtd" data-item="${item.id}" step="any" ${habilitado ? '' : 'disabled'}
+          value="${item.quantidade ?? ''}" style="width:60px;" /></td>
+        <td class="col-fixed">
+          <select class="extra-unidade" data-item="${item.id}" ${habilitado ? '' : 'disabled'} style="max-width:110px;">
+            <option value="">Selecione...</option>
+            ${tiposExtra.map(t => `<option value="${t.unidade}" data-desc="${t.descricao.replace(/"/g,'&quot;')}"${t.unidade === item.unidade ? ' selected' : ''}>${t.unidade}</option>`).join('')}
+          </select>
+        </td>
+        <td class="col-fixed"><input type="text" class="extra-desc" data-item="${item.id}" ${habilitado ? '' : 'disabled'}
+          value="${item.descricao || ''}" style="min-width:160px;" /></td>`
+      : `
         <td class="col-fixed">${item.item_num}</td>
         <td class="col-fixed">${item.quantidade}</td>
         <td class="col-fixed">${item.unidade || ''}</td>
-        <td class="col-fixed">${item.descricao}</td>
+        <td class="col-fixed">${item.descricao}</td>`;
+
+    rows += `
+      <tr class="${item.extra ? 'row-extra' : ''}">
+        ${colsEsquerda}
         <td><input type="text" class="preco-unit" data-item="${item.id}" data-qtd="${item.quantidade}"
-          data-had-price="${hadPrice ? '1' : '0'}" ${campoHabilitado() ? '' : 'disabled'}
+          data-had-price="${hadPrice ? '1' : '0'}" ${habilitado ? '' : 'disabled'}
           value="${unit !== '' ? fmtMoeda(unit) : ''}" placeholder="R$ 0,00" /></td>
-        <td class="mode-btn-td"><button type="button" class="mode-cycle-btn" data-mode="${initialMode}" ${campoHabilitado() ? '' : 'disabled'}
+        <td class="mode-btn-td"><button type="button" class="mode-cycle-btn" data-mode="${initialMode}" ${habilitado ? '' : 'disabled'}
           title="${MODE_TITLES[initialMode]}">${MODE_LABELS[initialMode]}</button></td>
         <td><input type="text" class="preco-total" data-item="${item.id}"
-          ${initialMode !== 'digitar' || !campoHabilitado() ? 'readonly' : ''}
+          ${initialMode !== 'digitar' || !habilitado ? 'readonly' : ''}
           value="${tot !== '' ? fmtMoeda(tot) : ''}" placeholder="R$ 0,00" /></td>
       </tr>`;
   });
@@ -358,10 +389,19 @@ function renderTabelaPrecos(precosMap) {
   rows += `
     <tr class="row-section-header">
       <td colspan="6">VALOR TOTAL</td>
-      <td id="total-geral">${total > 0 ? fmtMoeda(total) : '—'}</td>
+      <td id="total-geral">${total !== 0 ? fmtMoeda(total) : '—'}</td>
     </tr>`;
 
   tbody.innerHTML = rows;
+
+  // ── Linhas extras: selecionar Unidade preenche a Descrição automaticamente ──
+  tbody.querySelectorAll('.extra-unidade').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const opt  = sel.options[sel.selectedIndex];
+      const desc = sel.closest('tr').querySelector('.extra-desc');
+      if (desc && opt?.dataset.desc) desc.value = opt.dataset.desc;
+    });
+  });
 
   // ── Listeners nos campos de preço ─────────────────────────────────────────
 
@@ -414,7 +454,70 @@ function recalcTotal() {
     total += parseMoeda(inp.value) || 0;
   });
   const cell = document.getElementById('total-geral');
-  if (cell) cell.textContent = total > 0 ? fmtMoeda(total) : '—';
+  if (cell) cell.textContent = total !== 0 ? fmtMoeda(total) : '—';
+}
+
+// ── Linha extra (item ad-hoc do fornecedor, ex: TAXA) ─────────────────────────
+
+// Lê o que já está digitado na tabela (preços de todos os itens + qtde/unidade/
+// descrição das linhas extras) — usado antes de re-renderizar, pra não perder
+// nada que o usuário já tinha preenchido e ainda não salvou.
+function coletarPrecosAtuais() {
+  const map = {};
+  document.querySelectorAll('#precos-tbody .preco-unit').forEach(inp => {
+    const id = inp.dataset.item;
+    const totInp = document.querySelector(`#precos-tbody .preco-total[data-item="${id}"]`);
+    map[id] = {
+      preco_unitario_mes: parseMoeda(inp.value),
+      preco_total_ano:    parseMoeda(totInp?.value)
+    };
+  });
+  return map;
+}
+
+function sincronizarExtrasDoDOM() {
+  itens.forEach(item => {
+    if (!item.extra) return;
+    const qtdInp  = document.querySelector(`.extra-qtd[data-item="${item.id}"]`);
+    const uniSel  = document.querySelector(`.extra-unidade[data-item="${item.id}"]`);
+    const descInp = document.querySelector(`.extra-desc[data-item="${item.id}"]`);
+    if (qtdInp)  item.quantidade = parseFloat(qtdInp.value) || 0;
+    if (uniSel)  item.unidade    = uniSel.value || '';
+    if (descInp) item.descricao  = descInp.value || '';
+  });
+}
+
+async function adicionarItemExtra() {
+  if (!campoHabilitado()) return;
+  const proximoNum = itens.reduce((max, i) => Math.max(max, i.item_num || 0), 0) + 1;
+  try {
+    const res = await fetch(`/api/processos/${processoId}/itens`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_num: proximoNum, quantidade: 1, unidade: '', descricao: '', extra: 1 })
+    });
+    if (!res.ok) throw new Error();
+    const { id } = await res.json();
+    const precosAtuais = coletarPrecosAtuais();
+    sincronizarExtrasDoDOM();
+    itens.push({ id, processo_id: processoId, item_num: proximoNum, quantidade: 1, unidade: '', descricao: '', extra: 1 });
+    renderTabelaPrecos(precosAtuais);
+  } catch {
+    toast('Erro ao adicionar item extra.', 'error');
+  }
+}
+
+async function removerItemExtra(id) {
+  if (!confirm('Remover esta linha extra?')) return;
+  try {
+    await fetch(`/api/itens/${id}`, { method: 'DELETE' });
+    const precosAtuais = coletarPrecosAtuais();
+    sincronizarExtrasDoDOM();
+    itens = itens.filter(i => i.id !== id);
+    renderTabelaPrecos(precosAtuais);
+  } catch {
+    toast('Erro ao remover item extra.', 'error');
+  }
 }
 
 // ── Salvar fornecedor (lógica extraída para reuso) ────────────────────────────
@@ -452,7 +555,7 @@ async function salvarFornecedorAtual() {
       const u = parseMoeda(inp.value);
       const totInp = document.querySelector(`#precos-tbody .preco-total[data-item="${inp.dataset.item}"]`);
       const t = parseMoeda(totInp?.value);
-      return (u !== null && u > 0) || (t !== null && t > 0);
+      return (u !== null && u !== 0) || (t !== null && t !== 0);
     });
     if (itens.length === 1 && preenchidos.length === 0) throw new Error('preco_obrigatorio');
     if (itens.length > 1  && preenchidos.length === 0) throw new Error('preco_minimo');
@@ -473,6 +576,24 @@ async function salvarFornecedorAtual() {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
+    });
+  }
+
+  // Salvar quantidade/unidade/descrição das linhas extras (itens normais não mudam esses campos aqui)
+  for (const item of itens.filter(i => i.extra)) {
+    const qtdInp  = document.querySelector(`.extra-qtd[data-item="${item.id}"]`);
+    const uniSel  = document.querySelector(`.extra-unidade[data-item="${item.id}"]`);
+    const descInp = document.querySelector(`.extra-desc[data-item="${item.id}"]`);
+    if (!qtdInp) continue; // linha não está mais na tela (não deveria acontecer, mas por segurança)
+    await fetch(`/api/itens/${item.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        item_num:  item.item_num,
+        quantidade: parseFloat(qtdInp.value) || 0,
+        unidade:    uniSel?.value || '',
+        descricao:  descInp?.value.trim() || ''
+      })
     });
   }
 
@@ -555,6 +676,10 @@ document.getElementById('btn-cancelar').addEventListener('click', () => {
   limparFormulario();
   aplicarBloqueioSelecao();
 });
+
+// ── Adicionar item extra ──────────────────────────────────────────────────────
+
+document.getElementById('btn-novo-extra').addEventListener('click', adicionarItemExtra);
 
 
 // ── Pesquisa Internet / Pesquisa Compra Pública / Declínio são mutuamente exclusivos ──

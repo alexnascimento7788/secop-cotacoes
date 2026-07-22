@@ -65,7 +65,9 @@ async function carregarProcessoParaEdicao() {
 
     // Carrega itens existentes
     originalItemIds = [];
-    (p.itens || []).forEach(item => {
+    // Linhas extras (ex: TAXA) são criadas e geridas na tela de Fornecedores,
+    // não devem aparecer aqui pra não serem editadas/apagadas sem querer.
+    (p.itens || []).filter(item => !item.extra).forEach(item => {
       addItem(item);
       originalItemIds.push(item.id);
     });

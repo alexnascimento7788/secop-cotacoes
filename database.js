@@ -129,6 +129,18 @@ function setupDb() {
   try { _db.exec(`ALTER TABLE fornecedores ADD COLUMN frete_termo TEXT`);         } catch {}
   try { _db.exec(`ALTER TABLE precos RENAME COLUMN preco_unitario TO preco_unitario_mes`); } catch {}
   try { _db.exec(`ALTER TABLE precos RENAME COLUMN preco_total    TO preco_total_ano`);    } catch {}
+  try { _db.exec(`ALTER TABLE itens ADD COLUMN extra INTEGER DEFAULT 0`); } catch {}
+
+  // ── Tipos de itens extras (unidade + descrição sempre amarrados) ──────────────
+
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS tipos_extra (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      unidade   TEXT    NOT NULL UNIQUE,
+      descricao TEXT    NOT NULL,
+      ordem     INTEGER NOT NULL DEFAULT 0
+    );
+  `);
 
   // ── Tipos de contratação ──────────────────────────────────────────────────────
 

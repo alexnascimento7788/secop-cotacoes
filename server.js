@@ -308,11 +308,11 @@ app.get('/api/processos/:id/itens', (req, res) => {
 });
 
 app.post('/api/processos/:id/itens', requireEditProcesso(req => req.params.id), (req, res) => {
-  const { item_num, quantidade, unidade, descricao } = req.body;
+  const { item_num, quantidade, unidade, descricao, extra } = req.body;
   const info = db.prepare(`
-    INSERT INTO itens (processo_id, item_num, quantidade, unidade, descricao)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(req.params.id, n(item_num), n(quantidade), n(unidade), n(descricao));
+    INSERT INTO itens (processo_id, item_num, quantidade, unidade, descricao, extra)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(req.params.id, n(item_num), n(quantidade), n(unidade), n(descricao), extra ? 1 : 0);
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
@@ -480,6 +480,35 @@ app.put('/api/tipos-contratacao/:id', requireAdmin, (req, res) => {
 
 app.delete('/api/tipos-contratacao/:id', requireAdmin, (req, res) => {
   db.prepare(`DELETE FROM tipos_contratacao WHERE id=?`).run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ── Tipos de itens extras (unidade + descrição sempre amarrados) ──────────────
+
+app.get('/api/tipos-extra', (req, res) => {
+  res.json(db.prepare(`SELECT * FROM tipos_extra ORDER BY ordem`).all());
+});
+
+app.post('/api/tipos-extra', requireAdmin, (req, res) => {
+  const { unidade, descricao, ordem } = req.body;
+  if (!unidade || !descricao) return res.status(400).json({ error: 'Unidade e descrição são obrigatórias' });
+  try {
+    const info = db.prepare(`INSERT INTO tipos_extra (unidade, descricao, ordem) VALUES (?, ?, ?)`).run(unidade, descricao, n(ordem) ?? 0);
+    res.status(201).json({ id: info.lastInsertRowid });
+  } catch (e) {
+    res.status(400).json({ error: 'Unidade já existe' });
+  }
+});
+
+app.put('/api/tipos-extra/:id', requireAdmin, (req, res) => {
+  const { unidade, descricao, ordem } = req.body;
+  if (!unidade || !descricao) return res.status(400).json({ error: 'Unidade e descrição são obrigatórias' });
+  db.prepare(`UPDATE tipos_extra SET unidade=?, descricao=?, ordem=? WHERE id=?`).run(unidade, descricao, n(ordem) ?? 0, req.params.id);
+  res.json({ ok: true });
+});
+
+app.delete('/api/tipos-extra/:id', requireAdmin, (req, res) => {
+  db.prepare(`DELETE FROM tipos_extra WHERE id=?`).run(req.params.id);
   res.json({ ok: true });
 });
 

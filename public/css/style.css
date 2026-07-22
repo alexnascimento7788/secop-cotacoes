@@ -672,6 +672,12 @@ textarea:focus::placeholder { color: transparent; }
 .preco-table .col-declinio { background: #FFE0B2 !important; color: #E65100 !important; }
 [data-theme="dark"] .preco-table .col-declinio { background: #3d2410 !important; color: #ffb74d !important; }
 
+/* Linha extra (ex: TAXA) — texto sempre vermelho, inclusive por cima do menor-preço */
+.preco-table tr.row-extra td { color: var(--vermelho) !important; }
+.preco-table tr.row-extra input,
+.preco-table tr.row-extra select { color: var(--vermelho) !important; }
+[data-theme="dark"] .preco-table tr.row-extra td { color: #ff6b5b !important; }
+
 .row-section-header td {
   background: #8B6914 !important;
   color: #fff !important;
@@ -945,6 +951,7 @@ textarea:focus::placeholder { color: transparent; }
   .prt-min       { background: #FFFDE7 !important; font-weight: 700; color: #E65100 !important; }
   .prt-venc.prt-min { background: #C8E6C9 !important; color: #1B5E20 !important; }
   .prt-declinio  { background: #FFE0B2 !important; color: #E65100 !important; }
+  .prt-extra td  { color: #c0392b !important; }
 
   .prt-item-hdr th {
     background: #e8e8e8 !important;
