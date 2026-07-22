@@ -201,7 +201,9 @@
             Catálogo usado na tela de Fornecedores para adicionar linhas extras de
             preço (ex: taxas, descontos) fora dos itens do processo. Unidade e
             Descrição ficam sempre amarrados — ao escolher a Unidade lá, a
-            Descrição é preenchida automaticamente.
+            Descrição é preenchida automaticamente. O Sinal define se o valor
+            lançado é sempre somado (Positivo, aparece em azul) ou sempre
+            subtraído (Negativo, aparece em vermelho) do total do fornecedor.
           </p>
           <table class="users-table">
             <thead>
@@ -209,11 +211,12 @@
                 <th>Unidade</th>
                 <th>Descrição</th>
                 <th>Ordem</th>
+                <th>Sinal</th>
                 <th></th>
               </tr>
             </thead>
             <tbody id="extras-tbody">
-              <tr><td colspan="4" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
+              <tr><td colspan="5" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
             </tbody>
           </table>
         </div>
@@ -222,7 +225,7 @@
 
         <div class="admin-section">
           <div class="admin-section-title">Adicionar item extra</div>
-          <div class="add-user-form" style="grid-template-columns:1fr 2fr auto auto;">
+          <div class="add-user-form" style="grid-template-columns:1fr 2fr auto auto auto;">
             <div class="form-group">
               <label>Unidade</label>
               <input type="text" id="new-extra-unidade" placeholder="Ex: TAXA" />
@@ -234,6 +237,13 @@
             <div class="form-group" style="max-width:90px;">
               <label>Ordem</label>
               <input type="number" id="new-extra-ordem" placeholder="0" />
+            </div>
+            <div class="form-group" style="max-width:140px;">
+              <label>Sinal</label>
+              <select id="new-extra-sinal">
+                <option value="positivo">Positivo (+)</option>
+                <option value="negativo">Negativo (-)</option>
+              </select>
             </div>
             <button class="btn btn-primary" onclick="adicionarExtra()" style="white-space:nowrap;">
               + Adicionar
@@ -583,8 +593,11 @@ async function carregarExtras() {
         <td><strong>${t.unidade}</strong></td>
         <td>${t.descricao}</td>
         <td>${t.ordem}</td>
+        <td>${t.sinal === 'negativo'
+          ? '<span style="color:#c0392b;font-weight:600;">Negativo (-)</span>'
+          : '<span style="color:#1565C0;font-weight:600;">Positivo (+)</span>'}</td>
         <td style="white-space:nowrap;text-align:right;">
-          <button class="btn btn-secondary btn-sm" onclick="editarExtra(${t.id},'${t.unidade.replace(/'/g,"\\'")}','${t.descricao.replace(/'/g,"\\'")}',${t.ordem})">Editar</button>
+          <button class="btn btn-secondary btn-sm" onclick="editarExtra(${t.id},'${t.unidade.replace(/'/g,"\\'")}','${t.descricao.replace(/'/g,"\\'")}',${t.ordem},'${t.sinal}')">Editar</button>
           <button class="btn btn-danger btn-sm" onclick="excluirExtra(${t.id},'${t.unidade.replace(/'/g,"\\'")}')">Excluir</button>
         </td>
       </tr>
@@ -598,13 +611,14 @@ async function adicionarExtra() {
   const unidade   = document.getElementById('new-extra-unidade').value.trim();
   const descricao = document.getElementById('new-extra-descricao').value.trim();
   const ordem     = parseInt(document.getElementById('new-extra-ordem').value) || 0;
+  const sinal     = document.getElementById('new-extra-sinal').value === 'negativo' ? 'negativo' : 'positivo';
   const msg = document.getElementById('extra-msg');
   msg.style.color = '';
   if (!unidade || !descricao) { msg.style.color='#c00'; msg.textContent='Informe unidade e descrição.'; return; }
   try {
     const res = await fetch('/api/tipos-extra', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ unidade, descricao, ordem })
+      body: JSON.stringify({ unidade, descricao, ordem, sinal })
     });
     if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
     msg.style.color = '#2E7D32';
@@ -612,23 +626,27 @@ async function adicionarExtra() {
     document.getElementById('new-extra-unidade').value   = '';
     document.getElementById('new-extra-descricao').value = '';
     document.getElementById('new-extra-ordem').value     = '';
+    document.getElementById('new-extra-sinal').value     = 'positivo';
     carregarExtras();
   } catch(e) {
     msg.style.color='#c00'; msg.textContent = 'Erro: ' + e.message;
   }
 }
 
-async function editarExtra(id, unidadeAtual, descricaoAtual, ordemAtual) {
+async function editarExtra(id, unidadeAtual, descricaoAtual, ordemAtual, sinalAtual) {
   const unidade = prompt('Unidade:', unidadeAtual);
   if (unidade === null || !unidade.trim()) return;
   const descricao = prompt('Descrição:', descricaoAtual);
   if (descricao === null || !descricao.trim()) return;
   const ordemStr = prompt('Ordem:', ordemAtual);
   if (ordemStr === null) return;
+  const sinalStr = prompt('Sinal ("positivo" ou "negativo"):', sinalAtual || 'positivo');
+  if (sinalStr === null) return;
+  const sinal = sinalStr.trim().toLowerCase() === 'negativo' ? 'negativo' : 'positivo';
   try {
     const res = await fetch(`/api/tipos-extra/${id}`, {
       method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ unidade: unidade.trim(), descricao: descricao.trim(), ordem: parseInt(ordemStr) || 0 })
+      body: JSON.stringify({ unidade: unidade.trim(), descricao: descricao.trim(), ordem: parseInt(ordemStr) || 0, sinal })
     });
     if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
     carregarExtras();

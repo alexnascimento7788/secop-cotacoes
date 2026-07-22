@@ -141,6 +141,7 @@ function setupDb() {
       ordem     INTEGER NOT NULL DEFAULT 0
     );
   `);
+  try { _db.exec(`ALTER TABLE tipos_extra ADD COLUMN sinal TEXT NOT NULL DEFAULT 'positivo'`); } catch {}
 
   // ── Tipos de contratação ──────────────────────────────────────────────────────
 

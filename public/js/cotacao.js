@@ -52,6 +52,19 @@ let vencedorId        = null;
 let mostrarMenorPreco = true;
 let totaisForn        = {}; // { fornId: totalValue }
 let podeEditarCotacao = true;
+let tiposExtra        = []; // catálogo Unidade+Descrição+Sinal (Configurações → Itens Extras)
+
+// Sinal (positivo/negativo) vem do catálogo tipos_extra, amarrado à Unidade da linha extra
+function sinalDoTipo(unidade) {
+  const t = tiposExtra.find(x => x.unidade === unidade);
+  return t?.sinal === 'negativo' ? 'negativo' : 'positivo';
+}
+
+// Exibe o valor de uma linha extra com o sinal do tipo em destaque: "(-) R$ 30,00" / "(+) R$ 50,00"
+function fmtMoedaExtra(v, sinal) {
+  const abs = Math.abs(parseFloat(v)) || 0;
+  return `${sinal === 'negativo' ? '(-)' : '(+)'} ${fmtMoeda(abs)}`;
+}
 
 function aplicarPermissaoUI() {
   document.getElementById('status-select').disabled  = !podeEditarCotacao;
@@ -101,12 +114,12 @@ function computarTotais() {
   });
 }
 
-// Fornecedor tem preço em todos os itens? Linhas extras (ex: TAXA) são
-// específicas de quem as criou — não contam pra completude dos demais fornecedores.
+// Fornecedor tem preço em todos os itens? Linhas extras (ex: TAXA) valem pra
+// todos os fornecedores a partir do momento em que são criadas — precisam ser
+// lançadas por todo mundo, contam pra completude igual a um item normal.
 function fornecedorCompleto(fId) {
-  const itensReais = itens.filter(i => !i.extra);
-  if (!itensReais.length) return true;
-  return itensReais.every(item => {
+  if (!itens.length) return true;
+  return itens.every(item => {
     const p = precos[`${item.id}_${fId}`] || {};
     return p.preco_total_ano != null || p.preco_unitario_mes != null;
   });
@@ -139,13 +152,15 @@ async function carregar() {
     return;
   }
   try {
-    const [res, statusRes] = await Promise.all([
+    const [res, statusRes, extraRes] = await Promise.all([
       fetch(`/api/processos/${processoId}`),
-      fetch('/api/status')
+      fetch('/api/status'),
+      fetch('/api/tipos-extra')
     ]);
     const statusList = statusRes.ok ? await statusRes.json() : [];
     const sel = document.getElementById('status-select');
     sel.innerHTML = statusList.map(s => `<option value="${s.nome}">${s.nome}</option>`).join('');
+    tiposExtra = extraRes.ok ? await extraRes.json() : [];
     if (!res.ok) throw new Error();
     const data = await res.json();
 
@@ -338,7 +353,8 @@ function renderTabelaPrecos() {
   // ── Linhas dos itens
   let rows = '';
   itens.forEach(item => {
-    let row = `<tr class="${item.extra ? 'row-extra' : ''}">
+    const sinalItem = item.extra ? sinalDoTipo(item.unidade) : null;
+    let row = `<tr class="${item.extra ? 'row-extra ' + (sinalItem === 'negativo' ? 'row-extra-neg' : 'row-extra-pos') : ''}">
       <td class="col-fixed">${item.extra ? 'EXTRA' : item.item_num}</td>
       <td class="col-fixed">${item.quantidade}</td>
       <td class="col-fixed">${item.unidade || ''}</td>
@@ -351,9 +367,12 @@ function renderTabelaPrecos() {
       const total = p.preco_total_ano ?? (unit != null ? unit * item.quantidade : null);
       const isMin = f.id === minFornId;
 
+      const unitTxt  = unit  != null ? (item.extra ? fmtMoedaExtra(unit,  sinalItem) : fmtMoeda(unit))  : (item.extra ? 'Não lançado' : '—');
+      const totalTxt = total != null ? (item.extra ? fmtMoedaExtra(total, sinalItem) : fmtMoeda(total)) : (item.extra ? 'Não lançado' : '—');
+
       row += `
-        <td class="${cls}${isMin ? ' col-min' : ''}">${unit != null ? fmtMoeda(unit) : '—'}</td>
-        <td class="${cls}${isMin ? ' col-min' : ''}">${total != null ? fmtMoeda(total) : '—'}</td>`;
+        <td class="${cls}${isMin ? ' col-min' : ''}">${unitTxt}</td>
+        <td class="${cls}${isMin ? ' col-min' : ''}">${totalTxt}</td>`;
     });
     row += '</tr>';
     rows += row;
@@ -537,14 +556,17 @@ function atualizarPrintBlock() {
 
   // ── Linhas dos itens
   itens.forEach(item => {
-    h += `<tr class="${item.extra ? 'prt-extra' : ''}"><td class="prt-left">${item.extra ? 'EXTRA' : item.item_num}</td><td class="prt-left">${item.quantidade}</td><td class="prt-left">${item.unidade || ''}</td><td class="prt-left">${item.descricao}</td>`;
+    const sinalItem = item.extra ? sinalDoTipo(item.unidade) : null;
+    h += `<tr class="${item.extra ? 'prt-extra ' + (sinalItem === 'negativo' ? 'prt-extra-neg' : 'prt-extra-pos') : ''}"><td class="prt-left">${item.extra ? 'EXTRA' : item.item_num}</td><td class="prt-left">${item.quantidade}</td><td class="prt-left">${item.unidade || ''}</td><td class="prt-left">${item.descricao}</td>`;
     fOrds.forEach(f => {
       const p     = precos[`${item.id}_${f.id}`] || {};
       const u     = p.preco_unitario_mes;
       const tot   = p.preco_total_ano ?? (u != null ? u * item.quantidade : null);
       const isMin = f.id === minFornId;
-      h += `<td${cellCls(f.id, isMin)}>${u != null ? fmtMoeda(u) : '—'}</td>`;
-      h += `<td${cellCls(f.id, isMin)}>${tot != null ? fmtMoeda(tot) : '—'}</td>`;
+      const uTxt   = u   != null ? (item.extra ? fmtMoedaExtra(u,   sinalItem) : fmtMoeda(u))   : (item.extra ? 'Não lançado' : '—');
+      const totTxt = tot != null ? (item.extra ? fmtMoedaExtra(tot, sinalItem) : fmtMoeda(tot)) : (item.extra ? 'Não lançado' : '—');
+      h += `<td${cellCls(f.id, isMin)}>${uTxt}</td>`;
+      h += `<td${cellCls(f.id, isMin)}>${totTxt}</td>`;
     });
     h += `</tr>`;
   });

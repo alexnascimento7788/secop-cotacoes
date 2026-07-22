@@ -490,10 +490,11 @@ app.get('/api/tipos-extra', (req, res) => {
 });
 
 app.post('/api/tipos-extra', requireAdmin, (req, res) => {
-  const { unidade, descricao, ordem } = req.body;
+  const { unidade, descricao, ordem, sinal } = req.body;
   if (!unidade || !descricao) return res.status(400).json({ error: 'Unidade e descrição são obrigatórias' });
+  const sinalVal = sinal === 'negativo' ? 'negativo' : 'positivo';
   try {
-    const info = db.prepare(`INSERT INTO tipos_extra (unidade, descricao, ordem) VALUES (?, ?, ?)`).run(unidade, descricao, n(ordem) ?? 0);
+    const info = db.prepare(`INSERT INTO tipos_extra (unidade, descricao, ordem, sinal) VALUES (?, ?, ?, ?)`).run(unidade, descricao, n(ordem) ?? 0, sinalVal);
     res.status(201).json({ id: info.lastInsertRowid });
   } catch (e) {
     res.status(400).json({ error: 'Unidade já existe' });
@@ -501,9 +502,10 @@ app.post('/api/tipos-extra', requireAdmin, (req, res) => {
 });
 
 app.put('/api/tipos-extra/:id', requireAdmin, (req, res) => {
-  const { unidade, descricao, ordem } = req.body;
+  const { unidade, descricao, ordem, sinal } = req.body;
   if (!unidade || !descricao) return res.status(400).json({ error: 'Unidade e descrição são obrigatórias' });
-  db.prepare(`UPDATE tipos_extra SET unidade=?, descricao=?, ordem=? WHERE id=?`).run(unidade, descricao, n(ordem) ?? 0, req.params.id);
+  const sinalVal = sinal === 'negativo' ? 'negativo' : 'positivo';
+  db.prepare(`UPDATE tipos_extra SET unidade=?, descricao=?, ordem=?, sinal=? WHERE id=?`).run(unidade, descricao, n(ordem) ?? 0, sinalVal, req.params.id);
   res.json({ ok: true });
 });
 

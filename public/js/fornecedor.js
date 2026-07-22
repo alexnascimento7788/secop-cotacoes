@@ -68,6 +68,12 @@ function campoHabilitado() {
   return podeEditarForn && fornecedorAtivo;
 }
 
+// Sinal (positivo/negativo) vem do catálogo tipos_extra, amarrado à Unidade escolhida
+function sinalDoTipo(unidade) {
+  const t = tiposExtra.find(x => x.unidade === unidade);
+  return t?.sinal === 'negativo' ? 'negativo' : 'positivo';
+}
+
 // Bloqueia/libera os campos estáticos do formulário (fora da tabela de preços,
 // que se regenera sozinha em renderTabelaPrecos usando campoHabilitado()).
 function aplicarBloqueioSelecao() {
@@ -329,11 +335,19 @@ function renderTabelaPrecos(precosMap) {
   let total = 0;
   let rows  = '';
   itens.forEach(item => {
-    const p         = precosMap[item.id] || {};
-    const unit      = p.preco_unitario_mes ?? '';
-    const storedTot = p.preco_total_ano;
-    const tot       = storedTot ?? (unit !== '' ? parseFloat(unit) * item.quantidade : '');
-    if (tot !== '') total += parseFloat(tot) || 0;
+    const p = precosMap[item.id] || {};
+    const rawTot = p.preco_total_ano ?? (p.preco_unitario_mes != null ? p.preco_unitario_mes * item.quantidade : '');
+    if (rawTot !== '') total += parseFloat(rawTot) || 0; // soma o valor real (com sinal), não a magnitude exibida
+
+    let unit      = p.preco_unitario_mes ?? '';
+    let storedTot = p.preco_total_ano;
+    // Linha extra: o sinal (+/-) é definido pelo tipo, não digitado — o campo
+    // sempre mostra a magnitude (valor absoluto), o sinal é aplicado ao salvar.
+    if (item.extra) {
+      if (unit !== '')       unit      = Math.abs(parseFloat(unit));
+      if (storedTot != null) storedTot = Math.abs(parseFloat(storedTot));
+    }
+    const tot = storedTot ?? (unit !== '' ? parseFloat(unit) * item.quantidade : '');
 
     // Detectar modo inicial com base nos valores armazenados
     let initialMode = '*';
@@ -347,12 +361,14 @@ function renderTabelaPrecos(precosMap) {
 
     const hadPrice = p.preco_unitario_mes != null || p.preco_total_ano != null;
     const habilitado = campoHabilitado();
+    const sinalItem  = item.extra ? sinalDoTipo(item.unidade) : null;
 
     // Colunas Item/Qtde/Unid./Descrição: fixas pra item normal, editáveis pra linha extra
     const colsEsquerda = item.extra
       ? `
         <td class="col-fixed">
           <span style="font-size:10px;font-weight:700;">EXTRA</span>
+          <span class="extra-sinal-badge" style="font-size:10px;font-weight:700;">${sinalItem === 'negativo' ? '(-)' : '(+)'}</span>
           <button type="button" onclick="removerItemExtra(${item.id})" title="Remover linha extra" ${habilitado ? '' : 'disabled'}
             style="margin-left:4px;background:none;border:none;cursor:pointer;color:inherit;">✕</button>
         </td>
@@ -373,7 +389,7 @@ function renderTabelaPrecos(precosMap) {
         <td class="col-fixed">${item.descricao}</td>`;
 
     rows += `
-      <tr class="${item.extra ? 'row-extra' : ''}">
+      <tr class="${item.extra ? 'row-extra ' + (sinalItem === 'negativo' ? 'row-extra-neg' : 'row-extra-pos') : ''}">
         ${colsEsquerda}
         <td><input type="text" class="preco-unit" data-item="${item.id}" data-qtd="${item.quantidade}"
           data-had-price="${hadPrice ? '1' : '0'}" ${habilitado ? '' : 'disabled'}
@@ -394,12 +410,20 @@ function renderTabelaPrecos(precosMap) {
 
   tbody.innerHTML = rows;
 
-  // ── Linhas extras: selecionar Unidade preenche a Descrição automaticamente ──
+  // ── Linhas extras: selecionar Unidade preenche a Descrição e atualiza cor/sinal ──
   tbody.querySelectorAll('.extra-unidade').forEach(sel => {
     sel.addEventListener('change', () => {
       const opt  = sel.options[sel.selectedIndex];
-      const desc = sel.closest('tr').querySelector('.extra-desc');
+      const tr   = sel.closest('tr');
+      const desc = tr.querySelector('.extra-desc');
       if (desc && opt?.dataset.desc) desc.value = opt.dataset.desc;
+
+      const sinal = sinalDoTipo(sel.value);
+      tr.classList.remove('row-extra-neg', 'row-extra-pos');
+      tr.classList.add(sinal === 'negativo' ? 'row-extra-neg' : 'row-extra-pos');
+      const badge = tr.querySelector('.extra-sinal-badge');
+      if (badge) badge.textContent = sinal === 'negativo' ? '(-)' : '(+)';
+      recalcTotal();
     });
   });
 
@@ -451,7 +475,16 @@ function renderTabelaPrecos(precosMap) {
 function recalcTotal() {
   let total = 0;
   document.querySelectorAll('#precos-tbody .preco-total').forEach(inp => {
-    total += parseMoeda(inp.value) || 0;
+    const itemId = inp.dataset.item;
+    const item   = itens.find(i => String(i.id) === String(itemId));
+    let v = parseMoeda(inp.value) || 0;
+    // Linhas extras exibem magnitude no campo — aplica o sinal do tipo pro total geral bater com o que será salvo
+    if (item?.extra) {
+      const uniSel = document.querySelector(`.extra-unidade[data-item="${itemId}"]`);
+      const sinal  = sinalDoTipo(uniSel?.value || '');
+      v = sinal === 'negativo' ? -Math.abs(v) : Math.abs(v);
+    }
+    total += v;
   });
   const cell = document.getElementById('total-geral');
   if (cell) cell.textContent = total !== 0 ? fmtMoeda(total) : '—';
@@ -548,6 +581,21 @@ async function salvarFornecedorAtual() {
 
   if (!payload.nome) throw new Error('Nome obrigatório');
 
+  // Sinal atual de cada linha extra (lido do <select> na tela, não do array local
+  // que pode estar desatualizado) — usado na trava abaixo e no salvamento dos preços.
+  const unidadesExtraAtuais = {};
+  document.querySelectorAll('#precos-tbody .extra-unidade').forEach(sel => {
+    unidadesExtraAtuais[sel.dataset.item] = sel.value;
+  });
+
+  // Trava: não pode lançar valor numa linha extra sem o tipo (Unidade) definido
+  for (const item of itens.filter(i => i.extra)) {
+    const unitInp = document.querySelector(`#precos-tbody .preco-unit[data-item="${item.id}"]`);
+    const totInp  = document.querySelector(`#precos-tbody .preco-total[data-item="${item.id}"]`);
+    const temValor = parseMoeda(unitInp?.value) !== null || parseMoeda(totInp?.value) !== null;
+    if (temValor && !unidadesExtraAtuais[item.id]) throw new Error('extra_sem_tipo');
+  }
+
   // Validação de preços mínimos
   const precoInputs = Array.from(document.querySelectorAll('#precos-tbody .preco-unit'));
   if (precoInputs.length > 0) {
@@ -599,17 +647,26 @@ async function salvarFornecedorAtual() {
 
   // Salvar preços de cada item
   for (const inp of document.querySelectorAll('#precos-tbody .preco-unit')) {
-    const unit     = parseMoeda(inp.value);
-    const totInp   = document.querySelector(`#precos-tbody .preco-total[data-item="${inp.dataset.item}"]`);
-    const tot      = parseMoeda(totInp?.value);
+    const itemId   = inp.dataset.item;
+    const item     = itens.find(i => String(i.id) === String(itemId));
+    let unit       = parseMoeda(inp.value);
+    const totInp   = document.querySelector(`#precos-tbody .preco-total[data-item="${itemId}"]`);
+    let tot        = parseMoeda(totInp?.value);
     const hadPrice = inp.dataset.hadPrice === '1';
     if (unit === null && tot === null && !hadPrice) continue;
+
+    // Linha extra: campo mostra magnitude — o sinal do tipo é aplicado só agora, ao gravar
+    if (item?.extra) {
+      const sinal = sinalDoTipo(unidadesExtraAtuais[itemId] || '');
+      if (unit !== null) unit = sinal === 'negativo' ? -Math.abs(unit) : Math.abs(unit);
+      if (tot  !== null) tot  = sinal === 'negativo' ? -Math.abs(tot)  : Math.abs(tot);
+    }
 
     await fetch('/api/precos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        item_id:            inp.dataset.item,
+        item_id:            itemId,
         fornecedor_id:      resolvedId,
         preco_unitario_mes: unit,
         preco_total_ano:    tot ?? (unit !== null ? unit * (parseFloat(inp.dataset.qtd) || 1) : null)
@@ -638,6 +695,8 @@ document.getElementById('btn-salvar-forn').addEventListener('click', async () =>
       toast('O único item não pode ficar sem preço ou com valor zero.', 'error');
     } else if (e.message === 'preco_minimo') {
       toast('Preencha o preço de pelo menos 1 item.', 'error');
+    } else if (e.message === 'extra_sem_tipo') {
+      toast('Selecione o tipo (Unidade) do item extra antes de lançar o valor.', 'error');
     } else {
       toast('Erro ao salvar fornecedor.', 'error');
       console.error(e);
