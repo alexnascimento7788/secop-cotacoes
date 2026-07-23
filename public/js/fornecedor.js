@@ -349,8 +349,11 @@ function renderTabelaPrecos(precosMap) {
     const p = precosMap[item.id] || {};
     const rawTot = p.preco_total_ano ?? (p.preco_unitario_mes != null ? p.preco_unitario_mes * item.quantidade : '');
     if (rawTot !== '') {
-      const v = parseFloat(rawTot) || 0;
-      total += v; // soma o valor real (com sinal), não a magnitude exibida
+      let v = parseFloat(rawTot) || 0;
+      // Sinal relido do catálogo atual, não do que foi gravado — se o Sinal do
+      // tipo mudar depois de já ter valor lançado, o total já reflete na hora.
+      if (item.extra) v = sinalDoTipo(item.unidade) === 'negativo' ? -Math.abs(v) : Math.abs(v);
+      total += v;
       if (!(item.extra && tipoValorDoTipo(item.unidade) === 'percentual')) totalMoeda += v;
     }
 

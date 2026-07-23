@@ -126,13 +126,20 @@ function computarTotais() {
   totaisFornMoeda = {};
   fornecedores.forEach(f => { totaisForn[f.id] = 0; totaisFornMoeda[f.id] = 0; });
   itens.forEach(item => {
+    const sinalItem    = item.extra ? sinalDoTipo(item.unidade)     : null;
     const ehPercentual = item.extra && tipoValorDoTipo(item.unidade) === 'percentual';
     fornecedores.forEach(f => {
       const p   = precos[`${item.id}_${f.id}`] || {};
       const u   = p.preco_unitario_mes;
       const tot = p.preco_total_ano ?? (u != null ? u * item.quantidade : null);
       if (tot == null) return;
-      const v = parseFloat(tot) || 0;
+      let v = parseFloat(tot) || 0;
+      // O sinal de uma linha extra é sempre relido do catálogo atual, não do que
+      // foi gravado no preço — se o Sinal do tipo mudar depois de já ter valores
+      // lançados (ex: "Taxa" virou Positivo), o total reflete a mudança na hora,
+      // sem precisar re-salvar cada preço. Consistente com a exibição da própria
+      // linha (fmtMoedaExtra/fmtPercentualExtra), que já faz a mesma releitura.
+      if (item.extra) v = sinalItem === 'negativo' ? -Math.abs(v) : Math.abs(v);
       totaisForn[f.id] += v;
       if (!ehPercentual) totaisFornMoeda[f.id] += v; // só a parte em R$, pra decidir o formato de exibição do total
     });
