@@ -22,6 +22,11 @@ function parseMoeda(s) {
   return isNaN(v) ? null : v;
 }
 
+function fmtPercentualTotal(v) {
+  const arred = Math.round(v * 100) / 100;
+  return `${arred.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
+}
+
 function toast(msg, type = '') {
   const el = document.getElementById('toast');
   el.textContent = msg;
@@ -337,12 +342,17 @@ function renderTabelaPrecos(precosMap) {
     return;
   }
 
-  let total = 0;
+  let total      = 0;
+  let totalMoeda = 0; // só a parte em R$ (itens normais + extras fixos) — decide se o total geral vira % ou R$
   let rows  = '';
   itens.forEach(item => {
     const p = precosMap[item.id] || {};
     const rawTot = p.preco_total_ano ?? (p.preco_unitario_mes != null ? p.preco_unitario_mes * item.quantidade : '');
-    if (rawTot !== '') total += parseFloat(rawTot) || 0; // soma o valor real (com sinal), não a magnitude exibida
+    if (rawTot !== '') {
+      const v = parseFloat(rawTot) || 0;
+      total += v; // soma o valor real (com sinal), não a magnitude exibida
+      if (!(item.extra && tipoValorDoTipo(item.unidade) === 'percentual')) totalMoeda += v;
+    }
 
     let unit      = p.preco_unitario_mes ?? '';
     let storedTot = p.preco_total_ano;
@@ -421,10 +431,11 @@ function renderTabelaPrecos(precosMap) {
       </tr>`;
   });
 
+  const totalEhPercentual = totalMoeda === 0 && total !== 0;
   rows += `
     <tr class="row-section-header">
       <td colspan="6">VALOR TOTAL</td>
-      <td id="total-geral">${total !== 0 ? fmtMoeda(total) : '—'}</td>
+      <td id="total-geral">${total === 0 ? '—' : (totalEhPercentual ? fmtPercentualTotal(total) : fmtMoeda(total))}</td>
     </tr>`;
 
   tbody.innerHTML = rows;
@@ -507,21 +518,27 @@ function renderTabelaPrecos(precosMap) {
 }
 
 function recalcTotal() {
-  let total = 0;
+  let total      = 0;
+  let totalMoeda = 0; // só a parte em R$ — decide se o total geral vira % ou R$
   document.querySelectorAll('#precos-tbody .preco-total').forEach(inp => {
     const itemId = inp.dataset.item;
     const item   = itens.find(i => String(i.id) === String(itemId));
     let v = parseMoeda(inp.value) || 0;
+    let ehPercentual = false;
     // Linhas extras exibem magnitude no campo — aplica o sinal do tipo pro total geral bater com o que será salvo
     if (item?.extra) {
       const uniSel = document.querySelector(`.extra-unidade[data-item="${itemId}"]`);
       const sinal  = sinalDoTipo(uniSel?.value || '');
+      ehPercentual = tipoValorDoTipo(uniSel?.value || '') === 'percentual';
       v = sinal === 'negativo' ? -Math.abs(v) : Math.abs(v);
     }
     total += v;
+    if (!ehPercentual) totalMoeda += v;
   });
   const cell = document.getElementById('total-geral');
-  if (cell) cell.textContent = total !== 0 ? fmtMoeda(total) : '—';
+  if (!cell) return;
+  const totalEhPercentual = totalMoeda === 0 && total !== 0;
+  cell.textContent = total === 0 ? '—' : (totalEhPercentual ? fmtPercentualTotal(total) : fmtMoeda(total));
 }
 
 // ── Linha extra (item ad-hoc do fornecedor, ex: TAXA) ─────────────────────────

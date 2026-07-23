@@ -50,7 +50,8 @@ let itens             = [];
 let precos            = {}; // { `${item_id}_${forn_id}`: { preco_unitario_mes, preco_total_ano } }
 let vencedorId        = null;
 let mostrarMenorPreco = true;
-let totaisForn        = {}; // { fornId: totalValue }
+let totaisForn        = {}; // { fornId: totalValue } — soma de tudo (R$ + percentual), usada pra ranking/menor-preço
+let totaisFornMoeda   = {}; // { fornId: totalValue } — só a parte em R$ (itens normais + extras fixos), usada só pra decidir o formato de exibição
 let podeEditarCotacao = true;
 let tiposExtra        = []; // catálogo Unidade+Descrição+Sinal (Configurações → Itens Extras)
 
@@ -122,15 +123,39 @@ function editarObsLabel(key) {
 // junto), essa regra provavelmente precisa ser revista para calcular sobre uma base.
 function computarTotais() {
   totaisForn = {};
-  fornecedores.forEach(f => { totaisForn[f.id] = 0; });
+  totaisFornMoeda = {};
+  fornecedores.forEach(f => { totaisForn[f.id] = 0; totaisFornMoeda[f.id] = 0; });
   itens.forEach(item => {
+    const ehPercentual = item.extra && tipoValorDoTipo(item.unidade) === 'percentual';
     fornecedores.forEach(f => {
       const p   = precos[`${item.id}_${f.id}`] || {};
       const u   = p.preco_unitario_mes;
       const tot = p.preco_total_ano ?? (u != null ? u * item.quantidade : null);
-      if (tot != null) totaisForn[f.id] += parseFloat(tot) || 0;
+      if (tot == null) return;
+      const v = parseFloat(tot) || 0;
+      totaisForn[f.id] += v;
+      if (!ehPercentual) totaisFornMoeda[f.id] += v; // só a parte em R$, pra decidir o formato de exibição do total
     });
   });
+}
+
+// Quando a parte em R$ do total de um fornecedor é zero e só sobrou valor vindo
+// de linhas extras percentuais, o VALOR TOTAL deve ser exibido como percentual
+// (ex: "-23,7%"), não como moeda — reflete o mesmo cenário descrito na nota acima
+// (uso típico: itens normais em R$ 0, só o percentual carrega o valor real).
+function totalEhPercentual(fId) {
+  return (totaisFornMoeda[fId] || 0) === 0 && (totaisForn[fId] || 0) !== 0;
+}
+
+function fmtPercentualTotal(v) {
+  const arred = Math.round(v * 100) / 100;
+  return `${arred.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
+}
+
+function fmtTotalFornecedor(fId) {
+  const v = totaisForn[fId] || 0;
+  if (v === 0) return '—';
+  return totalEhPercentual(fId) ? fmtPercentualTotal(v) : fmtMoeda(v);
 }
 
 // Fornecedor tem preço em todos os itens? Linhas extras (ex: TAXA) valem pra
@@ -404,8 +429,7 @@ function renderTabelaPrecos() {
   fOrds.forEach(f => {
     const cls   = fornCls(f.id);
     const isMin = f.id === minFornId;
-    const v     = totaisForn[f.id] || 0;
-    footer += `<td></td><td class="${cls}${isMin ? ' col-min' : ''}">${v !== 0 ? fmtMoeda(v) : '—'}</td>`;
+    footer += `<td></td><td class="${cls}${isMin ? ' col-min' : ''}">${fmtTotalFornecedor(f.id)}</td>`;
   });
   footer += '</tr>';
 
@@ -597,9 +621,9 @@ function atualizarPrintBlock() {
   // ── VALOR TOTAL
   h += `<tr class="prt-sec"><td colspan="4">VALOR TOTAL</td>`;
   fOrds.forEach(f => {
-    const v = totaisForn[f.id] || 0;
     const incompleto = !fornecedorCompleto(f.id);
-    const display = v !== 0 ? fmtMoeda(v) + (incompleto ? ' *' : '') : '—';
+    const totalTxtFmt = fmtTotalFornecedor(f.id);
+    const display = totalTxtFmt !== '—' ? totalTxtFmt + (incompleto ? ' *' : '') : '—';
     h += `<td${cellCls(f.id, f.id === minFornId)} colspan="2" style="font-weight:700">${display}</td>`;
   });
   h += `</tr>`;
@@ -607,9 +631,9 @@ function atualizarPrintBlock() {
   // ── RESUMO TOTAL GERAL
   h += `<tr class="prt-sec"><td colspan="4">RESUMO TOTAL GERAL</td>`;
   fOrds.forEach(f => {
-    const v = totaisForn[f.id] || 0;
     const incompleto = !fornecedorCompleto(f.id);
-    const display = v !== 0 ? fmtMoeda(v) + (incompleto ? ' *' : '') : '—';
+    const totalTxtFmt = fmtTotalFornecedor(f.id);
+    const display = totalTxtFmt !== '—' ? totalTxtFmt + (incompleto ? ' *' : '') : '—';
     h += `<td${cellCls(f.id, f.id === minFornId)} colspan="2" style="font-weight:700">${display}</td>`;
   });
   h += `</tr>`;
