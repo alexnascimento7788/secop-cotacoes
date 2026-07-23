@@ -71,7 +71,13 @@ async function _injetarVersao() {
     el.id = 'sidebar-version';
     el.textContent = `v${version}`;
     el.title = `SECOP Cotações — versão ${version}`;
-    el.style.cssText = 'font-size:13px;font-weight:700;color:var(--verde);text-align:center;padding:6px 0 10px;letter-spacing:.4px;';
-    sidebar.appendChild(el);
+    el.style.cssText = 'font-size:13px;font-weight:700;color:var(--verde);text-align:center;padding:6px 0;letter-spacing:.4px;flex-shrink:0;';
+    // .sidebar é uma coluna flex de altura fixa (top:0/bottom:0, sem overflow) —
+    // appendChild no final (depois do footer) empurrava esta linha pra fora da
+    // tela, invisível sem rolagem. Inserir ANTES do footer deixa o <nav> (que
+    // tem flex:1) absorver o espaço, então cabe sempre dentro da viewport.
+    const footer = document.querySelector('.sidebar-footer');
+    if (footer) sidebar.insertBefore(el, footer);
+    else sidebar.appendChild(el);
   } catch {}
 }
