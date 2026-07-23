@@ -696,19 +696,23 @@ app.delete('/api/admin/logs', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Versão ───────────────────────────────────────────────────────────────────
+// Precisa vir ANTES do catch-all "Serve SPA" abaixo — senão o catch-all intercepta
+// /api/version primeiro (Express casa rotas na ordem de registro), o `if` dele só
+// trata caminhos fora de /api e não chama next() nem responde, e a requisição
+// fica pendurada pra sempre (foi isso que deixava o indicador de versão nunca
+// aparecer: o fetch('/api/version') do front nunca resolvia).
+app.get('/api/version', (_req, res) => {
+  const { version } = require('./package.json');
+  res.json({ version });
+});
+
 // ── Serve SPA ─────────────────────────────────────────────────────────────────
 
 app.get('*', (req, res) => {
   if (!req.path.startsWith('/api')) {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
   }
-});
-
-// ── Versão ───────────────────────────────────────────────────────────────────
-
-app.get('/api/version', (_req, res) => {
-  const { version } = require('./package.json');
-  res.json({ version });
 });
 
 const PORT = process.env.PORT || 3000;
