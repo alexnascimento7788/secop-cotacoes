@@ -194,7 +194,7 @@
 
     <!-- Aba Itens Extras -->
     <div class="admin-pane" id="pane-extras">
-      <div class="admin-card" style="max-width:640px;">
+      <div class="admin-card" style="max-width:900px;">
         <div class="admin-section">
           <div class="admin-section-title">Itens extras (Unidade + Descrição)</div>
           <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
@@ -229,27 +229,27 @@
 
         <div class="admin-section">
           <div class="admin-section-title">Adicionar item extra</div>
-          <div class="add-user-form" style="grid-template-columns:1fr 2fr auto auto auto auto;">
-            <div class="form-group">
+          <div class="add-user-form" style="display:flex;flex-wrap:wrap;gap:10px;align-items:end;">
+            <div class="form-group" style="flex:1 1 140px;">
               <label>Unidade</label>
               <input type="text" id="new-extra-unidade" placeholder="Ex: TAXA" />
             </div>
-            <div class="form-group">
+            <div class="form-group" style="flex:2 1 220px;">
               <label>Descrição</label>
               <input type="text" id="new-extra-descricao" placeholder="Ex: Taxa de administração" />
             </div>
-            <div class="form-group" style="max-width:90px;">
+            <div class="form-group" style="flex:0 1 90px;">
               <label>Ordem</label>
               <input type="number" id="new-extra-ordem" placeholder="0" />
             </div>
-            <div class="form-group" style="max-width:140px;">
+            <div class="form-group" style="flex:0 1 140px;">
               <label>Sinal</label>
               <select id="new-extra-sinal">
                 <option value="positivo">Positivo (+)</option>
                 <option value="negativo">Negativo (-)</option>
               </select>
             </div>
-            <div class="form-group" style="max-width:140px;">
+            <div class="form-group" style="flex:0 1 150px;">
               <label>Tipo de valor</label>
               <select id="new-extra-tipo-valor">
                 <option value="fixo">Fixo (R$)</option>
@@ -595,11 +595,38 @@ async function excluirTipo(id, nome) {
 
 // ── Itens extras ───────────────────────────────────────────────────────────────
 
+let extraEditId = null; // id da linha em edição inline (null = nenhuma)
+
 async function carregarExtras() {
   try {
     const res = await fetch('/api/tipos-extra');
     const extras = await res.json();
-    document.getElementById('extras-tbody').innerHTML = extras.map(t => `
+    document.getElementById('extras-tbody').innerHTML = extras.map(t => {
+      if (t.id === extraEditId) {
+        return `
+      <tr>
+        <td><input type="text" id="edit-extra-unidade" value="${t.unidade.replace(/"/g,'&quot;')}" /></td>
+        <td><input type="text" id="edit-extra-descricao" value="${t.descricao.replace(/"/g,'&quot;')}" /></td>
+        <td><input type="number" id="edit-extra-ordem" value="${t.ordem}" style="width:70px;" /></td>
+        <td>
+          <select id="edit-extra-sinal">
+            <option value="positivo" ${t.sinal !== 'negativo' ? 'selected' : ''}>Positivo (+)</option>
+            <option value="negativo" ${t.sinal === 'negativo' ? 'selected' : ''}>Negativo (-)</option>
+          </select>
+        </td>
+        <td>
+          <select id="edit-extra-tipo-valor">
+            <option value="fixo" ${t.tipo_valor !== 'percentual' ? 'selected' : ''}>Fixo (R$)</option>
+            <option value="percentual" ${t.tipo_valor === 'percentual' ? 'selected' : ''}>Percentual (%)</option>
+          </select>
+        </td>
+        <td style="white-space:nowrap;text-align:right;">
+          <button class="btn btn-primary btn-sm" onclick="salvarEdicaoExtra(${t.id})">Salvar</button>
+          <button class="btn btn-secondary btn-sm" onclick="cancelarEdicaoExtra()">Cancelar</button>
+        </td>
+      </tr>`;
+      }
+      return `
       <tr>
         <td><strong>${t.unidade}</strong></td>
         <td>${t.descricao}</td>
@@ -609,11 +636,11 @@ async function carregarExtras() {
           : '<span style="color:#1565C0;font-weight:600;">Positivo (+)</span>'}</td>
         <td>${t.tipo_valor === 'percentual' ? 'Percentual (%)' : 'Fixo (R$)'}</td>
         <td style="white-space:nowrap;text-align:right;">
-          <button class="btn btn-secondary btn-sm" onclick="editarExtra(${t.id},'${t.unidade.replace(/'/g,"\\'")}','${t.descricao.replace(/'/g,"\\'")}',${t.ordem},'${t.sinal}','${t.tipo_valor}')">Editar</button>
+          <button class="btn btn-secondary btn-sm" onclick="editarExtra(${t.id})">Editar</button>
           <button class="btn btn-danger btn-sm" onclick="excluirExtra(${t.id},'${t.unidade.replace(/'/g,"\\'")}')">Excluir</button>
         </td>
-      </tr>
-    `).join('');
+      </tr>`;
+    }).join('');
   } catch {
     toast('Erro ao carregar itens extras', 'error');
   }
@@ -647,25 +674,34 @@ async function adicionarExtra() {
   }
 }
 
-async function editarExtra(id, unidadeAtual, descricaoAtual, ordemAtual, sinalAtual, tipoValorAtual) {
-  const unidade = prompt('Unidade:', unidadeAtual);
-  if (unidade === null || !unidade.trim()) return;
-  const descricao = prompt('Descrição:', descricaoAtual);
-  if (descricao === null || !descricao.trim()) return;
-  const ordemStr = prompt('Ordem:', ordemAtual);
-  if (ordemStr === null) return;
-  const sinalStr = prompt('Sinal ("positivo" ou "negativo"):', sinalAtual || 'positivo');
-  if (sinalStr === null) return;
-  const sinal = sinalStr.trim().toLowerCase() === 'negativo' ? 'negativo' : 'positivo';
-  const tipoValorStr = prompt('Tipo de valor ("fixo" ou "percentual"):', tipoValorAtual || 'fixo');
-  if (tipoValorStr === null) return;
-  const tipo_valor = tipoValorStr.trim().toLowerCase() === 'percentual' ? 'percentual' : 'fixo';
+// Edição inline (linha vira formulário com selects reais para Sinal/Tipo de
+// valor) — trocado do fluxo antigo de prompt() em cadeia porque com 5 campos
+// virou fácil perder de vista qual pergunta é qual, e Sinal/Tipo de valor
+// exigiam digitar a palavra certa em vez de escolher num dropdown visível.
+function editarExtra(id) {
+  extraEditId = id;
+  carregarExtras();
+}
+
+function cancelarEdicaoExtra() {
+  extraEditId = null;
+  carregarExtras();
+}
+
+async function salvarEdicaoExtra(id) {
+  const unidade    = document.getElementById('edit-extra-unidade').value.trim();
+  const descricao  = document.getElementById('edit-extra-descricao').value.trim();
+  const ordem      = parseInt(document.getElementById('edit-extra-ordem').value) || 0;
+  const sinal      = document.getElementById('edit-extra-sinal').value === 'negativo' ? 'negativo' : 'positivo';
+  const tipo_valor = document.getElementById('edit-extra-tipo-valor').value === 'percentual' ? 'percentual' : 'fixo';
+  if (!unidade || !descricao) { toast('Informe unidade e descrição.', 'error'); return; }
   try {
     const res = await fetch(`/api/tipos-extra/${id}`, {
       method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ unidade: unidade.trim(), descricao: descricao.trim(), ordem: parseInt(ordemStr) || 0, sinal, tipo_valor })
+      body: JSON.stringify({ unidade, descricao, ordem, sinal, tipo_valor })
     });
     if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
+    extraEditId = null;
     carregarExtras();
   } catch(e) {
     toast('Erro: ' + e.message, 'error');
