@@ -469,7 +469,7 @@ function renderTabelaPrecos() {
   const moedaRowFb = (label, key) => {
     let r = `<tr class="row-rodape"><td class="col-fixed" colspan="4">${label}</td>`;
     fOrds.forEach(f => {
-      const v = f[key] ?? (totaisForn[f.id] > 0 ? totaisForn[f.id] : null);
+      const v = f[key] ?? (totaisForn[f.id] !== 0 ? totaisForn[f.id] : null);
       const isMin = f.id === minFornId && v != null;
       r += `<td class="${fornCls(f.id)}${isMin ? ' col-min' : ''}" colspan="2">${v != null ? fmtMoeda(v) : '—'}</td>`;
     });
@@ -682,7 +682,7 @@ function atualizarPrintBlock() {
   const mRow = (label, key) => {
     let r = `<tr><td class="prt-lbl" colspan="4">${label}</td>`;
     fOrds.forEach(f => {
-      const v = f[key] ?? (totaisForn[f.id] > 0 ? totaisForn[f.id] : null);
+      const v = f[key] ?? (totaisForn[f.id] !== 0 ? totaisForn[f.id] : null);
       const isMin = f.id === minFornId && v != null;
       r += `<td${cellCls(f.id, isMin)} colspan="2">${v != null ? fmtMoeda(v) : '—'}</td>`;
     });
