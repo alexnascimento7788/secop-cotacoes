@@ -70,7 +70,8 @@ async function _injetarVersao() {
     const el = document.createElement('div');
     el.id = 'sidebar-version';
     el.textContent = `v${version}`;
-    el.style.cssText = 'font-size:10px;color:var(--text-subtle);text-align:center;padding:4px 0 6px;opacity:.55;letter-spacing:.4px;';
+    el.title = `SECOP Cotações — versão ${version}`;
+    el.style.cssText = 'font-size:13px;font-weight:700;color:var(--verde);text-align:center;padding:6px 0 10px;letter-spacing:.4px;';
     sidebar.appendChild(el);
   } catch {}
 }
