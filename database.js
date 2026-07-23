@@ -142,6 +142,7 @@ function setupDb() {
     );
   `);
   try { _db.exec(`ALTER TABLE tipos_extra ADD COLUMN sinal TEXT NOT NULL DEFAULT 'positivo'`); } catch {}
+  try { _db.exec(`ALTER TABLE tipos_extra ADD COLUMN tipo_valor TEXT NOT NULL DEFAULT 'fixo'`); } catch {}
 
   // ── Tipos de contratação ──────────────────────────────────────────────────────
 

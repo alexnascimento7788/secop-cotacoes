@@ -54,16 +54,29 @@ let totaisForn        = {}; // { fornId: totalValue }
 let podeEditarCotacao = true;
 let tiposExtra        = []; // catálogo Unidade+Descrição+Sinal (Configurações → Itens Extras)
 
-// Sinal (positivo/negativo) vem do catálogo tipos_extra, amarrado à Unidade da linha extra
+// Sinal (positivo/negativo) e tipo de valor (fixo em R$ ou percentual) vêm do
+// catálogo tipos_extra, amarrados à Unidade da linha extra
 function sinalDoTipo(unidade) {
   const t = tiposExtra.find(x => x.unidade === unidade);
   return t?.sinal === 'negativo' ? 'negativo' : 'positivo';
+}
+function tipoValorDoTipo(unidade) {
+  const t = tiposExtra.find(x => x.unidade === unidade);
+  return t?.tipo_valor === 'percentual' ? 'percentual' : 'fixo';
 }
 
 // Exibe o valor de uma linha extra com o sinal do tipo em destaque: "(-) R$ 30,00" / "(+) R$ 50,00"
 function fmtMoedaExtra(v, sinal) {
   const abs = Math.abs(parseFloat(v)) || 0;
   return `${sinal === 'negativo' ? '(-)' : '(+)'} ${fmtMoeda(abs)}`;
+}
+// Idem, para linha extra percentual: "(-) 10%" / "(+) 5%". O número entra somado
+// direto no VALOR TOTAL igual a uma linha fixa (sem calcular sobre nenhuma base) —
+// decisão explícita do Alex em 2026-07-23, pode ser revista se o uso real pedir
+// um percentual calculado sobre uma base específica no futuro.
+function fmtPercentualExtra(v, sinal) {
+  const abs = Math.abs(parseFloat(v)) || 0;
+  return `${sinal === 'negativo' ? '(-)' : '(+)'} ${abs}%`;
 }
 
 function aplicarPermissaoUI() {
@@ -101,6 +114,12 @@ function editarObsLabel(key) {
 
 // ── Totais e ordenação por valor crescente ────────────────────────────────────
 
+// NOTA (2026-07-23): linhas extras percentuais (tipos_extra.tipo_valor='percentual')
+// somam o número digitado direto aqui, junto com tudo que já é R$ — não há cálculo
+// de "X% sobre uma base". Decisão explícita do Alex: no uso real, quando o item é
+// percentual os itens normais tendem a ficar em R$ 0, então a soma direta já
+// representa o total pretendido. Se o uso mudar (itens com valor real + percentual
+// junto), essa regra provavelmente precisa ser revista para calcular sobre uma base.
 function computarTotais() {
   totaisForn = {};
   fornecedores.forEach(f => { totaisForn[f.id] = 0; });
@@ -353,7 +372,9 @@ function renderTabelaPrecos() {
   // ── Linhas dos itens
   let rows = '';
   itens.forEach(item => {
-    const sinalItem = item.extra ? sinalDoTipo(item.unidade) : null;
+    const sinalItem     = item.extra ? sinalDoTipo(item.unidade)     : null;
+    const tipoValorItem = item.extra ? tipoValorDoTipo(item.unidade) : null;
+    const fmtExtra      = tipoValorItem === 'percentual' ? fmtPercentualExtra : fmtMoedaExtra;
     let row = `<tr class="${item.extra ? 'row-extra ' + (sinalItem === 'negativo' ? 'row-extra-neg' : 'row-extra-pos') : ''}">
       <td class="col-fixed">${item.extra ? 'EXTRA' : item.item_num}</td>
       <td class="col-fixed">${item.quantidade}</td>
@@ -367,8 +388,8 @@ function renderTabelaPrecos() {
       const total = p.preco_total_ano ?? (unit != null ? unit * item.quantidade : null);
       const isMin = f.id === minFornId;
 
-      const unitTxt  = unit  != null ? (item.extra ? fmtMoedaExtra(unit,  sinalItem) : fmtMoeda(unit))  : (item.extra ? 'Não lançado' : '—');
-      const totalTxt = total != null ? (item.extra ? fmtMoedaExtra(total, sinalItem) : fmtMoeda(total)) : (item.extra ? 'Não lançado' : '—');
+      const unitTxt  = unit  != null ? (item.extra ? fmtExtra(unit,  sinalItem) : fmtMoeda(unit))  : (item.extra ? 'Não lançado' : '—');
+      const totalTxt = total != null ? (item.extra ? fmtExtra(total, sinalItem) : fmtMoeda(total)) : (item.extra ? 'Não lançado' : '—');
 
       row += `
         <td class="${cls}${isMin ? ' col-min' : ''}">${unitTxt}</td>
@@ -556,15 +577,17 @@ function atualizarPrintBlock() {
 
   // ── Linhas dos itens
   itens.forEach(item => {
-    const sinalItem = item.extra ? sinalDoTipo(item.unidade) : null;
+    const sinalItem     = item.extra ? sinalDoTipo(item.unidade)     : null;
+    const tipoValorItem = item.extra ? tipoValorDoTipo(item.unidade) : null;
+    const fmtExtraPrt   = tipoValorItem === 'percentual' ? fmtPercentualExtra : fmtMoedaExtra;
     h += `<tr class="${item.extra ? 'prt-extra ' + (sinalItem === 'negativo' ? 'prt-extra-neg' : 'prt-extra-pos') : ''}"><td class="prt-left">${item.extra ? 'EXTRA' : item.item_num}</td><td class="prt-left">${item.quantidade}</td><td class="prt-left">${item.unidade || ''}</td><td class="prt-left">${item.descricao}</td>`;
     fOrds.forEach(f => {
       const p     = precos[`${item.id}_${f.id}`] || {};
       const u     = p.preco_unitario_mes;
       const tot   = p.preco_total_ano ?? (u != null ? u * item.quantidade : null);
       const isMin = f.id === minFornId;
-      const uTxt   = u   != null ? (item.extra ? fmtMoedaExtra(u,   sinalItem) : fmtMoeda(u))   : (item.extra ? 'Não lançado' : '—');
-      const totTxt = tot != null ? (item.extra ? fmtMoedaExtra(tot, sinalItem) : fmtMoeda(tot)) : (item.extra ? 'Não lançado' : '—');
+      const uTxt   = u   != null ? (item.extra ? fmtExtraPrt(u,   sinalItem) : fmtMoeda(u))   : (item.extra ? 'Não lançado' : '—');
+      const totTxt = tot != null ? (item.extra ? fmtExtraPrt(tot, sinalItem) : fmtMoeda(tot)) : (item.extra ? 'Não lançado' : '—');
       h += `<td${cellCls(f.id, isMin)}>${uTxt}</td>`;
       h += `<td${cellCls(f.id, isMin)}>${totTxt}</td>`;
     });

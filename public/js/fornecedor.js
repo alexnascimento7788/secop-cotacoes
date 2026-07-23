@@ -68,10 +68,15 @@ function campoHabilitado() {
   return podeEditarForn && fornecedorAtivo;
 }
 
-// Sinal (positivo/negativo) vem do catálogo tipos_extra, amarrado à Unidade escolhida
+// Sinal (positivo/negativo) e tipo de valor (fixo em R$ ou percentual) vêm do
+// catálogo tipos_extra, amarrados à Unidade escolhida
 function sinalDoTipo(unidade) {
   const t = tiposExtra.find(x => x.unidade === unidade);
   return t?.sinal === 'negativo' ? 'negativo' : 'positivo';
+}
+function tipoValorDoTipo(unidade) {
+  const t = tiposExtra.find(x => x.unidade === unidade);
+  return t?.tipo_valor === 'percentual' ? 'percentual' : 'fixo';
 }
 
 // Bloqueia/libera os campos estáticos do formulário (fora da tabela de preços,
@@ -361,7 +366,8 @@ function renderTabelaPrecos(precosMap) {
 
     const hadPrice = p.preco_unitario_mes != null || p.preco_total_ano != null;
     const habilitado = campoHabilitado();
-    const sinalItem  = item.extra ? sinalDoTipo(item.unidade) : null;
+    const sinalItem     = item.extra ? sinalDoTipo(item.unidade)     : null;
+    const tipoValorItem = item.extra ? tipoValorDoTipo(item.unidade) : 'fixo';
 
     // Colunas Item/Qtde/Unid./Descrição: fixas pra item normal, editáveis pra linha extra
     const colsEsquerda = item.extra
@@ -388,9 +394,17 @@ function renderTabelaPrecos(precosMap) {
         <td class="col-fixed">${item.unidade || ''}</td>
         <td class="col-fixed">${item.descricao}</td>`;
 
-    rows += `
-      <tr class="${item.extra ? 'row-extra ' + (sinalItem === 'negativo' ? 'row-extra-neg' : 'row-extra-pos') : ''}">
-        ${colsEsquerda}
+    // Linha extra percentual: um único campo "valor %" — sem qtde × unitário,
+    // sem alternância de modo (não faz sentido multiplicar percentual por qtde).
+    const colsPreco = (item.extra && tipoValorItem === 'percentual')
+      ? `
+        <td><input type="text" class="preco-unit extra-pct" data-item="${item.id}"
+          data-had-price="${hadPrice ? '1' : '0'}" ${habilitado ? '' : 'disabled'}
+          value="${unit !== '' ? unit : ''}" placeholder="0" style="text-align:right;" /></td>
+        <td class="mode-btn-td" style="text-align:center;font-weight:700;">%</td>
+        <td><input type="text" class="preco-total extra-pct" data-item="${item.id}" readonly
+          value="${tot !== '' ? tot : ''}" placeholder="0" style="text-align:right;background:var(--surface-2);" /></td>`
+      : `
         <td><input type="text" class="preco-unit" data-item="${item.id}" data-qtd="${item.quantidade}"
           data-had-price="${hadPrice ? '1' : '0'}" ${habilitado ? '' : 'disabled'}
           value="${unit !== '' ? fmtMoeda(unit) : ''}" placeholder="R$ 0,00" /></td>
@@ -398,7 +412,12 @@ function renderTabelaPrecos(precosMap) {
           title="${MODE_TITLES[initialMode]}">${MODE_LABELS[initialMode]}</button></td>
         <td><input type="text" class="preco-total" data-item="${item.id}"
           ${initialMode !== 'digitar' || !habilitado ? 'readonly' : ''}
-          value="${tot !== '' ? fmtMoeda(tot) : ''}" placeholder="R$ 0,00" /></td>
+          value="${tot !== '' ? fmtMoeda(tot) : ''}" placeholder="R$ 0,00" /></td>`;
+
+    rows += `
+      <tr class="${item.extra ? 'row-extra ' + (sinalItem === 'negativo' ? 'row-extra-neg' : 'row-extra-pos') : ''}">
+        ${colsEsquerda}
+        ${colsPreco}
       </tr>`;
   });
 
@@ -410,26 +429,40 @@ function renderTabelaPrecos(precosMap) {
 
   tbody.innerHTML = rows;
 
-  // ── Linhas extras: selecionar Unidade preenche a Descrição e atualiza cor/sinal ──
+  // ── Linhas extras: selecionar Unidade preenche a Descrição e re-renderiza —
+  // sinal (cor) e tipo de valor (fixo × percentual) mudam a estrutura da linha,
+  // então um patch incremental não é suficiente, precisa recriar a linha inteira.
   tbody.querySelectorAll('.extra-unidade').forEach(sel => {
     sel.addEventListener('change', () => {
       const opt  = sel.options[sel.selectedIndex];
-      const tr   = sel.closest('tr');
-      const desc = tr.querySelector('.extra-desc');
+      const desc = sel.closest('tr').querySelector('.extra-desc');
       if (desc && opt?.dataset.desc) desc.value = opt.dataset.desc;
 
-      const sinal = sinalDoTipo(sel.value);
-      tr.classList.remove('row-extra-neg', 'row-extra-pos');
-      tr.classList.add(sinal === 'negativo' ? 'row-extra-neg' : 'row-extra-pos');
-      const badge = tr.querySelector('.extra-sinal-badge');
-      if (badge) badge.textContent = sinal === 'negativo' ? '(-)' : '(+)';
-      recalcTotal();
+      const precosAtuais = coletarPrecosAtuais();
+      sincronizarExtrasDoDOM();
+      renderTabelaPrecos(precosAtuais);
     });
   });
 
   // ── Listeners nos campos de preço ─────────────────────────────────────────
 
   tbody.querySelectorAll('.preco-unit').forEach(inp => {
+    // Linha extra percentual: campo único, sem moeda e sem modo — só espelha o
+    // número digitado no campo total (que é readonly) e recalcula.
+    if (inp.classList.contains('extra-pct')) {
+      inp.addEventListener('input', () => {
+        const totInp = inp.closest('tr').querySelector('.preco-total');
+        if (totInp) totInp.value = inp.value;
+        recalcTotal();
+      });
+      inp.addEventListener('blur', () => {
+        const v = parseMoeda(inp.value);
+        inp.value = v !== null ? String(v) : '';
+        const totInp = inp.closest('tr').querySelector('.preco-total');
+        if (totInp) totInp.value = inp.value;
+      });
+      return;
+    }
     inp.addEventListener('input', () => {
       const row     = inp.closest('tr');
       const modeBtn = row.querySelector('.mode-cycle-btn');
@@ -449,6 +482,7 @@ function renderTabelaPrecos(precosMap) {
   });
 
   tbody.querySelectorAll('.preco-total').forEach(inp => {
+    if (inp.classList.contains('extra-pct')) return; // espelhado a partir do campo % acima, não reformata
     inp.addEventListener('input',  recalcTotal);
     inp.addEventListener('blur',   () => { inp.value = fmtMoeda(parseMoeda(inp.value)); });
   });

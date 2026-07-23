@@ -204,6 +204,9 @@
             Descrição é preenchida automaticamente. O Sinal define se o valor
             lançado é sempre somado (Positivo, aparece em azul) ou sempre
             subtraído (Negativo, aparece em vermelho) do total do fornecedor.
+            O Tipo de valor define se o que é digitado é um valor em R$ ou um
+            percentual (%) — o percentual entra somado direto no total, sem
+            calcular sobre nenhuma base.
           </p>
           <table class="users-table">
             <thead>
@@ -212,11 +215,12 @@
                 <th>Descrição</th>
                 <th>Ordem</th>
                 <th>Sinal</th>
+                <th>Tipo de valor</th>
                 <th></th>
               </tr>
             </thead>
             <tbody id="extras-tbody">
-              <tr><td colspan="5" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
+              <tr><td colspan="6" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
             </tbody>
           </table>
         </div>
@@ -225,7 +229,7 @@
 
         <div class="admin-section">
           <div class="admin-section-title">Adicionar item extra</div>
-          <div class="add-user-form" style="grid-template-columns:1fr 2fr auto auto auto;">
+          <div class="add-user-form" style="grid-template-columns:1fr 2fr auto auto auto auto;">
             <div class="form-group">
               <label>Unidade</label>
               <input type="text" id="new-extra-unidade" placeholder="Ex: TAXA" />
@@ -243,6 +247,13 @@
               <select id="new-extra-sinal">
                 <option value="positivo">Positivo (+)</option>
                 <option value="negativo">Negativo (-)</option>
+              </select>
+            </div>
+            <div class="form-group" style="max-width:140px;">
+              <label>Tipo de valor</label>
+              <select id="new-extra-tipo-valor">
+                <option value="fixo">Fixo (R$)</option>
+                <option value="percentual">Percentual (%)</option>
               </select>
             </div>
             <button class="btn btn-primary" onclick="adicionarExtra()" style="white-space:nowrap;">
@@ -596,8 +607,9 @@ async function carregarExtras() {
         <td>${t.sinal === 'negativo'
           ? '<span style="color:#c0392b;font-weight:600;">Negativo (-)</span>'
           : '<span style="color:#1565C0;font-weight:600;">Positivo (+)</span>'}</td>
+        <td>${t.tipo_valor === 'percentual' ? 'Percentual (%)' : 'Fixo (R$)'}</td>
         <td style="white-space:nowrap;text-align:right;">
-          <button class="btn btn-secondary btn-sm" onclick="editarExtra(${t.id},'${t.unidade.replace(/'/g,"\\'")}','${t.descricao.replace(/'/g,"\\'")}',${t.ordem},'${t.sinal}')">Editar</button>
+          <button class="btn btn-secondary btn-sm" onclick="editarExtra(${t.id},'${t.unidade.replace(/'/g,"\\'")}','${t.descricao.replace(/'/g,"\\'")}',${t.ordem},'${t.sinal}','${t.tipo_valor}')">Editar</button>
           <button class="btn btn-danger btn-sm" onclick="excluirExtra(${t.id},'${t.unidade.replace(/'/g,"\\'")}')">Excluir</button>
         </td>
       </tr>
@@ -612,28 +624,30 @@ async function adicionarExtra() {
   const descricao = document.getElementById('new-extra-descricao').value.trim();
   const ordem     = parseInt(document.getElementById('new-extra-ordem').value) || 0;
   const sinal     = document.getElementById('new-extra-sinal').value === 'negativo' ? 'negativo' : 'positivo';
+  const tipo_valor = document.getElementById('new-extra-tipo-valor').value === 'percentual' ? 'percentual' : 'fixo';
   const msg = document.getElementById('extra-msg');
   msg.style.color = '';
   if (!unidade || !descricao) { msg.style.color='#c00'; msg.textContent='Informe unidade e descrição.'; return; }
   try {
     const res = await fetch('/api/tipos-extra', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ unidade, descricao, ordem, sinal })
+      body: JSON.stringify({ unidade, descricao, ordem, sinal, tipo_valor })
     });
     if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
     msg.style.color = '#2E7D32';
     msg.textContent = `Item extra "${unidade}" criado com sucesso.`;
-    document.getElementById('new-extra-unidade').value   = '';
-    document.getElementById('new-extra-descricao').value = '';
-    document.getElementById('new-extra-ordem').value     = '';
-    document.getElementById('new-extra-sinal').value     = 'positivo';
+    document.getElementById('new-extra-unidade').value    = '';
+    document.getElementById('new-extra-descricao').value  = '';
+    document.getElementById('new-extra-ordem').value      = '';
+    document.getElementById('new-extra-sinal').value      = 'positivo';
+    document.getElementById('new-extra-tipo-valor').value = 'fixo';
     carregarExtras();
   } catch(e) {
     msg.style.color='#c00'; msg.textContent = 'Erro: ' + e.message;
   }
 }
 
-async function editarExtra(id, unidadeAtual, descricaoAtual, ordemAtual, sinalAtual) {
+async function editarExtra(id, unidadeAtual, descricaoAtual, ordemAtual, sinalAtual, tipoValorAtual) {
   const unidade = prompt('Unidade:', unidadeAtual);
   if (unidade === null || !unidade.trim()) return;
   const descricao = prompt('Descrição:', descricaoAtual);
@@ -643,10 +657,13 @@ async function editarExtra(id, unidadeAtual, descricaoAtual, ordemAtual, sinalAt
   const sinalStr = prompt('Sinal ("positivo" ou "negativo"):', sinalAtual || 'positivo');
   if (sinalStr === null) return;
   const sinal = sinalStr.trim().toLowerCase() === 'negativo' ? 'negativo' : 'positivo';
+  const tipoValorStr = prompt('Tipo de valor ("fixo" ou "percentual"):', tipoValorAtual || 'fixo');
+  if (tipoValorStr === null) return;
+  const tipo_valor = tipoValorStr.trim().toLowerCase() === 'percentual' ? 'percentual' : 'fixo';
   try {
     const res = await fetch(`/api/tipos-extra/${id}`, {
       method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ unidade: unidade.trim(), descricao: descricao.trim(), ordem: parseInt(ordemStr) || 0, sinal })
+      body: JSON.stringify({ unidade: unidade.trim(), descricao: descricao.trim(), ordem: parseInt(ordemStr) || 0, sinal, tipo_valor })
     });
     if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
     carregarExtras();
