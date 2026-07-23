@@ -22,6 +22,17 @@ function parseMoeda(s) {
   return isNaN(v) ? null : v;
 }
 
+// Campo de valor percentual: não tem separador de milhar, então (diferente de
+// parseMoeda) não pode remover "." da string — só troca vírgula por ponto.
+function parsePercentual(s) {
+  if (!s || s === '') return null;
+  const v = parseFloat(String(s).trim().replace(',', '.'));
+  return isNaN(v) ? null : v;
+}
+function fmtPercentualCampo(v) {
+  return v === null || v === undefined || isNaN(v) ? '' : String(v).replace('.', ',');
+}
+
 function fmtPercentualTotal(v) {
   const arred = Math.round(v * 100) / 100;
   return `${arred.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
@@ -413,10 +424,10 @@ function renderTabelaPrecos(precosMap) {
       ? `
         <td><input type="text" class="preco-unit extra-pct" data-item="${item.id}"
           data-had-price="${hadPrice ? '1' : '0'}" ${habilitado ? '' : 'disabled'}
-          value="${unit !== '' ? unit : ''}" placeholder="0" style="text-align:right;" /></td>
+          value="${unit !== '' ? fmtPercentualCampo(unit) : ''}" placeholder="0" style="text-align:right;" /></td>
         <td class="mode-btn-td" style="text-align:center;font-weight:700;">%</td>
         <td><input type="text" class="preco-total extra-pct" data-item="${item.id}" readonly
-          value="${tot !== '' ? tot : ''}" placeholder="0" style="text-align:right;background:var(--surface-2);" /></td>`
+          value="${tot !== '' ? fmtPercentualCampo(tot) : ''}" placeholder="0" style="text-align:right;background:var(--surface-2);" /></td>`
       : `
         <td><input type="text" class="preco-unit" data-item="${item.id}" data-qtd="${item.quantidade}"
           data-had-price="${hadPrice ? '1' : '0'}" ${habilitado ? '' : 'disabled'}
@@ -470,8 +481,8 @@ function renderTabelaPrecos(precosMap) {
         recalcTotal();
       });
       inp.addEventListener('blur', () => {
-        const v = parseMoeda(inp.value);
-        inp.value = v !== null ? String(v) : '';
+        const v = parsePercentual(inp.value);
+        inp.value = fmtPercentualCampo(v);
         const totInp = inp.closest('tr').querySelector('.preco-total');
         if (totInp) totInp.value = inp.value;
       });
@@ -526,13 +537,12 @@ function recalcTotal() {
   document.querySelectorAll('#precos-tbody .preco-total').forEach(inp => {
     const itemId = inp.dataset.item;
     const item   = itens.find(i => String(i.id) === String(itemId));
-    let v = parseMoeda(inp.value) || 0;
-    let ehPercentual = false;
+    const ehPercentual = inp.classList.contains('extra-pct');
+    let v = (ehPercentual ? parsePercentual(inp.value) : parseMoeda(inp.value)) || 0;
     // Linhas extras exibem magnitude no campo — aplica o sinal do tipo pro total geral bater com o que será salvo
     if (item?.extra) {
       const uniSel = document.querySelector(`.extra-unidade[data-item="${itemId}"]`);
       const sinal  = sinalDoTipo(uniSel?.value || '');
-      ehPercentual = tipoValorDoTipo(uniSel?.value || '') === 'percentual';
       v = sinal === 'negativo' ? -Math.abs(v) : Math.abs(v);
     }
     total += v;
@@ -554,9 +564,10 @@ function coletarPrecosAtuais() {
   document.querySelectorAll('#precos-tbody .preco-unit').forEach(inp => {
     const id = inp.dataset.item;
     const totInp = document.querySelector(`#precos-tbody .preco-total[data-item="${id}"]`);
+    const parse  = inp.classList.contains('extra-pct') ? parsePercentual : parseMoeda;
     map[id] = {
-      preco_unitario_mes: parseMoeda(inp.value),
-      preco_total_ano:    parseMoeda(totInp?.value)
+      preco_unitario_mes: parse(inp.value),
+      preco_total_ano:    parse(totInp?.value)
     };
   });
   return map;
@@ -646,7 +657,8 @@ async function salvarFornecedorAtual() {
   for (const item of itens.filter(i => i.extra)) {
     const unitInp = document.querySelector(`#precos-tbody .preco-unit[data-item="${item.id}"]`);
     const totInp  = document.querySelector(`#precos-tbody .preco-total[data-item="${item.id}"]`);
-    const temValor = parseMoeda(unitInp?.value) !== null || parseMoeda(totInp?.value) !== null;
+    const parse    = unitInp?.classList.contains('extra-pct') ? parsePercentual : parseMoeda;
+    const temValor = parse(unitInp?.value) !== null || parse(totInp?.value) !== null;
     if (temValor && !unidadesExtraAtuais[item.id]) throw new Error('extra_sem_tipo');
   }
 
@@ -654,9 +666,10 @@ async function salvarFornecedorAtual() {
   const precoInputs = Array.from(document.querySelectorAll('#precos-tbody .preco-unit'));
   if (precoInputs.length > 0) {
     const preenchidos = precoInputs.filter(inp => {
-      const u = parseMoeda(inp.value);
+      const parse = inp.classList.contains('extra-pct') ? parsePercentual : parseMoeda;
+      const u = parse(inp.value);
       const totInp = document.querySelector(`#precos-tbody .preco-total[data-item="${inp.dataset.item}"]`);
-      const t = parseMoeda(totInp?.value);
+      const t = parse(totInp?.value);
       return (u !== null && u !== 0) || (t !== null && t !== 0);
     });
     if (itens.length === 1 && preenchidos.length === 0) throw new Error('preco_obrigatorio');
@@ -703,9 +716,10 @@ async function salvarFornecedorAtual() {
   for (const inp of document.querySelectorAll('#precos-tbody .preco-unit')) {
     const itemId   = inp.dataset.item;
     const item     = itens.find(i => String(i.id) === String(itemId));
-    let unit       = parseMoeda(inp.value);
+    const parse    = inp.classList.contains('extra-pct') ? parsePercentual : parseMoeda;
+    let unit       = parse(inp.value);
     const totInp   = document.querySelector(`#precos-tbody .preco-total[data-item="${itemId}"]`);
-    let tot        = parseMoeda(totInp?.value);
+    let tot        = parse(totInp?.value);
     const hadPrice = inp.dataset.hadPrice === '1';
     if (unit === null && tot === null && !hadPrice) continue;
 
