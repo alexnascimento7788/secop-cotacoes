@@ -154,13 +154,30 @@ function totalEhPercentual(fId) {
   return (totaisFornMoeda[fId] || 0) === 0 && (totaisForn[fId] || 0) !== 0;
 }
 
+// REGRA (2026-07-28): duas regras coexistem, decididas por totaisFornMoeda (a
+// parte em R$, sem percentual):
+//   1) itens em R$ 0 (totaisFornMoeda === 0) — o percentual É o total, somado
+//      direto e exibido como "%" (regra original do v3.11.0).
+//   2) itens com valor real (totaisFornMoeda !== 0) — o percentual passa a ser
+//      APENAS INFORMATIVO: não entra no cálculo do total. O valor mostrado (e
+//      usado pra ranking/menor-preço) é só o valor dos itens (+ extras fixos),
+//      sem nenhum cálculo envolvendo o percentual.
+// Este é o único ponto que decide "qual número usar" em todo o quadro — no dia
+// em que existir cálculo real de percentual sobre uma base (X% do valor do
+// item), a mudança entra só aqui, sem tocar em schema, UI de lançamento ou
+// qualquer outro consumidor.
+function totalCalculado(fId) {
+  const moeda = totaisFornMoeda[fId] || 0;
+  return moeda !== 0 ? moeda : (totaisForn[fId] || 0);
+}
+
 function fmtPercentualTotal(v) {
   const arred = Math.round(v * 100) / 100;
   return `${arred.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
 }
 
 function fmtTotalFornecedor(fId) {
-  const v = totaisForn[fId] || 0;
+  const v = totalCalculado(fId);
   if (v === 0) return '—';
   return totalEhPercentual(fId) ? fmtPercentualTotal(v) : fmtMoeda(v);
 }
@@ -179,8 +196,8 @@ function fornecedorCompleto(fId) {
 // Completos ordenados por valor crescente → incompletos → pesquisa na internet → pesquisa compra pública → declínio sempre no final
 function fornecedoresOrdenados() {
   const sortByTotal = arr => [...arr].sort((a, b) => {
-    const ta = totaisForn[a.id] || 0;
-    const tb = totaisForn[b.id] || 0;
+    const ta = totalCalculado(a.id);
+    const tb = totalCalculado(b.id);
     if (ta === 0 && tb === 0) return 0;
     if (ta === 0) return 1;
     if (tb === 0) return -1;
@@ -398,7 +415,7 @@ function renderTabelaPrecos() {
   thead.innerHTML = thRow + thSubRow;
 
   // ── Menor preço (fornecedor com menor valor total geral — exclui incompletos)
-  const withTot   = fOrds.map(f => ({ fId: f.id, v: totaisForn[f.id] || 0 })).filter(x => x.v !== 0 && fornecedorCompleto(x.fId));
+  const withTot   = fOrds.map(f => ({ fId: f.id, v: totalCalculado(f.id) })).filter(x => x.v !== 0 && fornecedorCompleto(x.fId));
   const minFornId = mostrarMenorPreco && withTot.length >= 2 ? withTot.reduce((a, b) => b.v < a.v ? b : a).fId : -1;
 
   // ── Linhas dos itens
@@ -471,7 +488,7 @@ function renderTabelaPrecos() {
     fOrds.forEach(f => {
       // Não usa o total como fallback quando ele vem só de extra percentual —
       // "-23,7%" não é um valor monetário de proposta.
-      const v = f[key] ?? (totaisForn[f.id] !== 0 && !totalEhPercentual(f.id) ? totaisForn[f.id] : null);
+      const v = f[key] ?? (totaisForn[f.id] !== 0 && !totalEhPercentual(f.id) ? totalCalculado(f.id) : null);
       const isMin = f.id === minFornId && v != null;
       r += `<td class="${fornCls(f.id)}${isMin ? ' col-min' : ''}" colspan="2">${v != null ? fmtMoeda(v) : '—'}</td>`;
     });
@@ -526,7 +543,7 @@ function atualizarPrintBlock() {
   const ordinals  = ['1º','2º','3º','4º','5º','6º','7º','8º'];
   const fOrds     = fornecedoresOrdenados();
 
-  const withTot  = fOrds.map(f => ({ fId: f.id, v: totaisForn[f.id] || 0 })).filter(x => x.v !== 0 && fornecedorCompleto(x.fId));
+  const withTot  = fOrds.map(f => ({ fId: f.id, v: totalCalculado(f.id) })).filter(x => x.v !== 0 && fornecedorCompleto(x.fId));
   const minFornId = mostrarMenorPreco && withTot.length >= 2 ? withTot.reduce((a, b) => b.v < a.v ? b : a).fId : -1;
 
   const vc = (fId) => isVenc(fId);
@@ -686,7 +703,7 @@ function atualizarPrintBlock() {
     fOrds.forEach(f => {
       // Não usa o total como fallback quando ele vem só de extra percentual —
       // "-23,7%" não é um valor monetário de proposta.
-      const v = f[key] ?? (totaisForn[f.id] !== 0 && !totalEhPercentual(f.id) ? totaisForn[f.id] : null);
+      const v = f[key] ?? (totaisForn[f.id] !== 0 && !totalEhPercentual(f.id) ? totalCalculado(f.id) : null);
       const isMin = f.id === minFornId && v != null;
       r += `<td${cellCls(f.id, isMin)} colspan="2">${v != null ? fmtMoeda(v) : '—'}</td>`;
     });

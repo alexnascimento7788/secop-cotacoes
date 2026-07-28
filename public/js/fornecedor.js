@@ -445,11 +445,15 @@ function renderTabelaPrecos(precosMap) {
       </tr>`;
   });
 
+  // Duas regras (2026-07-28, ver totalCalculado() em cotacao.js pra mais contexto):
+  // itens em R$ 0 -> percentual É o total; itens com valor real -> percentual vira
+  // apenas informativo (não entra na soma), o total mostrado é só o valor dos itens.
+  const totalCalc       = totalMoeda !== 0 ? totalMoeda : total;
   const totalEhPercentual = totalMoeda === 0 && total !== 0;
   rows += `
     <tr class="row-section-header">
       <td colspan="6">VALOR TOTAL</td>
-      <td id="total-geral">${total === 0 ? '—' : (totalEhPercentual ? fmtPercentualTotal(total) : fmtMoeda(total))}</td>
+      <td id="total-geral">${totalCalc === 0 ? '—' : (totalEhPercentual ? fmtPercentualTotal(totalCalc) : fmtMoeda(totalCalc))}</td>
     </tr>`;
 
   tbody.innerHTML = rows;
@@ -550,8 +554,9 @@ function recalcTotal() {
   });
   const cell = document.getElementById('total-geral');
   if (!cell) return;
+  const totalCalc = totalMoeda !== 0 ? totalMoeda : total;
   const totalEhPercentual = totalMoeda === 0 && total !== 0;
-  cell.textContent = total === 0 ? '—' : (totalEhPercentual ? fmtPercentualTotal(total) : fmtMoeda(total));
+  cell.textContent = totalCalc === 0 ? '—' : (totalEhPercentual ? fmtPercentualTotal(totalCalc) : fmtMoeda(totalCalc));
 }
 
 // ── Linha extra (item ad-hoc do fornecedor, ex: TAXA) ─────────────────────────
