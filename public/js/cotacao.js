@@ -585,7 +585,8 @@ function atualizarPrintBlock() {
 
   leftRows.forEach(([label, val], ri) => {
     const rf = rightFields[ri];
-    h += `<tr><td class="prt-lbl" colspan="2">${label}:</td><td class="prt-val" colspan="2">${val}</td>`;
+    const hdrCls = ri === 0 ? ' prt-hdr-row' : '';
+    h += `<tr><td class="prt-lbl${hdrCls}" colspan="2">${label}:</td><td class="prt-val${hdrCls}" colspan="2">${val}</td>`;
 
     if (ri === 0) {
       fOrds.forEach((f, i) => {

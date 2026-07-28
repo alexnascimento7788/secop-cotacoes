@@ -948,6 +948,7 @@ textarea:focus::placeholder { color: transparent; }
   .prt-left { background: #fff !important; font-size: 8px; min-width: 30px; }
   .prt-lbl  { background: #fff !important; font-size: 8px; font-weight: 600; text-align: right !important; padding: 2px 6px; }
   .prt-val  { background: #fff !important; font-size: 8px; text-align: left; padding: 2px 4px; }
+  .prt-lbl.prt-hdr-row, .prt-val.prt-hdr-row { background: #8B6914 !important; color: #fff !important; font-weight: 700; }
 
   .prt-forn-hdr {
     background: #8B6914 !important;
