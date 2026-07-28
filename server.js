@@ -490,12 +490,13 @@ app.get('/api/tipos-extra', (req, res) => {
 });
 
 app.post('/api/tipos-extra', requireAdmin, (req, res) => {
-  const { unidade, descricao, ordem, sinal, tipo_valor } = req.body;
+  const { unidade, descricao, ordem, sinal, tipo_valor, conta_no_total } = req.body;
   if (!unidade || !descricao) return res.status(400).json({ error: 'Unidade e descrição são obrigatórias' });
   const sinalVal = sinal === 'negativo' ? 'negativo' : 'positivo';
   const tipoValorVal = tipo_valor === 'percentual' ? 'percentual' : 'fixo';
+  const contaNoTotalVal = conta_no_total === false || conta_no_total === 0 || conta_no_total === '0' ? 0 : 1;
   try {
-    const info = db.prepare(`INSERT INTO tipos_extra (unidade, descricao, ordem, sinal, tipo_valor) VALUES (?, ?, ?, ?, ?)`).run(unidade, descricao, n(ordem) ?? 0, sinalVal, tipoValorVal);
+    const info = db.prepare(`INSERT INTO tipos_extra (unidade, descricao, ordem, sinal, tipo_valor, conta_no_total) VALUES (?, ?, ?, ?, ?, ?)`).run(unidade, descricao, n(ordem) ?? 0, sinalVal, tipoValorVal, contaNoTotalVal);
     res.status(201).json({ id: info.lastInsertRowid });
   } catch (e) {
     res.status(400).json({ error: 'Unidade já existe' });
@@ -503,11 +504,12 @@ app.post('/api/tipos-extra', requireAdmin, (req, res) => {
 });
 
 app.put('/api/tipos-extra/:id', requireAdmin, (req, res) => {
-  const { unidade, descricao, ordem, sinal, tipo_valor } = req.body;
+  const { unidade, descricao, ordem, sinal, tipo_valor, conta_no_total } = req.body;
   if (!unidade || !descricao) return res.status(400).json({ error: 'Unidade e descrição são obrigatórias' });
   const sinalVal = sinal === 'negativo' ? 'negativo' : 'positivo';
   const tipoValorVal = tipo_valor === 'percentual' ? 'percentual' : 'fixo';
-  db.prepare(`UPDATE tipos_extra SET unidade=?, descricao=?, ordem=?, sinal=?, tipo_valor=? WHERE id=?`).run(unidade, descricao, n(ordem) ?? 0, sinalVal, tipoValorVal, req.params.id);
+  const contaNoTotalVal = conta_no_total === false || conta_no_total === 0 || conta_no_total === '0' ? 0 : 1;
+  db.prepare(`UPDATE tipos_extra SET unidade=?, descricao=?, ordem=?, sinal=?, tipo_valor=?, conta_no_total=? WHERE id=?`).run(unidade, descricao, n(ordem) ?? 0, sinalVal, tipoValorVal, contaNoTotalVal, req.params.id);
   res.json({ ok: true });
 });
 

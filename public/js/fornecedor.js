@@ -94,6 +94,12 @@ function tipoValorDoTipo(unidade) {
   const t = tiposExtra.find(x => x.unidade === unidade);
   return t?.tipo_valor === 'percentual' ? 'percentual' : 'fixo';
 }
+// Gerenciável em Configurações → Itens Extras — define se este tipo soma no
+// VALOR TOTAL ou é apenas informativo (mesma decisão usada em cotacao.js).
+function contaNoTotalDoTipo(unidade) {
+  const t = tiposExtra.find(x => x.unidade === unidade);
+  return t ? !!t.conta_no_total : true;
+}
 
 // Bloqueia/libera os campos estáticos do formulário (fora da tabela de preços,
 // que se regenera sozinha em renderTabelaPrecos usando campoHabilitado()).
@@ -359,7 +365,9 @@ function renderTabelaPrecos(precosMap) {
   itens.forEach(item => {
     const p = precosMap[item.id] || {};
     const rawTot = p.preco_total_ano ?? (p.preco_unitario_mes != null ? p.preco_unitario_mes * item.quantidade : '');
-    if (rawTot !== '') {
+    // Linha marcada "não conta no total" (Configurações → Itens Extras) é apenas
+    // informativa — nunca entra no somatório, mesmo continuando visível na linha.
+    if (rawTot !== '' && (!item.extra || contaNoTotalDoTipo(item.unidade))) {
       let v = parseFloat(rawTot) || 0;
       // Sinal relido do catálogo atual, não do que foi gravado — se o Sinal do
       // tipo mudar depois de já ter valor lançado, o total já reflete na hora.
@@ -445,10 +453,10 @@ function renderTabelaPrecos(precosMap) {
       </tr>`;
   });
 
-  // Duas regras (2026-07-28, ver totalCalculado() em cotacao.js pra mais contexto):
-  // itens em R$ 0 -> percentual É o total; itens com valor real -> percentual vira
-  // apenas informativo (não entra na soma), o total mostrado é só o valor dos itens.
-  const totalCalc       = totalMoeda !== 0 ? totalMoeda : total;
+  // "Conta no total?" (Configurações → Itens Extras) já decidiu na origem, acima,
+  // o que entra em `total` — aqui só falta escolher o formato de exibição (ver
+  // totalCalculado()/totalEhPercentual() em cotacao.js pra mais contexto).
+  const totalCalc         = total;
   const totalEhPercentual = totalMoeda === 0 && total !== 0;
   rows += `
     <tr class="row-section-header">
@@ -543,10 +551,12 @@ function recalcTotal() {
     const item   = itens.find(i => String(i.id) === String(itemId));
     const ehPercentual = inp.classList.contains('extra-pct');
     let v = (ehPercentual ? parsePercentual(inp.value) : parseMoeda(inp.value)) || 0;
-    // Linhas extras exibem magnitude no campo — aplica o sinal do tipo pro total geral bater com o que será salvo
     if (item?.extra) {
       const uniSel = document.querySelector(`.extra-unidade[data-item="${itemId}"]`);
-      const sinal  = sinalDoTipo(uniSel?.value || '');
+      // Linha marcada "não conta no total" é apenas informativa — não entra na soma.
+      if (!contaNoTotalDoTipo(uniSel?.value || '')) return;
+      // Linhas extras exibem magnitude no campo — aplica o sinal do tipo pro total geral bater com o que será salvo
+      const sinal = sinalDoTipo(uniSel?.value || '');
       v = sinal === 'negativo' ? -Math.abs(v) : Math.abs(v);
     }
     total += v;
@@ -554,9 +564,8 @@ function recalcTotal() {
   });
   const cell = document.getElementById('total-geral');
   if (!cell) return;
-  const totalCalc = totalMoeda !== 0 ? totalMoeda : total;
   const totalEhPercentual = totalMoeda === 0 && total !== 0;
-  cell.textContent = totalCalc === 0 ? '—' : (totalEhPercentual ? fmtPercentualTotal(totalCalc) : fmtMoeda(totalCalc));
+  cell.textContent = total === 0 ? '—' : (totalEhPercentual ? fmtPercentualTotal(total) : fmtMoeda(total));
 }
 
 // ── Linha extra (item ad-hoc do fornecedor, ex: TAXA) ─────────────────────────

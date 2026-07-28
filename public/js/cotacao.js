@@ -65,6 +65,13 @@ function tipoValorDoTipo(unidade) {
   const t = tiposExtra.find(x => x.unidade === unidade);
   return t?.tipo_valor === 'percentual' ? 'percentual' : 'fixo';
 }
+// Gerenciável em Configurações → Itens Extras (não mais decidido automaticamente
+// pelo código a partir de "os itens estão em R$ 0 ou não") — define se o valor
+// deste tipo soma no VALOR TOTAL do fornecedor ou é apenas informativo.
+function contaNoTotalDoTipo(unidade) {
+  const t = tiposExtra.find(x => x.unidade === unidade);
+  return t ? !!t.conta_no_total : true;
+}
 
 // Exibe o valor de uma linha extra com o sinal do tipo em destaque: "(-) R$ 30,00" / "(+) R$ 50,00"
 function fmtMoedaExtra(v, sinal) {
@@ -115,19 +122,22 @@ function editarObsLabel(key) {
 
 // ── Totais e ordenação por valor crescente ────────────────────────────────────
 
-// NOTA (2026-07-23): linhas extras percentuais (tipos_extra.tipo_valor='percentual')
-// somam o número digitado direto aqui, junto com tudo que já é R$ — não há cálculo
-// de "X% sobre uma base". Decisão explícita do Alex: no uso real, quando o item é
-// percentual os itens normais tendem a ficar em R$ 0, então a soma direta já
-// representa o total pretendido. Se o uso mudar (itens com valor real + percentual
-// junto), essa regra provavelmente precisa ser revista para calcular sobre uma base.
+// NOTA (2026-07-28, substitui a nota anterior de 2026-07-23): se uma linha extra
+// soma no VALOR TOTAL ou é apenas informativa agora é uma decisão EXPLÍCITA e
+// gerenciável por tipo em Configurações → Itens Extras (tipos_extra.conta_no_total)
+// — não é mais inferida automaticamente pelo código a partir de "os itens estão em
+// R$ 0 ou não". Itens marcados "não conta" nunca entram em totaisForn/totaisFornMoeda,
+// mesmo assim continuam aparecendo normalmente na própria linha (fmtMoedaExtra/
+// fmtPercentualExtra). Itens normais (não-extra) sempre contam.
 function computarTotais() {
   totaisForn = {};
   totaisFornMoeda = {};
   fornecedores.forEach(f => { totaisForn[f.id] = 0; totaisFornMoeda[f.id] = 0; });
   itens.forEach(item => {
-    const sinalItem    = item.extra ? sinalDoTipo(item.unidade)     : null;
+    const sinalItem    = item.extra ? sinalDoTipo(item.unidade)       : null;
     const ehPercentual = item.extra && tipoValorDoTipo(item.unidade) === 'percentual';
+    const contaNoTotal = item.extra ? contaNoTotalDoTipo(item.unidade) : true;
+    if (!contaNoTotal) return; // linha apenas informativa — não entra em nenhum total
     fornecedores.forEach(f => {
       const p   = precos[`${item.id}_${f.id}`] || {};
       const u   = p.preco_unitario_mes;
@@ -154,21 +164,16 @@ function totalEhPercentual(fId) {
   return (totaisFornMoeda[fId] || 0) === 0 && (totaisForn[fId] || 0) !== 0;
 }
 
-// REGRA (2026-07-28): duas regras coexistem, decididas por totaisFornMoeda (a
-// parte em R$, sem percentual):
-//   1) itens em R$ 0 (totaisFornMoeda === 0) — o percentual É o total, somado
-//      direto e exibido como "%" (regra original do v3.11.0).
-//   2) itens com valor real (totaisFornMoeda !== 0) — o percentual passa a ser
-//      APENAS INFORMATIVO: não entra no cálculo do total. O valor mostrado (e
-//      usado pra ranking/menor-preço) é só o valor dos itens (+ extras fixos),
-//      sem nenhum cálculo envolvendo o percentual.
-// Este é o único ponto que decide "qual número usar" em todo o quadro — no dia
-// em que existir cálculo real de percentual sobre uma base (X% do valor do
-// item), a mudança entra só aqui, sem tocar em schema, UI de lançamento ou
-// qualquer outro consumidor.
+// Ponto único que decide "qual número usar" em todo o quadro (VALOR TOTAL,
+// ordenação, menor-preço, fallback de Proposta Inicial/Final). Desde que
+// conta_no_total virou uma decisão explícita por tipo (ver computarTotais),
+// a exclusão de linhas "apenas informativas" já aconteceu na origem — aqui é
+// só repassar o total já correto. Mantido como função (em vez de ler
+// totaisForn direto em cada consumidor) porque no dia em que existir cálculo
+// real de percentual sobre uma base (X% do valor do item), a mudança entra
+// só aqui, sem tocar em schema, UI de lançamento ou qualquer outro consumidor.
 function totalCalculado(fId) {
-  const moeda = totaisFornMoeda[fId] || 0;
-  return moeda !== 0 ? moeda : (totaisForn[fId] || 0);
+  return totaisForn[fId] || 0;
 }
 
 function fmtPercentualTotal(v) {

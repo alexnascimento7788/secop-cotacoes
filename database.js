@@ -143,6 +143,11 @@ function setupDb() {
   `);
   try { _db.exec(`ALTER TABLE tipos_extra ADD COLUMN sinal TEXT NOT NULL DEFAULT 'positivo'`); } catch {}
   try { _db.exec(`ALTER TABLE tipos_extra ADD COLUMN tipo_valor TEXT NOT NULL DEFAULT 'fixo'`); } catch {}
+  // Decisão explícita e gerenciável em Configurações (não mais inferida automaticamente
+  // pelo código a partir de "itens estão em R$ 0 ou não") sobre se o valor deste tipo
+  // soma no VALOR TOTAL do fornecedor ou é apenas informativo (aparece na linha, não
+  // entra no cálculo). Default 1 preserva o comportamento de quem já usava tipos fixos.
+  try { _db.exec(`ALTER TABLE tipos_extra ADD COLUMN conta_no_total INTEGER NOT NULL DEFAULT 1`); } catch {}
 
   // ── Tipos de contratação ──────────────────────────────────────────────────────
 
