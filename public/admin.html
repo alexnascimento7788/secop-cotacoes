@@ -300,6 +300,23 @@
           </div>
           <div id="param-msg" style="margin-top:10px;font-size:13px;font-weight:600;min-height:18px;"></div>
         </div>
+        <div class="admin-section" style="margin-top:24px;">
+          <div class="admin-section-title">Timeout por inatividade</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Depois de ficar parado (sem clicar, digitar ou rolar a tela) por mais
+            tempo que o limite abaixo, o usuário é desconectado automaticamente e
+            volta para a tela de login.
+          </p>
+          <div class="add-user-form">
+            <div class="form-group" style="max-width:160px;">
+              <label>Minutos de inatividade</label>
+              <input type="number" id="cfg-inatividade" min="1" />
+            </div>
+            <button class="btn btn-primary" onclick="salvarParametros()" style="white-space:nowrap;">
+              Salvar
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -498,24 +515,29 @@ async function carregarParametros() {
     const cfg = res.ok ? await res.json() : {};
     document.getElementById('cfg-dias-laranja').value  = cfg.alerta_dias_laranja  || 5;
     document.getElementById('cfg-dias-vermelho').value = cfg.alerta_dias_vermelho || 10;
+    document.getElementById('cfg-inatividade').value   = cfg.inatividade_minutos  || 30;
   } catch {}
 }
 
 async function salvarParametros() {
-  const msg      = document.getElementById('param-msg');
-  const laranja  = parseInt(document.getElementById('cfg-dias-laranja').value);
-  const vermelho = parseInt(document.getElementById('cfg-dias-vermelho').value);
+  const msg         = document.getElementById('param-msg');
+  const laranja     = parseInt(document.getElementById('cfg-dias-laranja').value);
+  const vermelho    = parseInt(document.getElementById('cfg-dias-vermelho').value);
+  const inatividade = parseInt(document.getElementById('cfg-inatividade').value);
   if (!laranja || !vermelho || laranja < 1 || vermelho < 1) {
     msg.style.color = 'var(--vermelho)'; msg.textContent = 'Informe valores válidos (dias ≥ 1).'; return;
   }
   if (vermelho <= laranja) {
     msg.style.color = 'var(--vermelho)'; msg.textContent = 'O limite vermelho deve ser maior que o laranja.'; return;
   }
+  if (!inatividade || inatividade < 1) {
+    msg.style.color = 'var(--vermelho)'; msg.textContent = 'Informe um tempo de inatividade válido (minutos ≥ 1).'; return;
+  }
   try {
     const res = await fetch('/api/admin/config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ alerta_dias_laranja: laranja, alerta_dias_vermelho: vermelho })
+      body: JSON.stringify({ alerta_dias_laranja: laranja, alerta_dias_vermelho: vermelho, inatividade_minutos: inatividade })
     });
     if (!res.ok) throw new Error();
     msg.style.color = 'var(--verde)'; msg.textContent = 'Parâmetros salvos.';

@@ -112,6 +112,7 @@ function setupDb() {
   [
     { chave: 'alerta_dias_laranja',  valor: '5'  },
     { chave: 'alerta_dias_vermelho', valor: '10' },
+    { chave: 'inatividade_minutos',  valor: '30' },
   ].forEach(c => {
     try {
       _db.prepare(`INSERT INTO config (chave, valor) VALUES (?, ?)`).run(c.chave, c.valor);

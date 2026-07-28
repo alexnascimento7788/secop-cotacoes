@@ -22,11 +22,66 @@ window.getCurrentUser = () => window._userPromise || (window._userPromise = (asy
   }
   _injetarToggleDark();
   _injetarVersao();
+  _initInatividade();
 })();
 
 async function logout() {
   try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
+  localStorage.removeItem(LS_ULTIMA_ATIVIDADE);
   window.location.replace('/login.html');
+}
+
+/* ── Timeout por inatividade ──────────────────────────────
+   O servidor já expira a sessão sozinho (secop_sid vira inválido) depois de
+   X minutos sem nenhuma requisição autenticada — isso é o que realmente
+   protege os dados. Este watcher só cobre o caso de o usuário ficar com a
+   aba aberta sem clicar em nada: sem ele, ninguém percebe que expirou até
+   tentar usar algo. LS_ULTIMA_ATIVIDADE fica no localStorage (não sessionStorage)
+   pra que atividade em uma aba também resete o timer nas outras. */
+const LS_ULTIMA_ATIVIDADE = 'secop_ultima_atividade';
+let _inatividadeMs = 30 * 60 * 1000; // sobrescrito por /api/config em _initInatividade
+
+function _registrarAtividade() {
+  localStorage.setItem(LS_ULTIMA_ATIVIDADE, String(Date.now()));
+}
+
+let _ultimoRegistro = 0;
+function _atividadeThrottled() {
+  const agora = Date.now();
+  if (agora - _ultimoRegistro > 5000) { // não escreve no localStorage a cada pixel de mousemove
+    _ultimoRegistro = agora;
+    _registrarAtividade();
+  }
+}
+
+async function _verificarInatividade() {
+  const ultima = parseInt(localStorage.getItem(LS_ULTIMA_ATIVIDADE) || '0', 10);
+  if (!ultima) { _registrarAtividade(); return; }
+  if (Date.now() - ultima > _inatividadeMs) {
+    logout();
+    return;
+  }
+  // Houve atividade recente: confirma com o servidor (e renova a sessão lá também)
+  try {
+    const r = await fetch('/api/auth/me');
+    if (!r.ok) { window.location.replace('/login.html'); }
+  } catch {}
+}
+
+async function _initInatividade() {
+  try {
+    const r = await fetch('/api/config');
+    if (r.ok) {
+      const cfg = await r.json();
+      const min = parseInt(cfg.inatividade_minutos, 10);
+      if (min > 0) _inatividadeMs = min * 60 * 1000;
+    }
+  } catch {}
+  _registrarAtividade();
+  ['mousemove', 'keydown', 'mousedown', 'scroll', 'touchstart'].forEach(ev =>
+    document.addEventListener(ev, _atividadeThrottled, { passive: true })
+  );
+  setInterval(_verificarInatividade, 60000);
 }
 
 /* ── Dark mode ─────────────────────────────────────────── */

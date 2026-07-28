@@ -25,6 +25,20 @@ function getCookie(req, name) {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+function getInatividadeMinutos() {
+  const row = db.prepare(`SELECT valor FROM config WHERE chave = 'inatividade_minutos'`).get();
+  const min = parseInt(row?.valor, 10);
+  return min > 0 ? min : 30;
+}
+
+// Empurra o vencimento da sessão pra frente a cada requisição autenticada —
+// o cookie em si dura bastante (ver /api/auth/login), quem controla o timeout
+// de verdade é sessions.expires, rolando conforme uso real
+function renovarSessao(token) {
+  db.prepare(`UPDATE sessions SET expires = datetime('now', '+' || ? || ' minutes') WHERE token = ?`)
+    .run(getInatividadeMinutos(), token);
+}
+
 function requireAuth(req, res, next) {
   const token = getCookie(req, 'secop_sid');
   if (!token) return res.status(401).json({ error: 'Não autenticado' });
@@ -34,6 +48,7 @@ function requireAuth(req, res, next) {
     WHERE s.token = ? AND s.expires > datetime('now') AND u.ativo = 1
   `).get(token);
   if (!session) return res.status(401).json({ error: 'Sessão expirada' });
+  renovarSessao(token);
   req.user = session;
   next();
 }
@@ -104,7 +119,7 @@ app.post('/api/auth/login', (req, res) => {
   if (hash !== user.senha_hash) return res.status(401).json({ error: 'Usuário ou senha inválidos' });
 
   const token   = crypto.randomBytes(32).toString('hex');
-  const expires = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString();
+  const expires = new Date(Date.now() + getInatividadeMinutos() * 60 * 1000).toISOString();
 
   db.prepare("DELETE FROM sessions WHERE user_id = ? AND expires < datetime('now')").run(user.id);
   db.prepare("INSERT INTO sessions (token, user_id, expires) VALUES (?, ?, ?)").run(token, user.id, expires);
@@ -112,7 +127,9 @@ app.post('/api/auth/login', (req, res) => {
   registrarLog(req, 'AUTH', 'LOGIN', `Login realizado`, user.username, user.id);
 
   res.cookie('secop_sid', token, {
-    httpOnly: true, sameSite: 'strict', expires: new Date(expires)
+    // Cookie em si dura folgado — quem controla o timeout real é sessions.expires,
+    // que rola a cada requisição autenticada (ver renovarSessao)
+    httpOnly: true, sameSite: 'strict', maxAge: 24 * 60 * 60 * 1000
   });
   res.json({ ok: true, username: user.username, role: user.role });
 });
@@ -140,6 +157,7 @@ app.get('/api/auth/me', (req, res) => {
     WHERE s.token = ? AND s.expires > datetime('now') AND u.ativo = 1
   `).get(token);
   if (!session) return res.status(401).json({ error: 'Não autenticado' });
+  renovarSessao(token);
   res.json(session);
 });
 
