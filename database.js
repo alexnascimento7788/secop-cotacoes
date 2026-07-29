@@ -113,6 +113,7 @@ function setupDb() {
     { chave: 'alerta_dias_laranja',  valor: '5'  },
     { chave: 'alerta_dias_vermelho', valor: '10' },
     { chave: 'inatividade_minutos',  valor: '30' },
+    { chave: 'lixeira_dias',         valor: '60' },
   ].forEach(c => {
     try {
       _db.prepare(`INSERT INTO config (chave, valor) VALUES (?, ?)`).run(c.chave, c.valor);
@@ -131,6 +132,12 @@ function setupDb() {
   try { _db.exec(`ALTER TABLE precos RENAME COLUMN preco_unitario TO preco_unitario_mes`); } catch {}
   try { _db.exec(`ALTER TABLE precos RENAME COLUMN preco_total    TO preco_total_ano`);    } catch {}
   try { _db.exec(`ALTER TABLE itens ADD COLUMN extra INTEGER DEFAULT 0`); } catch {}
+  // Soft-delete: excluir um processo só marca esta data — ele fica na Lixeira até
+  // ser restaurado ou purgado automaticamente após config.lixeira_dias
+  try { _db.exec(`ALTER TABLE processos ADD COLUMN excluido_em DATETIME`); } catch {}
+  // Segunda camada de permissão sobre "admin": Configurações e Lixeira só ficam
+  // disponíveis pra quem tem este flag ligado (ou é o usuário "master")
+  try { _db.exec(`ALTER TABLE users ADD COLUMN acesso_avancado INTEGER NOT NULL DEFAULT 0`); } catch {}
 
   // ── Tipos de itens extras (unidade + descrição sempre amarrados) ──────────────
 

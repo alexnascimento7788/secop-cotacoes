@@ -142,12 +142,14 @@
       </div>
     </div>
 
+    <div id="admin-content" style="display:none;">
     <div class="admin-tabs">
       <button class="admin-tab active" onclick="mudarAba('usuarios')">Usuários</button>
       <button class="admin-tab" onclick="mudarAba('tipos')">Tipos de Contratação</button>
       <button class="admin-tab" onclick="mudarAba('extras')">Itens Extras</button>
       <button class="admin-tab" onclick="mudarAba('parametros')">Parâmetros</button>
       <button class="admin-tab" onclick="mudarAba('banco')">Banco de Dados</button>
+      <button class="admin-tab" onclick="mudarAba('lixeira')">Lixeira</button>
       <button class="admin-tab" onclick="mudarAba('logs')">Logs</button>
     </div>
 
@@ -317,6 +319,23 @@
             </button>
           </div>
         </div>
+        <div class="admin-section" style="margin-top:24px;">
+          <div class="admin-section-title">Retenção da Lixeira</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Processos excluídos ficam na Lixeira por este tempo antes de serem
+            removidos definitivamente e sem aviso. Não há como excluir manualmente
+            de dentro da Lixeira — só restaurar ou esperar o prazo.
+          </p>
+          <div class="add-user-form">
+            <div class="form-group" style="max-width:160px;">
+              <label>Dias na lixeira</label>
+              <input type="number" id="cfg-lixeira-dias" min="1" />
+            </div>
+            <button class="btn btn-primary" onclick="salvarParametros()" style="white-space:nowrap;">
+              Salvar
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -426,22 +445,28 @@
               <tr>
                 <th>Usuário</th>
                 <th>Perfil</th>
+                <th>Acesso avançado</th>
                 <th>Status</th>
                 <th>Criado em</th>
                 <th></th>
               </tr>
             </thead>
             <tbody id="users-tbody">
-              <tr><td colspan="5" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
+              <tr><td colspan="6" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
             </tbody>
           </table>
+          <p style="font-size:12px;color:var(--text-muted);margin-top:10px;line-height:1.5;">
+            <strong>Acesso avançado</strong> libera Configurações (esta área) e a
+            Lixeira pra um usuário Admin — sem ele, o Admin continua com CRUD
+            completo nas cotações, mas não entra mais aqui.
+          </p>
         </div>
 
         <hr class="admin-divider">
 
         <div class="admin-section">
           <div class="admin-section-title">Adicionar usuário</div>
-          <div class="add-user-form" style="grid-template-columns:1fr 1fr auto auto;">
+          <div class="add-user-form" style="grid-template-columns:1fr 1fr auto auto auto;">
             <div class="form-group">
               <label>Usuário</label>
               <input type="text" id="new-username" placeholder="nome.usuario" />
@@ -457,6 +482,13 @@
                 <option value="admin">Admin</option>
               </select>
             </div>
+            <div class="form-group">
+              <label title="Configurações + Lixeira">Acesso avançado</label>
+              <select id="new-acesso-avancado" style="padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text);">
+                <option value="0" selected>Não</option>
+                <option value="1">Sim</option>
+              </select>
+            </div>
             <button class="btn btn-primary" onclick="adicionarUsuario()" style="white-space:nowrap;">
               + Adicionar
             </button>
@@ -466,7 +498,57 @@
       </div>
     </div>
 
+    <!-- Aba Lixeira -->
+    <div class="admin-pane" id="pane-lixeira">
+      <div class="admin-card">
+        <div class="admin-section">
+          <div class="admin-section-title">Processos excluídos</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Processos excluídos ficam aqui, não são apagados na hora. Passado o
+            prazo configurado em Parâmetros (<span id="lixeira-dias-txt">60</span> dias
+            desde a exclusão), são removidos automaticamente — não existe exclusão
+            manual nesta tela, só restaurar.
+          </p>
+          <table class="users-table">
+            <thead>
+              <tr>
+                <th>Processo</th>
+                <th>Objeto</th>
+                <th>Criado por</th>
+                <th>Excluído em</th>
+                <th>Dias restantes</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="lixeira-tbody">
+              <tr><td colspan="6" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    </div><!-- /#admin-content -->
+
   </main>
+</div>
+
+<!-- Gate: reautenticação pra entrar em Configurações/Lixeira -->
+<div class="modal-overlay open" id="gate-senha">
+  <div class="modal-box">
+    <h3>Confirme sua senha</h3>
+    <p style="font-size:13px;color:var(--cinza-t);margin-bottom:16px;line-height:1.5;">
+      Esta área é restrita. Digite sua senha novamente pra continuar.
+    </p>
+    <div class="form-group" style="margin-bottom:14px;">
+      <input type="password" id="gate-senha-input" placeholder="Sua senha" style="width:100%;padding:10px 12px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:14px;" />
+    </div>
+    <div id="gate-senha-msg" style="font-size:13px;font-weight:600;color:var(--vermelho);min-height:18px;margin-bottom:10px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="window.location.replace('/index.html')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarGateSenha()">Entrar</button>
+    </div>
+  </div>
 </div>
 
 <!-- Modal: alterar senha -->
@@ -496,7 +578,7 @@ function toast(msg, type='') {
   setTimeout(() => { el.className = ''; }, 3000);
 }
 
-const _abas = ['usuarios', 'tipos', 'extras', 'parametros', 'banco', 'logs'];
+const _abas = ['usuarios', 'tipos', 'extras', 'parametros', 'banco', 'lixeira', 'logs'];
 function mudarAba(aba) {
   document.querySelectorAll('.admin-tab').forEach((t, i) => t.classList.toggle('active', _abas[i] === aba));
   _abas.forEach(a => document.getElementById(`pane-${a}`).classList.toggle('active', a === aba));
@@ -504,7 +586,69 @@ function mudarAba(aba) {
   if (aba === 'tipos') carregarTipos();
   if (aba === 'extras') carregarExtras();
   if (aba === 'parametros') carregarParametros();
+  if (aba === 'lixeira') carregarLixeira();
   if (aba === 'logs') { carregarUsuariosLog(); carregarLogs(); }
+}
+
+// ── Gate de reautenticação ───────────────────────────────────────────────────
+
+function confirmarGateSenha() {
+  const input = document.getElementById('gate-senha-input');
+  const msg   = document.getElementById('gate-senha-msg');
+  const senha = input.value;
+  msg.textContent = '';
+  if (!senha) { msg.textContent = 'Informe a senha.'; return; }
+  fetch('/api/auth/confirmar-senha', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ senha })
+  }).then(async res => {
+    if (!res.ok) { const e = await res.json().catch(() => ({})); msg.textContent = e.error || 'Senha incorreta.'; return; }
+    document.getElementById('gate-senha').classList.remove('open');
+    document.getElementById('admin-content').style.display = '';
+    carregarUsuarios();
+  }).catch(() => { msg.textContent = 'Erro ao confirmar senha.'; });
+}
+document.getElementById('gate-senha-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') confirmarGateSenha();
+});
+
+// ── Lixeira ──────────────────────────────────────────────────────────────────
+
+function fmtDataHora(s) {
+  if (!s) return '—';
+  const d = new Date(s.replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return s;
+  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+async function carregarLixeira() {
+  try {
+    const res = await fetch('/api/admin/lixeira');
+    const rows = res.ok ? await res.json() : [];
+    document.getElementById('lixeira-tbody').innerHTML = rows.length ? rows.map(p => `
+      <tr>
+        <td><strong>${p.numero_processo}</strong></td>
+        <td>${p.objeto}</td>
+        <td>${p.criado_por_username || '—'}</td>
+        <td>${fmtDataHora(p.excluido_em)}</td>
+        <td>${p.dias_restantes > 0 ? p.dias_restantes + ' dias' : '<span style="color:var(--vermelho);">hoje</span>'}</td>
+        <td style="text-align:right;"><button class="btn btn-primary btn-sm" onclick="restaurarProcesso(${p.id})">Restaurar</button></td>
+      </tr>
+    `).join('') : '<tr><td colspan="6" style="padding:20px;text-align:center;color:#aaa;">Lixeira vazia.</td></tr>';
+  } catch {
+    toast('Erro ao carregar lixeira', 'error');
+  }
+}
+
+async function restaurarProcesso(id) {
+  try {
+    const res = await fetch(`/api/admin/lixeira/${id}/restaurar`, { method: 'POST' });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error); }
+    toast('Processo restaurado', 'success');
+    carregarLixeira();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+  }
 }
 
 // ── Parâmetros ───────────────────────────────────────────────────────────────
@@ -516,14 +660,18 @@ async function carregarParametros() {
     document.getElementById('cfg-dias-laranja').value  = cfg.alerta_dias_laranja  || 5;
     document.getElementById('cfg-dias-vermelho').value = cfg.alerta_dias_vermelho || 10;
     document.getElementById('cfg-inatividade').value   = cfg.inatividade_minutos  || 30;
+    document.getElementById('cfg-lixeira-dias').value  = cfg.lixeira_dias         || 60;
+    const lixeiraTxt = document.getElementById('lixeira-dias-txt');
+    if (lixeiraTxt) lixeiraTxt.textContent = cfg.lixeira_dias || 60;
   } catch {}
 }
 
 async function salvarParametros() {
-  const msg         = document.getElementById('param-msg');
-  const laranja     = parseInt(document.getElementById('cfg-dias-laranja').value);
-  const vermelho    = parseInt(document.getElementById('cfg-dias-vermelho').value);
-  const inatividade = parseInt(document.getElementById('cfg-inatividade').value);
+  const msg          = document.getElementById('param-msg');
+  const laranja      = parseInt(document.getElementById('cfg-dias-laranja').value);
+  const vermelho     = parseInt(document.getElementById('cfg-dias-vermelho').value);
+  const inatividade  = parseInt(document.getElementById('cfg-inatividade').value);
+  const lixeiraDias  = parseInt(document.getElementById('cfg-lixeira-dias').value);
   if (!laranja || !vermelho || laranja < 1 || vermelho < 1) {
     msg.style.color = 'var(--vermelho)'; msg.textContent = 'Informe valores válidos (dias ≥ 1).'; return;
   }
@@ -533,15 +681,20 @@ async function salvarParametros() {
   if (!inatividade || inatividade < 1) {
     msg.style.color = 'var(--vermelho)'; msg.textContent = 'Informe um tempo de inatividade válido (minutos ≥ 1).'; return;
   }
+  if (!lixeiraDias || lixeiraDias < 1) {
+    msg.style.color = 'var(--vermelho)'; msg.textContent = 'Informe um tempo de retenção da lixeira válido (dias ≥ 1).'; return;
+  }
   try {
     const res = await fetch('/api/admin/config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ alerta_dias_laranja: laranja, alerta_dias_vermelho: vermelho, inatividade_minutos: inatividade })
+      body: JSON.stringify({ alerta_dias_laranja: laranja, alerta_dias_vermelho: vermelho, inatividade_minutos: inatividade, lixeira_dias: lixeiraDias })
     });
     if (!res.ok) throw new Error();
     msg.style.color = 'var(--verde)'; msg.textContent = 'Parâmetros salvos.';
     toast('Parâmetros salvos!', 'success');
+    const lixeiraTxt = document.getElementById('lixeira-dias-txt');
+    if (lixeiraTxt) lixeiraTxt.textContent = lixeiraDias;
   } catch {
     msg.style.color = 'var(--vermelho)'; msg.textContent = 'Erro ao salvar parâmetros.';
   }
@@ -549,8 +702,11 @@ async function salvarParametros() {
 
 (async () => {
   const user = await getCurrentUser();
-  if (user && user.role !== 'admin') { window.location.replace('/index.html'); return; }
-  carregarUsuarios();
+  const podeConfig = user && (user.username === 'master' || (user.role === 'admin' && user.acesso_avancado));
+  if (!podeConfig) { window.location.replace('/index.html'); return; }
+  // Conteúdo real (tabs, tabelas) só carrega depois do gate de senha —
+  // ver confirmarGateSenha()
+  setTimeout(() => document.getElementById('gate-senha-input').focus(), 50);
 })();
 
 // ── Tipos de contratação ─────────────────────────────────────────────────────
@@ -835,6 +991,14 @@ async function carregarUsuarios() {
             </select>
           `:'Admin'}
         </td>
+        <td>
+          ${u.role==='admin'?`
+            <select onchange="alterarAcessoAvancado(${u.id},this.value)" style="padding:4px 6px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text);">
+              <option value="0"${!u.acesso_avancado?' selected':''}>Não</option>
+              <option value="1"${u.acesso_avancado?' selected':''}>Sim</option>
+            </select>
+          `:'<span style="font-size:11px;color:#aaa;">—</span>'}
+        </td>
         <td><span class="${u.ativo?'badge-ativo':'badge-inativo'}">${u.ativo?'Ativo':'Inativo'}</span></td>
         <td>${fmtData(u.criado_em)}</td>
         <td style="white-space:nowrap;text-align:right;">
@@ -855,13 +1019,14 @@ async function adicionarUsuario() {
   const username = document.getElementById('new-username').value.trim();
   const senha    = document.getElementById('new-senha').value;
   const role     = document.getElementById('new-role').value;
+  const acesso_avancado = document.getElementById('new-acesso-avancado').value === '1';
   const msg = document.getElementById('user-msg');
   msg.style.color = '';
   if (!username || !senha) { msg.style.color='#c00'; msg.textContent='Preencha usuário e senha.'; return; }
   try {
     const res = await fetch('/api/admin/users', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ username, senha, role })
+      body: JSON.stringify({ username, senha, role, acesso_avancado })
     });
     if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
     msg.style.color = '#2E7D32';
@@ -869,9 +1034,24 @@ async function adicionarUsuario() {
     document.getElementById('new-username').value = '';
     document.getElementById('new-senha').value    = '';
     document.getElementById('new-role').value     = 'usuario';
+    document.getElementById('new-acesso-avancado').value = '0';
     carregarUsuarios();
   } catch(e) {
     msg.style.color='#c00'; msg.textContent = 'Erro: ' + e.message;
+  }
+}
+
+async function alterarAcessoAvancado(id, valor) {
+  try {
+    const res = await fetch(`/api/admin/users/${id}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ acesso_avancado: valor === '1' })
+    });
+    if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
+    toast('Acesso avançado atualizado', 'success');
+  } catch(e) {
+    toast('Erro: ' + e.message, 'error');
+    carregarUsuarios();
   }
 }
 

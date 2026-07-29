@@ -17,7 +17,10 @@ window.getCurrentUser = () => window._userPromise || (window._userPromise = (asy
 
   const el = document.getElementById('sidebar-username');
   if (el) el.textContent = user.username;
-  if (user.role !== 'admin') {
+  // Configurações (e a Lixeira dentro dela) só ficam visíveis pro master ou
+  // admin com acesso_avancado — role "admin" sozinho não basta mais
+  const podeConfig = user.username === 'master' || (user.role === 'admin' && user.acesso_avancado);
+  if (!podeConfig) {
     document.querySelectorAll('a.sidebar-gear[href="admin.html"]').forEach(a => a.remove());
   }
   _injetarToggleDark();

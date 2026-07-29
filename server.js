@@ -31,6 +31,21 @@ function getInatividadeMinutos() {
   return min > 0 ? min : 30;
 }
 
+function getLixeiraDias() {
+  const row = db.prepare(`SELECT valor FROM config WHERE chave = 'lixeira_dias'`).get();
+  const dias = parseInt(row?.valor, 10);
+  return dias > 0 ? dias : 60;
+}
+
+// Purga definitiva de processos que já passaram do prazo na Lixeira — não existe
+// "excluir" manual na Lixeira, só esta purga por tempo (ver /api/admin/lixeira)
+function purgarLixeira() {
+  try {
+    db.prepare(`DELETE FROM processos WHERE excluido_em IS NOT NULL AND excluido_em < datetime('now', '-' || ? || ' days')`)
+      .run(getLixeiraDias());
+  } catch {}
+}
+
 // Empurra o vencimento da sessão pra frente a cada requisição autenticada —
 // o cookie em si dura bastante (ver /api/auth/login), quem controla o timeout
 // de verdade é sessions.expires, rolando conforme uso real
@@ -43,7 +58,7 @@ function requireAuth(req, res, next) {
   const token = getCookie(req, 'secop_sid');
   if (!token) return res.status(401).json({ error: 'Não autenticado' });
   const session = db.prepare(`
-    SELECT s.user_id, u.username, u.role
+    SELECT s.user_id, u.username, u.role, u.acesso_avancado
     FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.token = ? AND s.expires > datetime('now') AND u.ativo = 1
   `).get(token);
@@ -73,6 +88,13 @@ app.use('/api', (req, res, next) => {
 
 function requireAdmin(req, res, next) {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso restrito a administradores' });
+  // Segunda camada: dentro de "admin" só quem tem acesso_avancado (ou é o
+  // usuário "master") entra em Configurações/Lixeira — todo o admin.html e
+  // suas rotas (mesmo as que não vivem sob /api/admin, ex. tipos-extra,
+  // tipos-contratacao, status) passam por aqui
+  if (req.user.username !== 'master' && !req.user.acesso_avancado) {
+    return res.status(403).json({ error: 'Acesso restrito' });
+  }
   next();
 }
 app.use('/api/admin', requireAdmin);
@@ -152,13 +174,35 @@ app.get('/api/auth/me', (req, res) => {
   const token = getCookie(req, 'secop_sid');
   if (!token) return res.status(401).json({ error: 'Não autenticado' });
   const session = db.prepare(`
-    SELECT s.user_id AS id, u.username, u.role
+    SELECT s.user_id AS id, u.username, u.role, u.acesso_avancado
     FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.token = ? AND s.expires > datetime('now') AND u.ativo = 1
   `).get(token);
   if (!session) return res.status(401).json({ error: 'Não autenticado' });
   renovarSessao(token);
   res.json(session);
+});
+
+// Reautenticação (step-up): confirma a senha do usuário JÁ logado antes de
+// liberar o conteúdo de admin.html (Configurações/Lixeira) — não troca a
+// sessão nem o cookie, só valida a senha de novo
+app.post('/api/auth/confirmar-senha', (req, res) => {
+  const token = getCookie(req, 'secop_sid');
+  if (!token) return res.status(401).json({ error: 'Não autenticado' });
+  const session = db.prepare(`
+    SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
+    WHERE s.token = ? AND s.expires > datetime('now') AND u.ativo = 1
+  `).get(token);
+  if (!session) return res.status(401).json({ error: 'Não autenticado' });
+  if (session.username !== 'master' && !session.acesso_avancado) {
+    return res.status(403).json({ error: 'Acesso restrito' });
+  }
+  const { senha } = req.body;
+  if (!senha) return res.status(400).json({ error: 'Informe a senha' });
+  const hash = crypto.pbkdf2Sync(senha, session.salt, 100000, 64, 'sha512').toString('hex');
+  if (hash !== session.senha_hash) return res.status(401).json({ error: 'Senha incorreta' });
+  renovarSessao(token);
+  res.json({ ok: true });
 });
 
 // ── Processos ─────────────────────────────────────────────────────────────────
@@ -170,7 +214,7 @@ app.get('/api/processos', (req, res) => {
       CAST((julianday('now') - julianday(p.criado_em)) AS INTEGER) AS dias_em_aberto
     FROM processos p
     LEFT JOIN users u ON u.id = p.criado_por_id
-    WHERE 1=1
+    WHERE p.excluido_em IS NULL
   `;
   const params = [];
 
@@ -208,7 +252,7 @@ app.get('/api/processos/:id', (req, res) => {
       CAST((julianday('now') - julianday(p.criado_em)) AS INTEGER) AS dias_em_aberto
     FROM processos p
     LEFT JOIN users u ON u.id = p.criado_por_id
-    WHERE p.id = ?
+    WHERE p.id = ? AND p.excluido_em IS NULL
   `).get(req.params.id);
   if (!processo) return res.status(404).json({ error: 'Não encontrado' });
 
@@ -246,8 +290,33 @@ app.put('/api/processos/:id', requireEditProcesso(req => req.params.id), (req, r
 
 app.delete('/api/processos/:id', requireEditProcesso(req => req.params.id), (req, res) => {
   const proc = db.prepare(`SELECT numero_processo, objeto FROM processos WHERE id = ?`).get(req.params.id);
-  db.prepare(`DELETE FROM processos WHERE id = ?`).run(req.params.id);
-  if (proc) registrarLog(req, 'PROCESSO', 'EXCLUIU', `Excluiu processo ${proc.numero_processo}: ${proc.objeto}`);
+  // Soft-delete: vai pra Lixeira (Configurações), não some de vez — só quem tem
+  // acesso_avancado/master enxerga e pode restaurar; purga automática depois de
+  // config.lixeira_dias (ver purgarLixeira)
+  db.prepare(`UPDATE processos SET excluido_em = datetime('now') WHERE id = ?`).run(req.params.id);
+  if (proc) registrarLog(req, 'PROCESSO', 'EXCLUIU', `Excluiu processo ${proc.numero_processo}: ${proc.objeto} (movido para lixeira)`);
+  res.json({ ok: true });
+});
+
+// ── Lixeira (Configurações → Lixeira, restrito por requireAdmin) ───────────────
+
+app.get('/api/admin/lixeira', (req, res) => {
+  const rows = db.prepare(`
+    SELECT p.id, p.numero_processo, p.objeto, p.excluido_em, u.username AS criado_por_username,
+      CAST(julianday(excluido_em, '+' || ? || ' days') - julianday('now') AS INTEGER) AS dias_restantes
+    FROM processos p
+    LEFT JOIN users u ON u.id = p.criado_por_id
+    WHERE p.excluido_em IS NOT NULL
+    ORDER BY p.excluido_em DESC
+  `).all(getLixeiraDias());
+  res.json(rows);
+});
+
+app.post('/api/admin/lixeira/:id/restaurar', (req, res) => {
+  const proc = db.prepare(`SELECT numero_processo, objeto FROM processos WHERE id = ? AND excluido_em IS NOT NULL`).get(req.params.id);
+  if (!proc) return res.status(404).json({ error: 'Não encontrado na lixeira' });
+  db.prepare(`UPDATE processos SET excluido_em = NULL WHERE id = ?`).run(req.params.id);
+  registrarLog(req, 'PROCESSO', 'RESTAUROU', `Restaurou processo ${proc.numero_processo}: ${proc.objeto} da lixeira`);
   res.json({ ok: true });
 });
 
@@ -363,21 +432,22 @@ app.post('/api/precos', requireEditProcesso(req => processoIdDoItem(req.body.ite
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 app.get('/api/dashboard/resumo', (req, res) => {
-  const em_cotacao   = db.prepare(`SELECT COUNT(*) AS c FROM processos WHERE status='Em cotação' OR status IS NULL`).get().c;
-  const ag_aprovacao = db.prepare(`SELECT COUNT(*) AS c FROM processos WHERE status='Ag. aprovação'`).get().c;
+  const em_cotacao   = db.prepare(`SELECT COUNT(*) AS c FROM processos WHERE (status='Em cotação' OR status IS NULL) AND excluido_em IS NULL`).get().c;
+  const ag_aprovacao = db.prepare(`SELECT COUNT(*) AS c FROM processos WHERE status='Ag. aprovação' AND excluido_em IS NULL`).get().c;
   const concluidos_mes = db.prepare(`
     SELECT COUNT(*) AS c FROM processos
-    WHERE status='Concluído'
+    WHERE status='Concluído' AND excluido_em IS NULL
       AND strftime('%Y-%m', atualizado_em) = strftime('%Y-%m', 'now')
   `).get().c;
-  const parados = db.prepare(`SELECT COUNT(*) AS c FROM processos WHERE status='Parado'`).get().c;
+  const parados = db.prepare(`SELECT COUNT(*) AS c FROM processos WHERE status='Parado' AND excluido_em IS NULL`).get().c;
 
   const alertas = db.prepare(`
     SELECT id, numero_processo, objeto, setor_solicitante, status,
       CAST((julianday('now') - julianday(criado_em)) AS INTEGER) AS dias_em_aberto
     FROM processos
-    WHERE status = 'Parado'
-       OR (status NOT IN ('Concluído', 'Cancelado') AND CAST((julianday('now') - julianday(atualizado_em)) AS INTEGER) > 15)
+    WHERE excluido_em IS NULL
+      AND (status = 'Parado'
+       OR (status NOT IN ('Concluído', 'Cancelado') AND CAST((julianday('now') - julianday(atualizado_em)) AS INTEGER) > 15))
     ORDER BY dias_em_aberto DESC
     LIMIT 20
   `).all();
@@ -385,13 +455,13 @@ app.get('/api/dashboard/resumo', (req, res) => {
   const ultimos_processos = db.prepare(`
     SELECT id, numero_processo, objeto, setor_solicitante, status, criado_em,
       CAST((julianday('now') - julianday(criado_em)) AS INTEGER) AS dias_em_aberto
-    FROM processos ORDER BY criado_em DESC LIMIT 5
+    FROM processos WHERE excluido_em IS NULL ORDER BY criado_em DESC LIMIT 5
   `).all();
 
   const por_setor = db.prepare(`
     SELECT setor_solicitante AS setor, COUNT(*) AS total
     FROM processos
-    WHERE setor_solicitante IS NOT NULL AND setor_solicitante != ''
+    WHERE excluido_em IS NULL AND setor_solicitante IS NOT NULL AND setor_solicitante != ''
     GROUP BY setor_solicitante ORDER BY total DESC
   `).all();
 
@@ -602,25 +672,26 @@ app.get('/api/dicionario-pt', (req, res) => {
 // ── Setores (lista única para filtros) ────────────────────────────────────────
 
 app.get('/api/setores', (req, res) => {
-  const rows = db.prepare(`SELECT DISTINCT setor_solicitante FROM processos WHERE setor_solicitante IS NOT NULL ORDER BY setor_solicitante`).all();
+  const rows = db.prepare(`SELECT DISTINCT setor_solicitante FROM processos WHERE setor_solicitante IS NOT NULL AND excluido_em IS NULL ORDER BY setor_solicitante`).all();
   res.json(rows.map(r => r.setor_solicitante));
 });
 
 // ── Admin: usuários ───────────────────────────────────────────────────────────
 
 app.get('/api/admin/users', (req, res) => {
-  res.json(db.prepare("SELECT id, username, role, ativo, criado_em FROM users WHERE username != 'master' ORDER BY id").all());
+  res.json(db.prepare("SELECT id, username, role, ativo, acesso_avancado, criado_em FROM users WHERE username != 'master' ORDER BY id").all());
 });
 
 app.post('/api/admin/users', (req, res) => {
-  const { username, senha, role } = req.body;
+  const { username, senha, role, acesso_avancado } = req.body;
   if (!username || !senha) return res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.pbkdf2Sync(senha, salt, 100000, 64, 'sha512').toString('hex');
+  const acessoVal = acesso_avancado ? 1 : 0;
   try {
     const info = db.prepare(
-      "INSERT INTO users (username, senha_hash, salt, role, ativo) VALUES (?, ?, ?, ?, 1)"
-    ).run(username, hash, salt, role || 'usuario');
+      "INSERT INTO users (username, senha_hash, salt, role, ativo, acesso_avancado) VALUES (?, ?, ?, ?, 1, ?)"
+    ).run(username, hash, salt, role || 'usuario', acessoVal);
     registrarLog(req, 'USUARIO', 'CRIOU', `Criou usuário "${username}"`);
     res.status(201).json({ id: info.lastInsertRowid });
   } catch (e) {
@@ -629,7 +700,7 @@ app.post('/api/admin/users', (req, res) => {
 });
 
 app.patch('/api/admin/users/:id', (req, res) => {
-  const { ativo, senha, role } = req.body;
+  const { ativo, senha, role, acesso_avancado } = req.body;
   const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
   if (!user) return res.status(404).json({ error: 'Não encontrado' });
 
@@ -649,6 +720,11 @@ app.patch('/api/admin/users/:id', (req, res) => {
     if (user.username === 'master') return res.status(400).json({ error: 'Não é possível alterar o perfil do master' });
     db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, req.params.id);
     registrarLog(req, 'USUARIO', 'PERFIL', `Alterou perfil do usuário "${user.username}" para "${role}"`);
+  }
+  if (acesso_avancado !== undefined) {
+    if (user.username === 'master') return res.status(400).json({ error: 'O master já tem acesso completo' });
+    db.prepare("UPDATE users SET acesso_avancado = ? WHERE id = ?").run(acesso_avancado ? 1 : 0, req.params.id);
+    registrarLog(req, 'USUARIO', 'ACESSO_AVANCADO', `${acesso_avancado ? 'Concedeu' : 'Revogou'} acesso avançado (Configurações/Lixeira) a "${user.username}"`);
   }
   res.json({ ok: true });
 });
@@ -734,6 +810,9 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
   }
 });
+
+purgarLixeira();
+setInterval(purgarLixeira, 60 * 60 * 1000); // checa a cada hora
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
