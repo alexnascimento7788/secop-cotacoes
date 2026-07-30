@@ -150,13 +150,13 @@ function renderTable(list) {
         </td>
         <td class="${diasClass}">${dias} dias</td>
         <td>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <a href="cotacao.html?id=${p.id}" class="btn btn-primary btn-sm">Abrir quadro</a>
-            <a href="fornecedor.html?processo_id=${p.id}" class="btn btn-outline btn-sm">Fornecedores</a>
-            <button class="btn btn-outline btn-sm" onclick="duplicarProcesso(${p.id})" title="Cria um processo novo com o mesmo cabeçalho, itens e fornecedores (sem preços)">Duplicar</button>
+          <div style="display:flex;gap:4px;flex-wrap:nowrap;">
+            <a href="cotacao.html?id=${p.id}" class="btn btn-primary btn-xs" title="Abrir quadro comparativo">Quadro</a>
+            <a href="fornecedor.html?processo_id=${p.id}" class="btn btn-outline btn-xs">Fornecedores</a>
+            <button class="btn btn-outline btn-xs" onclick="duplicarProcesso(${p.id})" title="Cria um processo novo com o mesmo cabeçalho, itens e fornecedores (sem preços)">Duplicar</button>
             ${editavel ? `
-              <a href="novo-processo.html?id=${p.id}" class="btn btn-secondary btn-sm">Editar</a>
-              <button class="btn btn-danger btn-sm" onclick="confirmarDelete(${p.id})">Excluir</button>
+              <a href="novo-processo.html?id=${p.id}" class="btn btn-secondary btn-xs">Editar</a>
+              <button class="btn btn-danger btn-xs" onclick="confirmarDelete(${p.id})">Excluir</button>
             ` : ''}
           </div>
         </td>
