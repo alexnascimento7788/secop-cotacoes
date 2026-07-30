@@ -153,11 +153,11 @@ function renderTable(list) {
           <div style="display:flex;gap:4px;flex-wrap:nowrap;">
             <a href="cotacao.html?id=${p.id}" class="btn btn-primary btn-xs" title="Abrir quadro comparativo">Quadro</a>
             <a href="fornecedor.html?processo_id=${p.id}" class="btn btn-outline btn-xs">Fornecedores</a>
-            <button class="btn btn-outline btn-xs" onclick="duplicarProcesso(${p.id})" title="Cria um processo novo com o mesmo cabeçalho, itens e fornecedores (sem preços)">Duplicar</button>
             ${editavel ? `
               <a href="novo-processo.html?id=${p.id}" class="btn btn-secondary btn-xs">Editar</a>
               <button class="btn btn-danger btn-xs" onclick="confirmarDelete(${p.id})">Excluir</button>
             ` : ''}
+            <button class="btn btn-outline btn-xs" onclick="duplicarProcesso(${p.id})" title="Cria um processo novo com o mesmo cabeçalho, itens e fornecedores (sem preços)">Duplicar</button>
           </div>
         </td>
       </tr>`;
