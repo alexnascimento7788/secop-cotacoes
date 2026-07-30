@@ -400,7 +400,7 @@ function renderTabelaPrecos() {
     <th class="col-fixed" rowspan="2">Item</th>
     <th class="col-fixed" rowspan="2">Qtde</th>
     <th class="col-fixed" rowspan="2">Unid.</th>
-    <th class="col-fixed" rowspan="2">Descrição</th>`;
+    <th class="col-fixed col-descricao" rowspan="2">Descrição</th>`;
   fOrds.forEach((f, i) => {
     const incompleto = !fornecedorCompleto(f.id);
     const badge = f.declinio
@@ -433,7 +433,7 @@ function renderTabelaPrecos() {
       <td class="col-fixed">${item.extra ? 'EXTRA' : item.item_num}</td>
       <td class="col-fixed">${item.quantidade}</td>
       <td class="col-fixed">${item.unidade || ''}</td>
-      <td class="col-fixed">${item.descricao}</td>`;
+      <td class="col-fixed col-descricao">${item.descricao}</td>`;
 
     fOrds.forEach(f => {
       const p     = precos[`${item.id}_${f.id}`] || {};

@@ -424,7 +424,7 @@ function renderTabelaPrecos(precosMap) {
         <td class="col-fixed">${item.item_num}</td>
         <td class="col-fixed">${item.quantidade}</td>
         <td class="col-fixed">${item.unidade || ''}</td>
-        <td class="col-fixed">${item.descricao}</td>`;
+        <td class="col-fixed col-descricao">${item.descricao}</td>`;
 
     // Linha extra percentual: um único campo "valor %" — sem qtde × unitário,
     // sem alternância de modo (não faz sentido multiplicar percentual por qtde).
