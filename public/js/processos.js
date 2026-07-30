@@ -153,6 +153,7 @@ function renderTable(list) {
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <a href="cotacao.html?id=${p.id}" class="btn btn-primary btn-sm">Abrir quadro</a>
             <a href="fornecedor.html?processo_id=${p.id}" class="btn btn-outline btn-sm">Fornecedores</a>
+            <button class="btn btn-outline btn-sm" onclick="duplicarProcesso(${p.id})" title="Cria um processo novo com o mesmo cabeçalho, itens e fornecedores (sem preços)">Duplicar</button>
             ${editavel ? `
               <a href="novo-processo.html?id=${p.id}" class="btn btn-secondary btn-sm">Editar</a>
               <button class="btn btn-danger btn-sm" onclick="confirmarDelete(${p.id})">Excluir</button>
@@ -161,6 +162,19 @@ function renderTable(list) {
         </td>
       </tr>`;
   }).join('');
+}
+
+async function duplicarProcesso(id) {
+  if (!confirm('Duplicar este processo? Um novo processo será criado com o mesmo cabeçalho, itens e fornecedores (sem preços lançados).')) return;
+  try {
+    const res = await fetch(`/api/processos/${id}/duplicar`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { toast(data.error || 'Erro ao duplicar processo', 'error'); return; }
+    toast(`Processo duplicado como ${data.numero_processo}`, 'success');
+    window.location.href = `novo-processo.html?id=${data.id}`;
+  } catch {
+    toast('Erro ao duplicar processo', 'error');
+  }
 }
 
 function confirmarDelete(id) {

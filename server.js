@@ -267,6 +267,44 @@ app.get('/api/processos/:id', (req, res) => {
   res.json({ ...processo, fornecedores, itens, precos });
 });
 
+// Duplica cabeçalho + itens + fornecedores (sem preços/proposta) num processo novo,
+// pra facilitar cotações recorrentes — qualquer usuário autenticado pode duplicar
+// (não exige dono/admin do original, só leitura, que já é livre pra todos)
+app.post('/api/processos/:id/duplicar', (req, res) => {
+  const original = db.prepare(`SELECT * FROM processos WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
+  if (!original) return res.status(404).json({ error: 'Não encontrado' });
+
+  const numero_processo = gerarNumeroProcesso();
+  const info = db.prepare(`
+    INSERT INTO processos (numero_processo, objeto, setor_solicitante, tipo_contratacao,
+      responsavel, descricao, previsao_inicio, previsao_termino, observacoes, observacoes2,
+      mostrar_menor_preco, criado_por_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(numero_processo, original.objeto, original.setor_solicitante, original.tipo_contratacao,
+         original.responsavel, original.descricao, original.previsao_inicio, original.previsao_termino,
+         original.observacoes, original.observacoes2, original.mostrar_menor_preco, req.user.user_id);
+  const novoId = info.lastInsertRowid;
+
+  const itens = db.prepare(`SELECT * FROM itens WHERE processo_id = ? ORDER BY item_num`).all(req.params.id);
+  const insertItem = db.prepare(`INSERT INTO itens (processo_id, item_num, quantidade, unidade, descricao, extra) VALUES (?, ?, ?, ?, ?, ?)`);
+  itens.forEach(i => insertItem.run(novoId, i.item_num, i.quantidade, i.unidade, i.descricao, i.extra));
+
+  const fornecedores = db.prepare(`SELECT * FROM fornecedores WHERE processo_id = ? ORDER BY ordem`).all(req.params.id);
+  const insertForn = db.prepare(`
+    INSERT INTO fornecedores (processo_id, ordem, nome, contato, telefone, celular, email,
+      prazo_pagamento, prazo_entrega, prazo_garantia, frete, frete_termo,
+      pesquisa_internet, pesquisa_compra_publica, declinio)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  fornecedores.forEach(f => insertForn.run(novoId, f.ordem, f.nome, f.contato, f.telefone, f.celular, f.email,
+    f.prazo_pagamento, f.prazo_entrega, f.prazo_garantia, f.frete, f.frete_termo,
+    f.pesquisa_internet, f.pesquisa_compra_publica, f.declinio));
+
+  registrarLog(req, 'PROCESSO', 'DUPLICOU', `Duplicou processo ${original.numero_processo} (${original.objeto}) em ${numero_processo}`);
+
+  res.status(201).json({ id: novoId, numero_processo });
+});
+
 app.put('/api/processos/:id', requireEditProcesso(req => req.params.id), (req, res) => {
   const { objeto, setor_solicitante, tipo_contratacao, responsavel, descricao,
           previsao_inicio, previsao_termino, status, observacoes, observacoes2, data_abertura } = req.body;
