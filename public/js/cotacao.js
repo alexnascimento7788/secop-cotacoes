@@ -636,7 +636,7 @@ function atualizarPrintBlock() {
     const sinalItem     = item.extra ? sinalDoTipo(item.unidade)     : null;
     const tipoValorItem = item.extra ? tipoValorDoTipo(item.unidade) : null;
     const fmtExtraPrt   = tipoValorItem === 'percentual' ? fmtPercentualExtra : fmtMoedaExtra;
-    h += `<tr class="${item.extra ? 'prt-extra ' + (sinalItem === 'negativo' ? 'prt-extra-neg' : 'prt-extra-pos') : ''}"><td class="prt-left">${item.extra ? 'EXTRA' : item.item_num}</td><td class="prt-left">${item.quantidade}</td><td class="prt-left">${item.unidade || ''}</td><td class="prt-left">${item.descricao}</td>`;
+    h += `<tr class="${item.extra ? 'prt-extra ' + (sinalItem === 'negativo' ? 'prt-extra-neg' : 'prt-extra-pos') : ''}"><td class="prt-left">${item.extra ? 'EXTRA' : item.item_num}</td><td class="prt-left">${item.quantidade}</td><td class="prt-left">${item.unidade || ''}</td><td class="prt-left prt-descricao">${item.descricao}</td>`;
     fOrds.forEach(f => {
       const p     = precos[`${item.id}_${f.id}`] || {};
       const u     = p.preco_unitario_mes;

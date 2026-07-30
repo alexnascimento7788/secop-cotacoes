@@ -957,8 +957,13 @@ textarea:focus::placeholder { color: transparent; }
 
   .prt-left { background: #fff !important; font-size: 8px; min-width: 30px; }
   .prt-lbl  { background: #fff !important; font-size: 8px; font-weight: 600; text-align: right !important; padding: 2px 6px; }
-  .prt-val  { background: #fff !important; font-size: 8px; text-align: left; padding: 2px 4px; }
+  /* table-layout:auto tenta evitar quebra esticando a coluna até caber numa
+     linha só — como a página impressa é larga (A4 paisagem), isso deixava
+     Objeto/Descrição da contratação numa linha comprida em vez de quebrar.
+     max-width força a quebra dentro de um limite razoável. */
+  .prt-val  { background: #fff !important; font-size: 8px; text-align: left; padding: 2px 4px; max-width: 300px; word-break: break-word; }
   .prt-lbl.prt-hdr-row, .prt-val.prt-hdr-row { background: #8B6914 !important; color: #fff !important; font-weight: 700; }
+  .prt-descricao { max-width: 280px; word-break: break-word; }
 
   .prt-forn-hdr {
     background: #8B6914 !important;
