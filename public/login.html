@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Login — SECOP Cotações</title>
+  <title>Login — CEASA CONECTA</title>
   <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#1A6B35">
@@ -151,7 +151,7 @@
         <polygon points="2,28 28,54 28,28" fill="#fff"/>
       </svg>
     </div>
-    <h1>SECOP · Cotações</h1>
+    <h1>CEASA CONECTA</h1>
     <p>CEASAMINAS</p>
   </div>
 
@@ -202,7 +202,10 @@ async function fazerLogin(e) {
       err.style.display = 'block';
       return;
     }
-    window.location.replace('/index.html');
+    const data = await res.json();
+    // Vários módulos (ou master): escolhe antes de entrar. Um só: vai direto pra
+    // home dele. O bloqueio (sem módulo) já cai no ramo !res.ok acima.
+    window.location.replace(data.escolher ? '/selecionar-modulo.html' : (data.home || '/index.html'));
   } catch {
     err.textContent = 'Erro de conexão com o servidor';
     err.style.display = 'block';

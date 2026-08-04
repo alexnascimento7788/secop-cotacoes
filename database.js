@@ -210,6 +210,61 @@ function setupDb() {
 
   try { _db.exec(`ALTER TABLE processos ADD COLUMN criado_por_id INTEGER REFERENCES users(id)`); } catch {}
 
+  // ── Módulos da plataforma CEASA CONECTA ───────────────────────────────────────
+  // O sistema virou multi-módulo: SECOP - Cotações é o módulo atual (todo o app de
+  // hoje), Depop - Concessionários é um segundo módulo (placeholder). `cor` dá a
+  // diferenciação visual (accent) por módulo; `ativo` liga/desliga o módulo inteiro.
+
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS modulos (
+      id    INTEGER PRIMARY KEY AUTOINCREMENT,
+      slug  TEXT    NOT NULL UNIQUE,
+      nome  TEXT    NOT NULL,
+      cor   TEXT    NOT NULL DEFAULT '#1A6B35',
+      home  TEXT    NOT NULL,
+      ordem INTEGER NOT NULL DEFAULT 0,
+      ativo INTEGER NOT NULL DEFAULT 1
+    );
+
+    CREATE TABLE IF NOT EXISTS user_modulos (
+      user_id   INTEGER NOT NULL,
+      modulo_id INTEGER NOT NULL,
+      PRIMARY KEY (user_id, modulo_id),
+      FOREIGN KEY (user_id)   REFERENCES users(id)   ON DELETE CASCADE,
+      FOREIGN KEY (modulo_id) REFERENCES modulos(id) ON DELETE CASCADE
+    );
+  `);
+
+  // Semeia os módulos padrão (ignora se já existirem — idempotente)
+  [
+    { slug: 'secop', nome: 'SECOP - Cotações',        cor: '#1A6B35', home: '/index.html', ordem: 1 },
+    { slug: 'depop', nome: 'Depop - Concessionários', cor: '#1565C0', home: '/depop.html', ordem: 2 },
+  ].forEach(m => {
+    try {
+      _db.prepare(`INSERT INTO modulos (slug, nome, cor, home, ordem) VALUES (?, ?, ?, ?, ?)`)
+        .run(m.slug, m.nome, m.cor, m.home, m.ordem);
+    } catch {}
+  });
+
+  // Todo usuário existente recebe acesso ao módulo SECOP automaticamente — porém
+  // UMA ÚNICA VEZ. Sem o flag, este backfill rodaria a cada boot e reconcederia
+  // SECOP a quem o admin tivesse revogado depois. O flag em `config` (padrão de
+  // idempotência do projeto) garante que só acontece na primeira migração.
+  try {
+    const jaFeito = _db.prepare(`SELECT valor FROM config WHERE chave = 'migracao_modulos_secop'`).get();
+    if (!jaFeito) {
+      const secop = _db.prepare(`SELECT id FROM modulos WHERE slug = 'secop'`).get();
+      if (secop) {
+        _db.prepare(`INSERT OR IGNORE INTO user_modulos (user_id, modulo_id)
+                     SELECT id, ? FROM users`).run(secop.id);
+      }
+      _db.prepare(`INSERT INTO config (chave, valor) VALUES ('migracao_modulos_secop', '1')`).run();
+    }
+  } catch {}
+
+  // Qual módulo o usuário escolheu para esta sessão (slug). NULL = ainda não escolheu.
+  try { _db.exec(`ALTER TABLE sessions ADD COLUMN modulo_ativo TEXT`); } catch {}
+
   _db.exec(`
     CREATE TABLE IF NOT EXISTS logs (
       id        INTEGER PRIMARY KEY AUTOINCREMENT,

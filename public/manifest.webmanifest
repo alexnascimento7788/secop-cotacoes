@@ -1,7 +1,7 @@
 {
-  "name": "SECOP Cotações — CEASAMINAS",
-  "short_name": "SECOP Cotações",
-  "description": "Sistema de Cotações - SECOP / CEASAMINAS",
+  "name": "CEASA CONECTA — CEASAMINAS",
+  "short_name": "CEASA CONECTA",
+  "description": "Plataforma CEASA CONECTA — CEASAMINAS",
   "id": "/index.html",
   "start_url": "/index.html",
   "scope": "/",

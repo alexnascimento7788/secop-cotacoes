@@ -41,6 +41,16 @@
   --branco:     #161b22;
 }
 
+/* ── Accent por módulo (CEASA CONECTA) ─────────────────────
+   O accent verde é do SECOP (padrão). O Depop reaproveita o mesmo layout, mas
+   com accent azul — auth.js marca <html data-modulo="depop"> no módulo ativo,
+   então basta sobrescrever as variáveis de marca aqui (vale em claro e escuro). */
+:root[data-modulo="depop"] {
+  --verde:   #1565C0;
+  --verde-l: #1976D2;
+  --azul:    #1565C0;
+}
+
 body {
   font-family: system-ui, -apple-system, Arial, sans-serif;
   background: var(--cinza-bg);
