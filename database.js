@@ -265,6 +265,22 @@ function setupDb() {
   // Qual módulo o usuário escolheu para esta sessão (slug). NULL = ainda não escolheu.
   try { _db.exec(`ALTER TABLE sessions ADD COLUMN modulo_ativo TEXT`); } catch {}
 
+  // ── Depop: perfil de assinatura do usuário ────────────────────────────────────
+  // No 1º acesso ao módulo Depop o usuário cadastra CPF (validado) + uma senha de
+  // assinatura, da qual derivamos um par de chaves. A chave privada é guardada
+  // cifrada por essa senha (PEM PKCS8 com passphrase) — o servidor nunca guarda a
+  // senha nem a chave privada em claro. A pública fica pra verificar assinaturas.
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS depop_perfil (
+      user_id            INTEGER PRIMARY KEY,
+      cpf                TEXT NOT NULL UNIQUE,
+      chave_publica      TEXT NOT NULL,
+      chave_privada_pem  TEXT NOT NULL,
+      criado_em          DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+
   _db.exec(`
     CREATE TABLE IF NOT EXISTS logs (
       id        INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -131,6 +131,17 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
+// Exige que o módulo indicado seja o ativo na sessão. Usado para montar as rotas
+// próprias de um módulo (ex.: `/api/depop/*`), espelhando a trava do SECOP acima.
+function requireModulo(slug) {
+  return (req, res, next) => {
+    if (req.user.modulo_ativo !== slug) {
+      return res.status(403).json({ error: `O módulo não está ativo nesta sessão.` });
+    }
+    next();
+  };
+}
+
 // ── Permissões de cotação (dono ou admin) ──────────────────────────────────────
 
 function podeEditarProcesso(user, processoId) {
@@ -954,6 +965,84 @@ app.delete('/api/admin/logs', (req, res) => {
   db.prepare('DELETE FROM logs').run();
   registrarLog(req, 'SISTEMA', 'LIMPOU', 'Histórico de logs limpo');
   res.json({ ok: true });
+});
+
+// ── Depop: perfil de assinatura (CPF + par de chaves) ─────────────────────────
+
+// Validação de CPF pelo algoritmo dos dígitos verificadores (mesma regra da
+// Receita) — offline, sem consulta externa. Rejeita tamanho errado e as
+// sequências repetidas (000..., 111...) que passam na conta mas são inválidas.
+function cpfValido(cpf) {
+  cpf = String(cpf || '').replace(/\D/g, '');
+  if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
+  const dv = (fatorInicial) => {
+    let soma = 0;
+    for (let i = 0; i < fatorInicial - 1; i++) soma += parseInt(cpf[i], 10) * (fatorInicial - i);
+    const resto = 11 - (soma % 11);
+    return resto >= 10 ? 0 : resto;
+  };
+  return dv(10) === parseInt(cpf[9], 10) && dv(11) === parseInt(cpf[10], 10);
+}
+
+// Par de chaves EC P-256; a privada sai em PEM PKCS8 já cifrada pela senha de
+// assinatura (nunca guardamos a senha nem a chave em claro).
+function gerarParDeChaves(senhaAssinatura) {
+  return crypto.generateKeyPairSync('ec', {
+    namedCurve: 'P-256',
+    publicKeyEncoding:  { type: 'spki',  format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem', cipher: 'aes-256-cbc', passphrase: senhaAssinatura }
+  });
+}
+
+// Assina um payload canônico com a chave privada do perfil (destravada pela
+// senha). Lança se a senha estiver errada — quem chama traduz pra "senha
+// incorreta". Devolve a assinatura em base64. (Usado na validação de contrato,
+// quando as tabelas do Depop existirem.)
+function assinarPayload(perfil, senhaAssinatura, payload) {
+  const s = crypto.createSign('SHA256');
+  s.update(payload);
+  s.end();
+  return s.sign({ key: perfil.chave_privada_pem, passphrase: senhaAssinatura }, 'base64');
+}
+
+function verificarAssinatura(perfil, payload, assinaturaB64) {
+  const v = crypto.createVerify('SHA256');
+  v.update(payload);
+  v.end();
+  return v.verify(perfil.chave_publica, assinaturaB64, 'base64');
+}
+
+// Todas as rotas /api/depop/* exigem o módulo Depop ativo na sessão.
+app.use('/api/depop', requireModulo('depop'));
+
+// Situação do perfil do usuário logado (o front decide se mostra o cadastro de
+// 1º acesso ou o conteúdo). Nunca devolve chave privada; CPF vem mascarado.
+app.get('/api/depop/perfil', (req, res) => {
+  const perfil = db.prepare(`SELECT cpf, criado_em FROM depop_perfil WHERE user_id = ?`).get(req.user.user_id);
+  if (!perfil) return res.json({ cadastrado: false });
+  const cpfMasc = perfil.cpf.replace(/^(\d{3})\d{6}(\d{2})$/, '$1.***.**-$2');
+  res.json({ cadastrado: true, cpf_mascarado: cpfMasc, criado_em: perfil.criado_em });
+});
+
+// Cadastro de 1º acesso: CPF (validado) + senha de assinatura → gera e guarda o
+// par de chaves. Só uma vez por usuário; CPF é único no módulo.
+app.post('/api/depop/perfil', (req, res) => {
+  const { cpf, senha_assinatura } = req.body || {};
+  const ja = db.prepare(`SELECT 1 FROM depop_perfil WHERE user_id = ?`).get(req.user.user_id);
+  if (ja) return res.status(400).json({ error: 'Perfil já configurado' });
+  const cpfLimpo = String(cpf || '').replace(/\D/g, '');
+  if (!cpfValido(cpfLimpo)) return res.status(400).json({ error: 'CPF inválido' });
+  if (!senha_assinatura || String(senha_assinatura).length < 6) {
+    return res.status(400).json({ error: 'A senha de assinatura deve ter ao menos 6 caracteres' });
+  }
+  const donoCpf = db.prepare(`SELECT user_id FROM depop_perfil WHERE cpf = ?`).get(cpfLimpo);
+  if (donoCpf) return res.status(400).json({ error: 'Este CPF já está cadastrado por outro usuário' });
+
+  const { publicKey, privateKey } = gerarParDeChaves(String(senha_assinatura));
+  db.prepare(`INSERT INTO depop_perfil (user_id, cpf, chave_publica, chave_privada_pem) VALUES (?, ?, ?, ?)`)
+    .run(req.user.user_id, cpfLimpo, publicKey, privateKey);
+  registrarLog(req, 'DEPOP', 'PERFIL', 'Configurou CPF e assinatura digital do Depop');
+  res.status(201).json({ ok: true });
 });
 
 // ── Versão ───────────────────────────────────────────────────────────────────

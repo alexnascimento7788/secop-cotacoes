@@ -52,11 +52,47 @@
       </div>
     </div>
 
-    <div class="card">
+    <!-- Carregando -->
+    <div id="depop-loader" class="card">
+      <div style="padding:48px 24px;text-align:center;color:var(--text-muted);">Carregando...</div>
+    </div>
+
+    <!-- Gate de 1º acesso: cadastro de CPF + senha de assinatura -->
+    <div id="depop-setup" class="card" style="display:none;max-width:520px;">
+      <div class="card-header"><div class="card-title">Configure seu acesso</div></div>
+      <div style="padding:20px 24px;">
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.5;">
+          Antes de trabalhar com os contratos, cadastre seu <strong>CPF</strong> e crie uma
+          <strong>senha de assinatura</strong>. Ela é usada só para assinar as validações
+          (é diferente da senha de login) e não pode ser recuperada — guarde com cuidado.
+        </p>
+        <div class="form-row cols-1" style="margin-bottom:14px;">
+          <div class="form-group">
+            <label>CPF</label>
+            <input type="text" id="dp-cpf" inputmode="numeric" maxlength="14" placeholder="000.000.000-00" />
+          </div>
+        </div>
+        <div class="form-row cols-2" style="margin-bottom:14px;gap:12px;">
+          <div class="form-group">
+            <label>Senha de assinatura</label>
+            <input type="password" id="dp-senha" placeholder="Mínimo 6 caracteres" />
+          </div>
+          <div class="form-group">
+            <label>Confirme a senha</label>
+            <input type="password" id="dp-senha2" placeholder="Repita a senha" />
+          </div>
+        </div>
+        <div id="dp-setup-msg" style="font-size:13px;font-weight:600;min-height:18px;margin-bottom:12px;"></div>
+        <button class="btn btn-primary" id="dp-setup-btn" onclick="salvarPerfilDepop()">Salvar e continuar</button>
+      </div>
+    </div>
+
+    <!-- Conteúdo do módulo (após cadastro) -->
+    <div id="depop-content" class="card" style="display:none;">
       <div style="padding:64px 24px;text-align:center;">
         <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--verde)" stroke-width="1.5" style="margin-bottom:16px;"><path d="M3 9l1-5h16l1 5"/><path d="M4 9v11a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9"/><path d="M9 21v-6h6v6"/></svg>
         <div style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:6px;">Depop - Concessionários</div>
-        <div style="font-size:14px;color:var(--text-muted);">Módulo em desenvolvimento.</div>
+        <div style="font-size:14px;color:var(--text-muted);">Acesso configurado. Módulo em desenvolvimento.</div>
       </div>
     </div>
   </main>
@@ -65,5 +101,6 @@
 <div id="toast"></div>
 <script src="js/pwa.js"></script>
 <script src="js/auth.js"></script>
+<script src="js/depop.js"></script>
 </body>
 </html>
