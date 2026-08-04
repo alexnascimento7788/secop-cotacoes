@@ -114,6 +114,23 @@ function requireAdmin(req, res, next) {
 }
 app.use('/api/admin', requireAdmin);
 
+// ── Trava por módulo ativo ────────────────────────────────────────────────────
+// As rotas de dados do SECOP só respondem quando o módulo ativo da sessão é o
+// SECOP. Rotas transversais (/auth, /config, /version, /admin) e de outros
+// módulos passam livres — a trava só barra quem tenta usar dados do SECOP com
+// outro módulo ativo (ex.: master dentro do Depop). Enforcement no servidor,
+// além do redirecionamento no auth.js. `req.path` aqui é relativo ao mount /api.
+const SECOP_PREFIXOS = ['/processos', '/fornecedores', '/itens', '/precos', '/dashboard',
+  '/status', '/tipos-contratacao', '/tipos-extra', '/autocomplete', '/dicionario-pt', '/setores'];
+app.use('/api', (req, res, next) => {
+  if (!req.user) return next(); // /auth/* não tem req.user — segue pro handler próprio
+  const ehSecop = SECOP_PREFIXOS.some(p => req.path === p || req.path.startsWith(p + '/'));
+  if (ehSecop && req.user.modulo_ativo !== 'secop') {
+    return res.status(403).json({ error: 'O módulo SECOP não está ativo nesta sessão.' });
+  }
+  next();
+});
+
 // ── Permissões de cotação (dono ou admin) ──────────────────────────────────────
 
 function podeEditarProcesso(user, processoId) {
