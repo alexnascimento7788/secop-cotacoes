@@ -319,4 +319,27 @@ function gerarNumeroProcesso() {
   return `${ano}/${String(seq).padStart(3, '0')}`;
 }
 
-module.exports = { db, setupDb, gerarNumeroProcesso };
+// ── Base do Depop (arquivo separado: data/depop.db) ───────────────────────────
+// Dataset de referência do módulo Depop (renovações), sincronizado a partir do
+// SQL Server pelo conversor (databse/converter-depop.js). Fica num arquivo à
+// parte de propósito: exportar/importar/re-sincronizar o Depop nunca toca no
+// secop.db (dados operacionais). Se o arquivo ainda não existe, abrir aqui só
+// cria um .db vazio — as tabelas vêm do conversor ou de uma importação.
+const depopFilePath = path.join(dataDir, 'depop.db');
+let _depop;
+
+function setupDepop() {
+  _depop = new DatabaseSync(depopFilePath);
+  _depop.exec('PRAGMA journal_mode = WAL');
+}
+
+setupDepop();
+
+const depopDb = new Proxy({}, {
+  get(_, prop) {
+    const val = _depop[prop];
+    return typeof val === 'function' ? val.bind(_depop) : val;
+  }
+});
+
+module.exports = { db, setupDb, gerarNumeroProcesso, depopDb, setupDepop, depopFilePath };

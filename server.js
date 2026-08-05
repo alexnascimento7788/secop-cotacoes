@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { db, setupDb, gerarNumeroProcesso } = require('./database');
+const { db, setupDb, gerarNumeroProcesso, depopDb, setupDepop, depopFilePath } = require('./database');
 
 // Dicionário geral de português (já vem ordenado por frequência de uso do idioma)
 // — recorte das mais comuns, serve de apoio ao autocomplete quando o histórico
@@ -937,6 +937,37 @@ app.post('/api/admin/import-db',
     try { fs.unlinkSync(dbPath + '-shm'); } catch {}
     try { fs.unlinkSync(dbPath + '-wal'); } catch {}
     setupDb();
+
+    res.json({ ok: true });
+  }
+);
+
+// ── Admin: export / import da base do Depop (arquivo separado depop.db) ───────
+// Mesma mecânica do secop.db, mas no arquivo depop.db — é por aqui que a base de
+// renovações vai do dev pra produção sem tocar no secop.db.
+
+app.get('/api/admin/export-depop-db', (req, res) => {
+  if (!fs.existsSync(depopFilePath)) {
+    return res.status(404).json({ error: 'Base do Depop ainda não existe. Gere-a com o conversor primeiro.' });
+  }
+  registrarLog(req, 'DEPOP', 'EXPORTOU', 'Exportou a base de dados do Depop');
+  try { depopDb.exec('PRAGMA wal_checkpoint(FULL)'); } catch {}
+  res.download(depopFilePath, 'depop.db');
+});
+
+app.post('/api/admin/import-depop-db',
+  express.raw({ type: 'application/octet-stream', limit: '100mb' }),
+  (req, res) => {
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0)
+      return res.status(400).json({ error: 'Arquivo inválido' });
+
+    registrarLog(req, 'DEPOP', 'IMPORTOU', 'Importou a base de dados do Depop');
+
+    try { depopDb.close(); } catch {}
+    fs.writeFileSync(depopFilePath, req.body);
+    try { fs.unlinkSync(depopFilePath + '-shm'); } catch {}
+    try { fs.unlinkSync(depopFilePath + '-wal'); } catch {}
+    setupDepop();
 
     res.json({ ok: true });
   }

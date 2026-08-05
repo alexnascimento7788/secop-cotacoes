@@ -374,6 +374,33 @@
           </div>
           <div id="import-status"></div>
         </div>
+        <hr class="admin-divider">
+        <div class="admin-section">
+          <div class="admin-section-title">Base de dados do Depop</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Arquivo <strong>depop.db</strong> (renovações), separado do secop.db.
+            Use para levar a base do Depop para a produção — não afeta os dados do SECOP.
+          </p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+            <button class="btn btn-primary" onclick="exportarDepop()">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;vertical-align:-2px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Baixar depop.db
+            </button>
+          </div>
+          <div class="import-area" id="drop-area-depop">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <div style="font-size:13px;color:#aaa;margin-top:6px;">Arraste ou</div>
+            <label class="btn btn-secondary" style="margin-top:10px;cursor:pointer;">
+              Escolher arquivo .db
+              <input type="file" id="file-input-depop" accept=".db" style="display:none" onchange="selecionarArquivoDepop(this)">
+            </label>
+            <div class="import-filename" id="filename-label-depop">Nenhum arquivo selecionado</div>
+            <button class="btn btn-primary" id="btn-importar-depop" onclick="importarDepop()" disabled>
+              Importar depop.db
+            </button>
+          </div>
+          <div id="import-status-depop"></div>
+        </div>
       </div>
     </div>
 
@@ -1097,6 +1124,54 @@ dropArea.addEventListener('drop', e => {
     arquivoSelecionado = f;
     document.getElementById('filename-label').textContent = f.name;
     document.getElementById('btn-importar').disabled = false;
+  }
+});
+
+// ── Banco do Depop (arquivo depop.db separado) ─────────────────────────────────
+
+function exportarDepop() { window.location.href = '/api/admin/export-depop-db'; }
+
+let arquivoDepop = null;
+
+function selecionarArquivoDepop(input) {
+  const f = input.files[0];
+  if (!f) return;
+  arquivoDepop = f;
+  document.getElementById('filename-label-depop').textContent = f.name;
+  document.getElementById('btn-importar-depop').disabled = false;
+  document.getElementById('import-status-depop').textContent = '';
+}
+
+async function importarDepop() {
+  if (!arquivoDepop) return;
+  const btn = document.getElementById('btn-importar-depop');
+  const status = document.getElementById('import-status-depop');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  status.className = ''; status.textContent = '';
+  try {
+    const buffer = await arquivoDepop.arrayBuffer();
+    const res = await fetch('/api/admin/import-depop-db', {
+      method:'POST', headers:{'Content-Type':'application/octet-stream'}, body:buffer
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'Erro');
+    status.className = 'ok'; status.textContent = 'Base do Depop importada!';
+    btn.textContent = 'Importar depop.db'; btn.disabled = false;
+  } catch(e) {
+    status.className = 'erro'; status.textContent = 'Erro: ' + e.message;
+    btn.disabled = false; btn.textContent = 'Importar depop.db';
+  }
+}
+
+const dropAreaDepop = document.getElementById('drop-area-depop');
+dropAreaDepop.addEventListener('dragover', e => { e.preventDefault(); dropAreaDepop.classList.add('drag-over'); });
+dropAreaDepop.addEventListener('dragleave', () => dropAreaDepop.classList.remove('drag-over'));
+dropAreaDepop.addEventListener('drop', e => {
+  e.preventDefault(); dropAreaDepop.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.name.endsWith('.db')) {
+    arquivoDepop = f;
+    document.getElementById('filename-label-depop').textContent = f.name;
+    document.getElementById('btn-importar-depop').disabled = false;
   }
 });
 
