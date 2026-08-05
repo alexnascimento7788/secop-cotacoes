@@ -1049,10 +1049,15 @@ app.use('/api/depop', requireModulo('depop'));
 // Situação do perfil do usuário logado (o front decide se mostra o cadastro de
 // 1º acesso ou o conteúdo). Nunca devolve chave privada; CPF vem mascarado.
 app.get('/api/depop/perfil', (req, res) => {
+  const ferramenta = perfilFerramenta(req); // 'master' | 'validador'
   const perfil = db.prepare(`SELECT cpf, criado_em FROM depop_perfil WHERE user_id = ?`).get(req.user.user_id);
-  if (!perfil) return res.json({ cadastrado: false });
-  const cpfMasc = perfil.cpf.replace(/^(\d{3})\d{6}(\d{2})$/, '$1.***.**-$2');
-  res.json({ cadastrado: true, cpf_mascarado: cpfMasc, criado_em: perfil.criado_em });
+  const cadastrado = !!perfil;
+  // O supervisor (master) só lê e exporta — nunca assina —, então não passa pelo
+  // cadastro de 1º acesso (CPF + senha de assinatura). O validador precisa.
+  const precisa_setup = ferramenta !== 'master' && !cadastrado;
+  const cpfMasc = perfil ? perfil.cpf.replace(/^(\d{3})\d{6}(\d{2})$/, '$1.***.**-$2') : null;
+  res.json({ cadastrado, precisa_setup, perfil: ferramenta, nome: req.user.username,
+             cpf_mascarado: cpfMasc, criado_em: perfil ? perfil.criado_em : null });
 });
 
 // Cadastro de 1º acesso: CPF (validado) + senha de assinatura → gera e guarda o
@@ -1074,6 +1079,286 @@ app.post('/api/depop/perfil', (req, res) => {
     .run(req.user.user_id, cpfLimpo, publicKey, privateKey);
   registrarLog(req, 'DEPOP', 'PERFIL', 'Configurou CPF e assinatura digital do Depop');
   res.status(201).json({ ok: true });
+});
+
+// ── Depop: ferramenta de validação de contratos ───────────────────────────────
+// Confere, contrato a contrato, os dados vindos das planilhas (carregados no
+// depop.db, só leitura). Cada validação fica assinada; o registro vive no
+// secop.db (validacao_contrato). Concorrência: um contrato aberto por um
+// validador trava os demais (validacao_lock, com heartbeat).
+
+const LOCK_TTL_SEG = 120; // trava sem ping por mais que isso = abandonada (libera)
+
+// Supervisor (o usuário 'master' da plataforma): só lê e exporta PDF, nunca
+// assina nem marca erro. Todos os demais usuários do Depop são validadores.
+function perfilFerramenta(req) {
+  return req.user.username === 'master' ? 'master' : 'validador';
+}
+
+// Trava ativa (com ping recente) de um contrato, ou null se livre/abandonada.
+function travaAtiva(idAvaliacao) {
+  const l = db.prepare(`
+    SELECT id_avaliacao, user_id, nome,
+           CAST((julianday('now') - julianday(ultimo_ping)) * 86400 AS INTEGER) AS idade
+    FROM validacao_lock WHERE id_avaliacao = ?`).get(idAvaliacao);
+  if (!l || l.idade > LOCK_TTL_SEG) return null;
+  return l;
+}
+
+// Detalhe completo de um contrato: resumo (do concessionário) + linhas de tarifa
+// + estado de validação. Lê o depop.db (referência) e o secop.db (validação).
+function montarDetalhe(idAvaliacao) {
+  const a = depopDb.prepare(`
+    SELECT a.id, a.id_contrato, a.codigo, a.concessionaria, a.numero_ccu,
+           a.data_vencimento, a.valor_ponto, a.valor_30_ceasa, a.Status,
+           cli.cliente, cli.endereco AS endereco, cli.cpf_cnpj, cli.insc_estadual,
+           cli.bairro, cli.cep, c.descricao AS cidade
+    FROM AvaliacaoAreaRenovacao a
+    LEFT JOIN ClienteConcessionario cli ON cli.codigo = a.codigo
+    LEFT JOIN Cidade c ON c.id = a.id_cidade
+    WHERE a.id = ?`).get(idAvaliacao);
+  if (!a) return null;
+  const linhas = depopDb.prepare(`
+    SELECT sequencial, concessionario, endereco, area_m2, atual_tarifa_uso, nova_tarifa_uso
+    FROM TarifaContrato20Anos WHERE id_contrato = ? ORDER BY sequencial`).all(a.id_contrato);
+  const v = db.prepare(`
+    SELECT vc.status, vc.observacao, vc.dt_validacao, vc.hash_assinatura, u.username AS validador
+    FROM validacao_contrato vc LEFT JOIN users u ON u.id = vc.id_usuario_validador
+    WHERE vc.id_avaliacao = ?`).get(idAvaliacao);
+  return {
+    id: a.id, id_contrato: a.id_contrato, codigo: a.codigo,
+    concessionario: a.cliente || a.concessionaria, endereco: a.endereco,
+    cpf_cnpj: a.cpf_cnpj, insc_estadual: a.insc_estadual, bairro: a.bairro, cep: a.cep,
+    cidade: a.cidade, numero_ccu: a.numero_ccu, data_vencimento: a.data_vencimento,
+    valor_ponto: a.valor_ponto, valor_30_ceasa: a.valor_30_ceasa, reg_status: a.Status,
+    linhas,
+    validacao: v || { status: 'pendente' }
+  };
+}
+
+// String canônica que é de fato assinada — decimais fixados em 2 casas pra ser
+// estável entre execuções (base do não-repúdio: o que o validador conferiu).
+function payloadContrato(det, cpf, iso) {
+  return JSON.stringify({
+    id_contrato: det.id_contrato,
+    valor_ponto: Number(det.valor_ponto || 0).toFixed(2),
+    valor_30_ceasa: Number(det.valor_30_ceasa || 0).toFixed(2),
+    linhas: det.linhas.map(l => ({
+      seq: l.sequencial,
+      area: Number(l.area_m2 || 0).toFixed(2),
+      atual: Number(l.atual_tarifa_uso || 0).toFixed(2),
+      nova: Number(l.nova_tarifa_uso || 0).toFixed(2)
+    })),
+    cpf, dt: iso
+  });
+}
+
+// Indicadores da tela inicial.
+app.get('/api/depop/dashboard', (req, res) => {
+  const totalContratos = depopDb.prepare(`SELECT COUNT(*) c FROM AvaliacaoAreaRenovacao`).get().c;
+  const totalConcess   = depopDb.prepare(`SELECT COUNT(DISTINCT codigo) c FROM AvaliacaoAreaRenovacao`).get().c;
+  const linhasAgg = depopDb.prepare(`
+    SELECT COUNT(*) total, COALESCE(SUM(area_m2),0) area,
+           COALESCE(AVG(atual_tarifa_uso),0) ma, COALESCE(AVG(nova_tarifa_uso),0) mn
+    FROM TarifaContrato20Anos`).get();
+  const semLinha = depopDb.prepare(`
+    SELECT COUNT(*) c FROM AvaliacaoAreaRenovacao a
+    WHERE NOT EXISTS (SELECT 1 FROM TarifaContrato20Anos t WHERE t.id_contrato = a.id_contrato)`).get().c;
+
+  const sc = { validado: 0, errado: 0 };
+  for (const r of db.prepare(`SELECT status, COUNT(*) c FROM validacao_contrato GROUP BY status`).all()) {
+    if (r.status in sc) sc[r.status] = r.c;
+  }
+  const validados = sc.validado, errados = sc.errado;
+  const emAberto = totalContratos - validados - errados;
+  const pct = totalContratos ? Math.round((validados / totalContratos) * 1000) / 10 : 0;
+
+  const cidades = depopDb.prepare(`
+    SELECT c.id, c.descricao AS cidade, COUNT(*) contratos, COUNT(DISTINCT a.codigo) concessionarios
+    FROM AvaliacaoAreaRenovacao a JOIN Cidade c ON c.id = a.id_cidade
+    GROUP BY c.id, c.descricao ORDER BY contratos DESC`).all();
+
+  // % de validação por cidade (cruzando cidade do depop.db com status do secop.db)
+  const avalCidade = depopDb.prepare(`SELECT id, id_cidade FROM AvaliacaoAreaRenovacao`).all();
+  const vmap = new Map(db.prepare(`SELECT id_avaliacao, status FROM validacao_contrato`).all().map(r => [r.id_avaliacao, r.status]));
+  const porCid = new Map();
+  for (const a of avalCidade) {
+    const o = porCid.get(a.id_cidade) || { total: 0, val: 0 };
+    o.total++;
+    if (vmap.get(a.id) === 'validado') o.val++;
+    porCid.set(a.id_cidade, o);
+  }
+  const ranking = cidades.map(c => {
+    const o = porCid.get(c.id) || { total: 0, val: 0 };
+    return { cidade: c.cidade, pct: o.total ? Math.round((o.val / o.total) * 1000) / 10 : 0 };
+  }).sort((x, y) => x.pct - y.pct).slice(0, 3);
+
+  res.json({
+    total_contratos: totalContratos, total_concessionarios: totalConcess,
+    validados, errados, em_aberto: emAberto, pct_validacao: pct,
+    total_linhas: linhasAgg.total, metragem_total: linhasAgg.area,
+    media_tarifa_atual: linhasAgg.ma, media_tarifa_nova: linhasAgg.mn,
+    sem_linha: semLinha,
+    media_linhas_por_contrato: totalContratos ? Math.round((linhasAgg.total / totalContratos) * 10) / 10 : 0,
+    por_cidade: cidades, ranking_pior: ranking
+  });
+});
+
+// Lista completa (o front filtra por aba/cidade/busca e agrupa por concessionário).
+app.get('/api/depop/contratos', (req, res) => {
+  const avals = depopDb.prepare(`
+    SELECT a.id, a.id_contrato, a.codigo, a.numero_ccu, a.valor_ponto, a.valor_30_ceasa,
+           a.Status AS reg_status, a.concessionaria, cli.cliente, c.descricao AS cidade
+    FROM AvaliacaoAreaRenovacao a
+    LEFT JOIN ClienteConcessionario cli ON cli.codigo = a.codigo
+    LEFT JOIN Cidade c ON c.id = a.id_cidade
+    ORDER BY c.descricao, cli.cliente, a.id_contrato`).all();
+
+  const vmap = new Map(db.prepare(`SELECT id_avaliacao, status FROM validacao_contrato`).all().map(r => [r.id_avaliacao, r.status]));
+  const lockMap = new Map();
+  for (const l of db.prepare(`
+    SELECT id_avaliacao, user_id, nome,
+           CAST((julianday('now') - julianday(ultimo_ping)) * 86400 AS INTEGER) AS idade
+    FROM validacao_lock`).all()) {
+    if (l.idade <= LOCK_TTL_SEG) lockMap.set(l.id_avaliacao, l);
+  }
+
+  const contratos = avals.map(a => {
+    const lk = lockMap.get(a.id);
+    return {
+      id: a.id, id_contrato: a.id_contrato, codigo: a.codigo,
+      concessionario: a.cliente || a.concessionaria || '—', cidade: a.cidade || '—',
+      numero_ccu: a.numero_ccu, valor_ponto: a.valor_ponto, valor_30_ceasa: a.valor_30_ceasa,
+      reg_status: a.reg_status,
+      status: vmap.get(a.id) || 'pendente',
+      lock: lk ? { nome: lk.nome, por_mim: lk.user_id === req.user.user_id } : null
+    };
+  });
+  res.json({ perfil: perfilFerramenta(req), contratos });
+});
+
+// Abre o preview de um contrato. Validador toma a trava (ou 409 se estiver com
+// outro); supervisor só visualiza, sem travar e sem ser travado.
+app.post('/api/depop/contratos/:id/abrir', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const det = montarDetalhe(id);
+  if (!det) return res.status(404).json({ error: 'Contrato não encontrado' });
+
+  if (perfilFerramenta(req) === 'master') {
+    return res.json({ perfil: 'master', detalhe: det, lock: null });
+  }
+  const trava = travaAtiva(id);
+  if (trava && trava.user_id !== req.user.user_id) {
+    return res.status(409).json({ error: `Contrato em uso por ${trava.nome || 'outro validador'}.`, em_uso_por: trava.nome });
+  }
+  db.prepare(`
+    INSERT INTO validacao_lock (id_avaliacao, user_id, nome, aberto_em, ultimo_ping)
+    VALUES (?, ?, ?, datetime('now'), datetime('now'))
+    ON CONFLICT(id_avaliacao) DO UPDATE SET
+      user_id = excluded.user_id, nome = excluded.nome, ultimo_ping = datetime('now')`)
+    .run(id, req.user.user_id, req.user.username);
+  res.json({ perfil: 'validador', detalhe: det, lock: { por_mim: true } });
+});
+
+// Heartbeat da trava enquanto o preview está aberto.
+app.post('/api/depop/contratos/:id/ping', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const info = db.prepare(`UPDATE validacao_lock SET ultimo_ping = datetime('now') WHERE id_avaliacao = ? AND user_id = ?`)
+    .run(id, req.user.user_id);
+  res.json({ ok: info.changes > 0 });
+});
+
+// Libera a trava ao fechar o preview.
+app.post('/api/depop/contratos/:id/fechar', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  db.prepare(`DELETE FROM validacao_lock WHERE id_avaliacao = ? AND user_id = ?`).run(id, req.user.user_id);
+  res.json({ ok: true });
+});
+
+// Confirmar e assinar: assina o payload canônico com a chave do validador
+// (destravada pela senha de assinatura) e grava status 'validado' + timbre.
+app.post('/api/depop/contratos/:id/validar', (req, res) => {
+  if (perfilFerramenta(req) === 'master') return res.status(403).json({ error: 'O supervisor não assina validações.' });
+  const id = parseInt(req.params.id, 10);
+  const { senha_assinatura } = req.body || {};
+
+  const trava = travaAtiva(id);
+  if (trava && trava.user_id !== req.user.user_id) {
+    return res.status(409).json({ error: `Contrato em uso por ${trava.nome || 'outro validador'}.` });
+  }
+  const det = montarDetalhe(id);
+  if (!det) return res.status(404).json({ error: 'Contrato não encontrado' });
+
+  const perfil = db.prepare(`SELECT cpf, chave_publica, chave_privada_pem FROM depop_perfil WHERE user_id = ?`).get(req.user.user_id);
+  if (!perfil) return res.status(400).json({ error: 'Configure seu acesso (CPF + senha de assinatura) antes de validar.' });
+  if (!senha_assinatura) return res.status(400).json({ error: 'Informe a senha de assinatura.' });
+
+  const iso = new Date().toISOString();
+  const payload = payloadContrato(det, perfil.cpf, iso);
+  let assinatura;
+  try { assinatura = assinarPayload(perfil, String(senha_assinatura), payload); }
+  catch { return res.status(401).json({ error: 'Senha de assinatura incorreta.' }); }
+
+  // Timbre visível (carimbo) — hash simples do contrato+validador+instante.
+  const timbre = crypto.createHash('sha256').update(`${det.id_contrato}|${req.user.username}|${iso}`).digest('hex');
+
+  db.prepare(`
+    INSERT INTO validacao_contrato (id_avaliacao, status, observacao, id_usuario_validador, dt_validacao, hash_assinatura, assinatura_b64)
+    VALUES (?, 'validado', NULL, ?, ?, ?, ?)
+    ON CONFLICT(id_avaliacao) DO UPDATE SET
+      status = 'validado', observacao = NULL, id_usuario_validador = excluded.id_usuario_validador,
+      dt_validacao = excluded.dt_validacao, hash_assinatura = excluded.hash_assinatura,
+      assinatura_b64 = excluded.assinatura_b64`)
+    .run(id, req.user.user_id, iso, timbre, assinatura);
+  db.prepare(`DELETE FROM validacao_lock WHERE id_avaliacao = ?`).run(id);
+  registrarLog(req, 'DEPOP', 'VALIDOU', `Validou contrato CCU ${det.numero_ccu || det.id_contrato}`);
+  res.json({ ok: true, timbre: timbre.slice(0, 12), dt_validacao: iso, validador: req.user.username });
+});
+
+// Marcar como errado: grava o motivo (observação) e status 'errado'.
+app.post('/api/depop/contratos/:id/errado', (req, res) => {
+  if (perfilFerramenta(req) === 'master') return res.status(403).json({ error: 'O supervisor não marca erros.' });
+  const id = parseInt(req.params.id, 10);
+  const obs = String((req.body && req.body.observacao) || '').trim();
+  if (!obs) return res.status(400).json({ error: 'Descreva o motivo do erro.' });
+
+  const trava = travaAtiva(id);
+  if (trava && trava.user_id !== req.user.user_id) {
+    return res.status(409).json({ error: `Contrato em uso por ${trava.nome || 'outro validador'}.` });
+  }
+  const det = montarDetalhe(id);
+  if (!det) return res.status(404).json({ error: 'Contrato não encontrado' });
+
+  const iso = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO validacao_contrato (id_avaliacao, status, observacao, id_usuario_validador, dt_validacao, hash_assinatura, assinatura_b64)
+    VALUES (?, 'errado', ?, ?, ?, NULL, NULL)
+    ON CONFLICT(id_avaliacao) DO UPDATE SET
+      status = 'errado', observacao = excluded.observacao, id_usuario_validador = excluded.id_usuario_validador,
+      dt_validacao = excluded.dt_validacao, hash_assinatura = NULL, assinatura_b64 = NULL`)
+    .run(id, obs, req.user.user_id, iso);
+  db.prepare(`DELETE FROM validacao_lock WHERE id_avaliacao = ?`).run(id);
+  registrarLog(req, 'DEPOP', 'ERRO', `Marcou erro no contrato CCU ${det.numero_ccu || det.id_contrato}: ${obs.slice(0, 120)}`);
+  res.json({ ok: true });
+});
+
+// Exportação em massa (supervisor): devolve os detalhes de todos os contratos do
+// filtro para o front montar um PDF único (impressão do navegador).
+app.get('/api/depop/exportar', (req, res) => {
+  if (perfilFerramenta(req) !== 'master') return res.status(403).json({ error: 'Exportação em massa restrita ao supervisor.' });
+  const { status, cidade } = req.query;
+  const avals = depopDb.prepare(`
+    SELECT a.id, c.descricao AS cidade FROM AvaliacaoAreaRenovacao a
+    LEFT JOIN Cidade c ON c.id = a.id_cidade ORDER BY c.descricao, a.id_contrato`).all();
+  const vmap = new Map(db.prepare(`SELECT id_avaliacao, status FROM validacao_contrato`).all().map(r => [r.id_avaliacao, r.status]));
+  const ids = avals.filter(a => {
+    if (cidade && String(a.cidade || '') !== cidade) return false;
+    if (status && (vmap.get(a.id) || 'pendente') !== status) return false;
+    return true;
+  }).map(a => a.id);
+  const detalhes = ids.map(id => montarDetalhe(id)).filter(Boolean);
+  registrarLog(req, 'DEPOP', 'EXPORTOU', `Exportou ${detalhes.length} contrato(s) em PDF`);
+  res.json({ detalhes });
 });
 
 // ── Versão ───────────────────────────────────────────────────────────────────

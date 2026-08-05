@@ -281,6 +281,36 @@ function setupDb() {
     );
   `);
 
+  // ── Depop: ferramenta de validação de contratos ──────────────────────────────
+  // A conferência dos contratos (dados vindos das planilhas, carregados no
+  // depop.db) é registrada AQUI, no secop.db — de propósito: o depop.db é só
+  // leitura e pode ser re-sincronizado do SQL Server a qualquer momento sem
+  // apagar o trabalho de validação. A ligação com o contrato é só o número
+  // `id_avaliacao` (= AvaliacaoAreaRenovacao.id no depop.db); não há FK entre os
+  // dois arquivos. Uma linha por contrato (id_avaliacao UNIQUE); sem linha = pendente.
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS validacao_contrato (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      id_avaliacao         INTEGER NOT NULL UNIQUE,
+      status               TEXT    NOT NULL DEFAULT 'pendente',
+      observacao           TEXT,
+      id_usuario_validador INTEGER,
+      dt_validacao         DATETIME,
+      hash_assinatura      TEXT,
+      assinatura_b64       TEXT,
+      FOREIGN KEY (id_usuario_validador) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS validacao_lock (
+      id_avaliacao INTEGER PRIMARY KEY,
+      user_id      INTEGER NOT NULL,
+      nome         TEXT,
+      aberto_em    DATETIME DEFAULT CURRENT_TIMESTAMP,
+      ultimo_ping  DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+
   _db.exec(`
     CREATE TABLE IF NOT EXISTS logs (
       id        INTEGER PRIMARY KEY AUTOINCREMENT,
