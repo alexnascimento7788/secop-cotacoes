@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Administração — SECOP Cotações</title>
+  <title>Administração — CEASA CONECTA</title>
   <link rel="stylesheet" href="css/style.css" />
   <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
   <link rel="manifest" href="manifest.webmanifest">
@@ -102,7 +102,7 @@
       <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" class="sidebar-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
       <div class="sidebar-logo-fallback" style="display:none;align-items:center;gap:10px;margin-bottom:8px;">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="32" height="32" style="flex-shrink:0"><polygon points="20,1 1,20 20,20" fill="#1A6B35"/><polygon points="20,1 39,20 20,20" fill="#F9A800"/><polygon points="39,20 20,39 20,20" fill="#1A6B35"/><polygon points="1,20 20,39 20,20" fill="#1A6B35"/></svg>
-        <div><div class="logo-title">SECOP · Cotações</div><div class="logo-sub">CEASAMINAS</div></div>
+        <div><div class="logo-title">CEASA CONECTA</div><div class="logo-sub">CEASAMINAS</div></div>
       </div>
       <div class="logo-divider"></div>
     </div>
@@ -145,6 +145,7 @@
     <div id="admin-content" style="display:none;">
     <div class="admin-tabs">
       <button class="admin-tab active" onclick="mudarAba('usuarios')">Usuários</button>
+      <button class="admin-tab" onclick="mudarAba('modulos')">Módulos</button>
       <button class="admin-tab" onclick="mudarAba('tipos')">Tipos de Contratação</button>
       <button class="admin-tab" onclick="mudarAba('extras')">Itens Extras</button>
       <button class="admin-tab" onclick="mudarAba('parametros')">Parâmetros</button>
@@ -373,6 +374,33 @@
           </div>
           <div id="import-status"></div>
         </div>
+        <hr class="admin-divider">
+        <div class="admin-section">
+          <div class="admin-section-title">Base de dados do Depop</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Arquivo <strong>depop.db</strong> (renovações), separado do secop.db.
+            Use para levar a base do Depop para a produção — não afeta os dados do SECOP.
+          </p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+            <button class="btn btn-primary" onclick="exportarDepop()">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;vertical-align:-2px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Baixar depop.db
+            </button>
+          </div>
+          <div class="import-area" id="drop-area-depop">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <div style="font-size:13px;color:#aaa;margin-top:6px;">Arraste ou</div>
+            <label class="btn btn-secondary" style="margin-top:10px;cursor:pointer;">
+              Escolher arquivo .db
+              <input type="file" id="file-input-depop" accept=".db" style="display:none" onchange="selecionarArquivoDepop(this)">
+            </label>
+            <div class="import-filename" id="filename-label-depop">Nenhum arquivo selecionado</div>
+            <button class="btn btn-primary" id="btn-importar-depop" onclick="importarDepop()" disabled>
+              Importar depop.db
+            </button>
+          </div>
+          <div id="import-status-depop"></div>
+        </div>
       </div>
     </div>
 
@@ -401,6 +429,8 @@
             <option value="PROCESSO">Processo</option>
             <option value="FORNECEDOR">Fornecedor</option>
             <option value="USUARIO">Usuário</option>
+            <option value="MODULO">Módulo</option>
+            <option value="DEPOP">Depop</option>
             <option value="BANCO">Banco</option>
             <option value="SISTEMA">Sistema</option>
           </select>
@@ -498,6 +528,53 @@
       </div>
     </div>
 
+    <!-- Aba Módulos -->
+    <div class="admin-pane" id="pane-modulos">
+      <div class="admin-card">
+        <div class="admin-section">
+          <div class="admin-section-title">Módulos da plataforma</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Ligar/desligar um módulo afeta todos os usuários de uma vez: um módulo
+            desligado some da tela de seleção e ninguém entra nele (nem o master).
+          </p>
+          <table class="users-table" style="max-width:560px;">
+            <thead>
+              <tr>
+                <th>Módulo</th>
+                <th>Identificador</th>
+                <th>Ativo</th>
+              </tr>
+            </thead>
+            <tbody id="modulos-tbody">
+              <tr><td colspan="3" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <hr class="admin-divider">
+
+        <div class="admin-section">
+          <div class="admin-section-title">Acesso por usuário</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Marque quais módulos cada usuário pode acessar. O <strong>master</strong>
+            enxerga todos os módulos ativos automaticamente e não aparece aqui.
+            Usuário sem nenhum módulo marcado fica bloqueado no login.
+          </p>
+          <div class="table-wrap">
+            <table class="users-table" id="acessos-table">
+              <thead>
+                <tr><th>Usuário</th></tr>
+              </thead>
+              <tbody id="acessos-tbody">
+                <tr><td style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div id="modulo-msg" style="margin-top:10px;font-size:13px;font-weight:600;min-height:18px;"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- Aba Lixeira -->
     <div class="admin-pane" id="pane-lixeira">
       <div class="admin-card">
@@ -578,11 +655,12 @@ function toast(msg, type='') {
   setTimeout(() => { el.className = ''; }, 3000);
 }
 
-const _abas = ['usuarios', 'tipos', 'extras', 'parametros', 'banco', 'lixeira', 'logs'];
+const _abas = ['usuarios', 'modulos', 'tipos', 'extras', 'parametros', 'banco', 'lixeira', 'logs'];
 function mudarAba(aba) {
   document.querySelectorAll('.admin-tab').forEach((t, i) => t.classList.toggle('active', _abas[i] === aba));
   _abas.forEach(a => document.getElementById(`pane-${a}`).classList.toggle('active', a === aba));
   if (aba === 'usuarios') carregarUsuarios();
+  if (aba === 'modulos') carregarModulos();
   if (aba === 'tipos') carregarTipos();
   if (aba === 'extras') carregarExtras();
   if (aba === 'parametros') carregarParametros();
@@ -708,6 +786,87 @@ async function salvarParametros() {
   // ver confirmarGateSenha()
   setTimeout(() => document.getElementById('gate-senha-input').focus(), 50);
 })();
+
+// ── Módulos ──────────────────────────────────────────────────────────────────
+
+async function carregarModulos() {
+  // Catálogo de módulos (ligar/desligar)
+  try {
+    const res = await fetch('/api/admin/modulos');
+    const modulos = res.ok ? await res.json() : [];
+    document.getElementById('modulos-tbody').innerHTML = modulos.map(m => `
+      <tr>
+        <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${m.cor};margin-right:8px;vertical-align:middle;"></span><strong>${m.nome}</strong></td>
+        <td style="color:var(--text-muted);">${m.slug}</td>
+        <td>
+          <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="checkbox" ${m.ativo ? 'checked' : ''} onchange="toggleModuloAtivo(${m.id}, this)" />
+            <span style="font-size:12px;color:var(--text-muted);">${m.ativo ? 'Ativo' : 'Inativo'}</span>
+          </label>
+        </td>
+      </tr>
+    `).join('');
+  } catch {
+    toast('Erro ao carregar módulos', 'error');
+  }
+
+  // Matriz de acesso usuário × módulo
+  try {
+    const res = await fetch('/api/admin/modulos/acessos');
+    const { modulos, usuarios } = res.ok ? await res.json() : { modulos: [], usuarios: [] };
+    const thead = document.querySelector('#acessos-table thead tr');
+    thead.innerHTML = '<th>Usuário</th>' + modulos.map(m => `<th style="text-align:center;">${m.nome}</th>`).join('');
+    const tbody = document.getElementById('acessos-tbody');
+    if (!usuarios.length) {
+      tbody.innerHTML = `<tr><td colspan="${modulos.length + 1}" style="padding:20px;text-align:center;color:#aaa;">Nenhum usuário cadastrado.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = usuarios.map(u => {
+      const cols = modulos.map(m => {
+        const tem = u.modulo_ids.includes(m.id);
+        return `<td style="text-align:center;">
+          <input type="checkbox" ${tem ? 'checked' : ''} onchange="toggleAcesso(${u.id}, ${m.id}, this)" />
+        </td>`;
+      }).join('');
+      return `<tr><td><strong>${u.username}</strong> <span style="font-size:11px;color:var(--text-muted);">(${u.role})</span></td>${cols}</tr>`;
+    }).join('');
+  } catch {
+    toast('Erro ao carregar acessos', 'error');
+  }
+}
+
+async function toggleModuloAtivo(id, el) {
+  const ativo = el.checked;
+  try {
+    const res = await fetch(`/api/admin/modulos/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ativo: ativo ? 1 : 0 })
+    });
+    if (!res.ok) throw new Error();
+    el.nextElementSibling.textContent = ativo ? 'Ativo' : 'Inativo';
+    toast('Módulo atualizado', 'success');
+  } catch {
+    el.checked = !ativo; // reverte
+    toast('Erro ao atualizar módulo', 'error');
+  }
+}
+
+async function toggleAcesso(userId, moduloId, el) {
+  const concedido = el.checked;
+  const msg = document.getElementById('modulo-msg');
+  msg.textContent = '';
+  try {
+    const res = await fetch('/api/admin/modulos/acessos', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, modulo_id: moduloId, concedido })
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error); }
+    msg.style.color = 'var(--verde)'; msg.textContent = 'Acesso atualizado.';
+  } catch (e) {
+    el.checked = !concedido; // reverte
+    msg.style.color = 'var(--vermelho)'; msg.textContent = 'Erro: ' + (e.message || 'ao atualizar acesso');
+  }
+}
 
 // ── Tipos de contratação ─────────────────────────────────────────────────────
 
@@ -965,6 +1124,54 @@ dropArea.addEventListener('drop', e => {
     arquivoSelecionado = f;
     document.getElementById('filename-label').textContent = f.name;
     document.getElementById('btn-importar').disabled = false;
+  }
+});
+
+// ── Banco do Depop (arquivo depop.db separado) ─────────────────────────────────
+
+function exportarDepop() { window.location.href = '/api/admin/export-depop-db'; }
+
+let arquivoDepop = null;
+
+function selecionarArquivoDepop(input) {
+  const f = input.files[0];
+  if (!f) return;
+  arquivoDepop = f;
+  document.getElementById('filename-label-depop').textContent = f.name;
+  document.getElementById('btn-importar-depop').disabled = false;
+  document.getElementById('import-status-depop').textContent = '';
+}
+
+async function importarDepop() {
+  if (!arquivoDepop) return;
+  const btn = document.getElementById('btn-importar-depop');
+  const status = document.getElementById('import-status-depop');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  status.className = ''; status.textContent = '';
+  try {
+    const buffer = await arquivoDepop.arrayBuffer();
+    const res = await fetch('/api/admin/import-depop-db', {
+      method:'POST', headers:{'Content-Type':'application/octet-stream'}, body:buffer
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'Erro');
+    status.className = 'ok'; status.textContent = 'Base do Depop importada!';
+    btn.textContent = 'Importar depop.db'; btn.disabled = false;
+  } catch(e) {
+    status.className = 'erro'; status.textContent = 'Erro: ' + e.message;
+    btn.disabled = false; btn.textContent = 'Importar depop.db';
+  }
+}
+
+const dropAreaDepop = document.getElementById('drop-area-depop');
+dropAreaDepop.addEventListener('dragover', e => { e.preventDefault(); dropAreaDepop.classList.add('drag-over'); });
+dropAreaDepop.addEventListener('dragleave', () => dropAreaDepop.classList.remove('drag-over'));
+dropAreaDepop.addEventListener('drop', e => {
+  e.preventDefault(); dropAreaDepop.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.name.endsWith('.db')) {
+    arquivoDepop = f;
+    document.getElementById('filename-label-depop').textContent = f.name;
+    document.getElementById('btn-importar-depop').disabled = false;
   }
 });
 

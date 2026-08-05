@@ -13,6 +13,10 @@ node_modules/
 *.sqlite
 *.sqlite3
 
+# Dumps do SQL Server (base do Depop) — não versionados: a base viaja pelo
+# export/import do admin. Só o conversor (databse/*.js) fica no git.
+databse/*.sql
+
 # Logs
 logs/
 *.log

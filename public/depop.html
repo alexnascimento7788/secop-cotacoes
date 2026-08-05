@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Depop — CEASA CONECTA</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#1565C0">
+  <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
+  <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');</script>
+</head>
+<body data-modulo="depop">
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" class="sidebar-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+      <div class="sidebar-logo-fallback" style="display:none;align-items:center;gap:10px;margin-bottom:8px;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="32" height="32" style="flex-shrink:0"><polygon points="20,1 1,20 20,20" fill="#1565C0"/><polygon points="20,1 39,20 20,20" fill="#F9A800"/><polygon points="39,20 20,39 20,20" fill="#1565C0"/><polygon points="1,20 20,39 20,20" fill="#1565C0"/></svg>
+        <div><div class="logo-title">CEASA CONECTA</div><div class="logo-sub">CEASAMINAS</div></div>
+      </div>
+      <div class="logo-divider"></div>
+    </div>
+    <nav>
+      <a href="depop.html" class="nav-item active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1-5h16l1 5"/><path d="M4 9v11a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9"/><path d="M9 21v-6h6v6"/></svg>
+        Concessionários
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <span id="sidebar-username" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;">—</span>
+      <div style="display:flex;gap:2px;flex-shrink:0;">
+        <a href="admin.html" class="sidebar-gear" title="Administração">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </a>
+        <button onclick="logout()" class="sidebar-gear" title="Sair" style="background:none;border:none;cursor:pointer;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Depop - Concessionários</div>
+        <div class="page-subtitle">Gestão de concessionários da CEASAMINAS</div>
+      </div>
+    </div>
+
+    <!-- Carregando -->
+    <div id="depop-loader" class="card">
+      <div style="padding:48px 24px;text-align:center;color:var(--text-muted);">Carregando...</div>
+    </div>
+
+    <!-- Gate de 1º acesso: cadastro de CPF + senha de assinatura -->
+    <div id="depop-setup" class="card" style="display:none;max-width:520px;">
+      <div class="card-header"><div class="card-title">Configure seu acesso</div></div>
+      <div style="padding:20px 24px;">
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.5;">
+          Antes de trabalhar com os contratos, cadastre seu <strong>CPF</strong> e crie uma
+          <strong>senha de assinatura</strong>. Ela é usada só para assinar as validações
+          (é diferente da senha de login) e não pode ser recuperada — guarde com cuidado.
+        </p>
+        <div class="form-row cols-1" style="margin-bottom:14px;">
+          <div class="form-group">
+            <label>CPF</label>
+            <input type="text" id="dp-cpf" inputmode="numeric" maxlength="14" placeholder="000.000.000-00" />
+          </div>
+        </div>
+        <div class="form-row cols-2" style="margin-bottom:14px;gap:12px;">
+          <div class="form-group">
+            <label>Senha de assinatura</label>
+            <input type="password" id="dp-senha" placeholder="Mínimo 6 caracteres" />
+          </div>
+          <div class="form-group">
+            <label>Confirme a senha</label>
+            <input type="password" id="dp-senha2" placeholder="Repita a senha" />
+          </div>
+        </div>
+        <div id="dp-setup-msg" style="font-size:13px;font-weight:600;min-height:18px;margin-bottom:12px;"></div>
+        <button class="btn btn-primary" id="dp-setup-btn" onclick="salvarPerfilDepop()">Salvar e continuar</button>
+      </div>
+    </div>
+
+    <!-- Conteúdo do módulo (após cadastro) -->
+    <div id="depop-content" class="card" style="display:none;">
+      <div style="padding:64px 24px;text-align:center;">
+        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--verde)" stroke-width="1.5" style="margin-bottom:16px;"><path d="M3 9l1-5h16l1 5"/><path d="M4 9v11a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9"/><path d="M9 21v-6h6v6"/></svg>
+        <div style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:6px;">Depop - Concessionários</div>
+        <div style="font-size:14px;color:var(--text-muted);">Acesso configurado. Módulo em desenvolvimento.</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="toast"></div>
+<script src="js/pwa.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/depop.js"></script>
+</body>
+</html>

@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { db, setupDb, gerarNumeroProcesso } = require('./database');
+const { db, setupDb, gerarNumeroProcesso, depopDb, setupDepop, depopFilePath } = require('./database');
 
 // Dicionário geral de português (já vem ordenado por frequência de uso do idioma)
 // — recorte das mais comuns, serve de apoio ao autocomplete quando o histórico
@@ -58,7 +58,7 @@ function requireAuth(req, res, next) {
   const token = getCookie(req, 'secop_sid');
   if (!token) return res.status(401).json({ error: 'Não autenticado' });
   const session = db.prepare(`
-    SELECT s.user_id, u.username, u.role, u.acesso_avancado
+    SELECT s.user_id, s.modulo_ativo, u.username, u.role, u.acesso_avancado
     FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.token = ? AND s.expires > datetime('now') AND u.ativo = 1
   `).get(token);
@@ -66,6 +66,21 @@ function requireAuth(req, res, next) {
   renovarSessao(token);
   req.user = session;
   next();
+}
+
+// ── Módulos (plataforma CEASA CONECTA) ────────────────────────────────────────
+// Módulos ativos que o usuário pode acessar. O master sempre enxerga todos os
+// módulos ativos; os demais, só os que têm em user_modulos. Sempre filtra ativo=1
+// para que desligar um módulo o esconda de todos de uma vez.
+function modulosDoUsuario(user) {
+  if (user.username === 'master') {
+    return db.prepare(`SELECT id, slug, nome, cor, home, ordem FROM modulos WHERE ativo = 1 ORDER BY ordem`).all();
+  }
+  return db.prepare(`
+    SELECT m.id, m.slug, m.nome, m.cor, m.home, m.ordem
+    FROM modulos m JOIN user_modulos um ON um.modulo_id = m.id
+    WHERE um.user_id = ? AND m.ativo = 1 ORDER BY m.ordem
+  `).all(user.user_id ?? user.id);
 }
 
 // ── Log helper ────────────────────────────────────────────────────────────────
@@ -98,6 +113,34 @@ function requireAdmin(req, res, next) {
   next();
 }
 app.use('/api/admin', requireAdmin);
+
+// ── Trava por módulo ativo ────────────────────────────────────────────────────
+// As rotas de dados do SECOP só respondem quando o módulo ativo da sessão é o
+// SECOP. Rotas transversais (/auth, /config, /version, /admin) e de outros
+// módulos passam livres — a trava só barra quem tenta usar dados do SECOP com
+// outro módulo ativo (ex.: master dentro do Depop). Enforcement no servidor,
+// além do redirecionamento no auth.js. `req.path` aqui é relativo ao mount /api.
+const SECOP_PREFIXOS = ['/processos', '/fornecedores', '/itens', '/precos', '/dashboard',
+  '/status', '/tipos-contratacao', '/tipos-extra', '/autocomplete', '/dicionario-pt', '/setores'];
+app.use('/api', (req, res, next) => {
+  if (!req.user) return next(); // /auth/* não tem req.user — segue pro handler próprio
+  const ehSecop = SECOP_PREFIXOS.some(p => req.path === p || req.path.startsWith(p + '/'));
+  if (ehSecop && req.user.modulo_ativo !== 'secop') {
+    return res.status(403).json({ error: 'O módulo SECOP não está ativo nesta sessão.' });
+  }
+  next();
+});
+
+// Exige que o módulo indicado seja o ativo na sessão. Usado para montar as rotas
+// próprias de um módulo (ex.: `/api/depop/*`), espelhando a trava do SECOP acima.
+function requireModulo(slug) {
+  return (req, res, next) => {
+    if (req.user.modulo_ativo !== slug) {
+      return res.status(403).json({ error: `O módulo não está ativo nesta sessão.` });
+    }
+    next();
+  };
+}
 
 // ── Permissões de cotação (dono ou admin) ──────────────────────────────────────
 
@@ -140,20 +183,39 @@ app.post('/api/auth/login', (req, res) => {
   const hash = crypto.pbkdf2Sync(senha, user.salt, 100000, 64, 'sha512').toString('hex');
   if (hash !== user.senha_hash) return res.status(401).json({ error: 'Usuário ou senha inválidos' });
 
+  // Sem nenhum módulo liberado o usuário não entra — nem cria sessão. O admin
+  // precisa conceder acesso na área de Módulos.
+  const mods = modulosDoUsuario(user);
+  if (!mods.length) {
+    registrarLog(req, 'AUTH', 'BLOQUEADO', 'Login bloqueado: usuário sem módulo liberado', user.username, user.id);
+    return res.status(403).json({ error: 'Você não tem nenhum módulo liberado. Procure o administrador do sistema.' });
+  }
+
+  // Um único módulo entra direto (já registra o módulo na sessão); vários (ou
+  // master) escolhem antes de entrar — modulo_ativo fica NULL até a escolha.
+  const escolher = mods.length > 1;
+  const moduloInicial = escolher ? null : mods[0].slug;
+
   const token   = crypto.randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + getInatividadeMinutos() * 60 * 1000).toISOString();
 
   db.prepare("DELETE FROM sessions WHERE user_id = ? AND expires < datetime('now')").run(user.id);
-  db.prepare("INSERT INTO sessions (token, user_id, expires) VALUES (?, ?, ?)").run(token, user.id, expires);
+  db.prepare("INSERT INTO sessions (token, user_id, expires, modulo_ativo) VALUES (?, ?, ?, ?)")
+    .run(token, user.id, expires, moduloInicial);
 
   registrarLog(req, 'AUTH', 'LOGIN', `Login realizado`, user.username, user.id);
+  if (moduloInicial) registrarLog(req, 'MODULO', 'ENTROU', `Entrou no módulo "${mods[0].nome}"`, user.username, user.id);
 
   res.cookie('secop_sid', token, {
     // Cookie em si dura folgado — quem controla o timeout real é sessions.expires,
     // que rola a cada requisição autenticada (ver renovarSessao)
     httpOnly: true, sameSite: 'strict', maxAge: 24 * 60 * 60 * 1000
   });
-  res.json({ ok: true, username: user.username, role: user.role });
+  res.json({
+    ok: true, username: user.username, role: user.role,
+    escolher,
+    home: escolher ? null : mods[0].home
+  });
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -174,13 +236,35 @@ app.get('/api/auth/me', (req, res) => {
   const token = getCookie(req, 'secop_sid');
   if (!token) return res.status(401).json({ error: 'Não autenticado' });
   const session = db.prepare(`
-    SELECT s.user_id AS id, u.username, u.role, u.acesso_avancado
+    SELECT s.user_id AS id, s.modulo_ativo, u.username, u.role, u.acesso_avancado
     FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.token = ? AND s.expires > datetime('now') AND u.ativo = 1
   `).get(token);
   if (!session) return res.status(401).json({ error: 'Não autenticado' });
   renovarSessao(token);
   res.json(session);
+});
+
+// Módulos que o usuário logado pode acessar + qual está ativo na sessão. Serve a
+// tela de seleção de módulo e a montagem da sidebar (marca/accent) no auth.js.
+// requireAuth explícito: rotas /api/auth/* são isentas do middleware global, mas
+// estas precisam de req.user.
+app.get('/api/auth/modulos', requireAuth, (req, res) => {
+  const modulos = modulosDoUsuario(req.user);
+  res.json({ modulos, modulo_ativo: req.user.modulo_ativo });
+});
+
+// Registra o módulo escolhido na sessão. Valida que o usuário realmente tem
+// acesso a ele (master pode qualquer módulo ativo).
+app.post('/api/auth/selecionar-modulo', requireAuth, (req, res) => {
+  const { slug } = req.body || {};
+  if (!slug) return res.status(400).json({ error: 'Módulo não informado' });
+  const permitido = modulosDoUsuario(req.user).find(m => m.slug === slug);
+  if (!permitido) return res.status(403).json({ error: 'Você não tem acesso a este módulo' });
+  const token = getCookie(req, 'secop_sid');
+  db.prepare(`UPDATE sessions SET modulo_ativo = ? WHERE token = ?`).run(slug, token);
+  registrarLog(req, 'MODULO', 'ENTROU', `Entrou no módulo "${permitido.nome}"`);
+  res.json({ ok: true, home: permitido.home });
 });
 
 // Reautenticação (step-up): confirma a senha do usuário JÁ logado antes de
@@ -731,6 +815,13 @@ app.post('/api/admin/users', (req, res) => {
       "INSERT INTO users (username, senha_hash, salt, role, ativo, acesso_avancado) VALUES (?, ?, ?, ?, 1, ?)"
     ).run(username, hash, salt, role || 'usuario', acessoVal);
     registrarLog(req, 'USUARIO', 'CRIOU', `Criou usuário "${username}"`);
+    // Acesso padrão ao SECOP para o novo usuário não nascer bloqueado — o admin
+    // ajusta (concede outros / revoga) na aba Módulos.
+    try {
+      const secop = db.prepare(`SELECT id FROM modulos WHERE slug = 'secop'`).get();
+      if (secop) db.prepare(`INSERT OR IGNORE INTO user_modulos (user_id, modulo_id) VALUES (?, ?)`)
+        .run(info.lastInsertRowid, secop.id);
+    } catch {}
     res.status(201).json({ id: info.lastInsertRowid });
   } catch (e) {
     res.status(400).json({ error: 'Usuário já existe' });
@@ -778,6 +869,52 @@ app.delete('/api/admin/users/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Admin: módulos (catálogo + matriz de acesso por usuário) ──────────────────
+
+app.get('/api/admin/modulos', (req, res) => {
+  res.json(db.prepare(`SELECT id, slug, nome, cor, home, ordem, ativo FROM modulos ORDER BY ordem`).all());
+});
+
+app.patch('/api/admin/modulos/:id', (req, res) => {
+  const { ativo } = req.body;
+  const modulo = db.prepare(`SELECT nome FROM modulos WHERE id = ?`).get(req.params.id);
+  if (!modulo) return res.status(404).json({ error: 'Módulo não encontrado' });
+  if (ativo !== undefined) {
+    db.prepare(`UPDATE modulos SET ativo = ? WHERE id = ?`).run(ativo ? 1 : 0, req.params.id);
+    registrarLog(req, 'MODULO', ativo ? 'ATIVOU' : 'DESATIVOU', `${ativo ? 'Ativou' : 'Desativou'} o módulo "${modulo.nome}"`);
+  }
+  res.json({ ok: true });
+});
+
+// Matriz para a aba Módulos: todos os módulos + cada usuário (exceto master, que
+// já enxerga tudo) com a lista de módulos que possui.
+app.get('/api/admin/modulos/acessos', (req, res) => {
+  const modulos  = db.prepare(`SELECT id, slug, nome, cor, ativo FROM modulos ORDER BY ordem`).all();
+  const usuarios = db.prepare(`SELECT id, username, role FROM users WHERE username != 'master' ORDER BY id`).all();
+  const pares    = db.prepare(`SELECT user_id, modulo_id FROM user_modulos`).all();
+  const porUser  = {};
+  pares.forEach(p => { (porUser[p.user_id] = porUser[p.user_id] || []).push(p.modulo_id); });
+  usuarios.forEach(u => { u.modulo_ids = porUser[u.id] || []; });
+  res.json({ modulos, usuarios });
+});
+
+app.put('/api/admin/modulos/acessos', (req, res) => {
+  const { user_id, modulo_id, concedido } = req.body || {};
+  if (user_id == null || modulo_id == null) return res.status(400).json({ error: 'Dados incompletos' });
+  const user   = db.prepare(`SELECT username FROM users WHERE id = ?`).get(user_id);
+  const modulo = db.prepare(`SELECT nome FROM modulos WHERE id = ?`).get(modulo_id);
+  if (!user || !modulo) return res.status(404).json({ error: 'Usuário ou módulo não encontrado' });
+  if (user.username === 'master') return res.status(400).json({ error: 'O master já acessa todos os módulos' });
+  if (concedido) {
+    db.prepare(`INSERT OR IGNORE INTO user_modulos (user_id, modulo_id) VALUES (?, ?)`).run(user_id, modulo_id);
+    registrarLog(req, 'MODULO', 'CONCEDEU', `Concedeu o módulo "${modulo.nome}" a "${user.username}"`);
+  } else {
+    db.prepare(`DELETE FROM user_modulos WHERE user_id = ? AND modulo_id = ?`).run(user_id, modulo_id);
+    registrarLog(req, 'MODULO', 'REVOGOU', `Revogou o módulo "${modulo.nome}" de "${user.username}"`);
+  }
+  res.json({ ok: true });
+});
+
 // ── Admin: export / import banco ─────────────────────────────────────────────
 
 app.get('/api/admin/export-db', (req, res) => {
@@ -800,6 +937,37 @@ app.post('/api/admin/import-db',
     try { fs.unlinkSync(dbPath + '-shm'); } catch {}
     try { fs.unlinkSync(dbPath + '-wal'); } catch {}
     setupDb();
+
+    res.json({ ok: true });
+  }
+);
+
+// ── Admin: export / import da base do Depop (arquivo separado depop.db) ───────
+// Mesma mecânica do secop.db, mas no arquivo depop.db — é por aqui que a base de
+// renovações vai do dev pra produção sem tocar no secop.db.
+
+app.get('/api/admin/export-depop-db', (req, res) => {
+  if (!fs.existsSync(depopFilePath)) {
+    return res.status(404).json({ error: 'Base do Depop ainda não existe. Gere-a com o conversor primeiro.' });
+  }
+  registrarLog(req, 'DEPOP', 'EXPORTOU', 'Exportou a base de dados do Depop');
+  try { depopDb.exec('PRAGMA wal_checkpoint(FULL)'); } catch {}
+  res.download(depopFilePath, 'depop.db');
+});
+
+app.post('/api/admin/import-depop-db',
+  express.raw({ type: 'application/octet-stream', limit: '100mb' }),
+  (req, res) => {
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0)
+      return res.status(400).json({ error: 'Arquivo inválido' });
+
+    registrarLog(req, 'DEPOP', 'IMPORTOU', 'Importou a base de dados do Depop');
+
+    try { depopDb.close(); } catch {}
+    fs.writeFileSync(depopFilePath, req.body);
+    try { fs.unlinkSync(depopFilePath + '-shm'); } catch {}
+    try { fs.unlinkSync(depopFilePath + '-wal'); } catch {}
+    setupDepop();
 
     res.json({ ok: true });
   }
@@ -828,6 +996,84 @@ app.delete('/api/admin/logs', (req, res) => {
   db.prepare('DELETE FROM logs').run();
   registrarLog(req, 'SISTEMA', 'LIMPOU', 'Histórico de logs limpo');
   res.json({ ok: true });
+});
+
+// ── Depop: perfil de assinatura (CPF + par de chaves) ─────────────────────────
+
+// Validação de CPF pelo algoritmo dos dígitos verificadores (mesma regra da
+// Receita) — offline, sem consulta externa. Rejeita tamanho errado e as
+// sequências repetidas (000..., 111...) que passam na conta mas são inválidas.
+function cpfValido(cpf) {
+  cpf = String(cpf || '').replace(/\D/g, '');
+  if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
+  const dv = (fatorInicial) => {
+    let soma = 0;
+    for (let i = 0; i < fatorInicial - 1; i++) soma += parseInt(cpf[i], 10) * (fatorInicial - i);
+    const resto = 11 - (soma % 11);
+    return resto >= 10 ? 0 : resto;
+  };
+  return dv(10) === parseInt(cpf[9], 10) && dv(11) === parseInt(cpf[10], 10);
+}
+
+// Par de chaves EC P-256; a privada sai em PEM PKCS8 já cifrada pela senha de
+// assinatura (nunca guardamos a senha nem a chave em claro).
+function gerarParDeChaves(senhaAssinatura) {
+  return crypto.generateKeyPairSync('ec', {
+    namedCurve: 'P-256',
+    publicKeyEncoding:  { type: 'spki',  format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem', cipher: 'aes-256-cbc', passphrase: senhaAssinatura }
+  });
+}
+
+// Assina um payload canônico com a chave privada do perfil (destravada pela
+// senha). Lança se a senha estiver errada — quem chama traduz pra "senha
+// incorreta". Devolve a assinatura em base64. (Usado na validação de contrato,
+// quando as tabelas do Depop existirem.)
+function assinarPayload(perfil, senhaAssinatura, payload) {
+  const s = crypto.createSign('SHA256');
+  s.update(payload);
+  s.end();
+  return s.sign({ key: perfil.chave_privada_pem, passphrase: senhaAssinatura }, 'base64');
+}
+
+function verificarAssinatura(perfil, payload, assinaturaB64) {
+  const v = crypto.createVerify('SHA256');
+  v.update(payload);
+  v.end();
+  return v.verify(perfil.chave_publica, assinaturaB64, 'base64');
+}
+
+// Todas as rotas /api/depop/* exigem o módulo Depop ativo na sessão.
+app.use('/api/depop', requireModulo('depop'));
+
+// Situação do perfil do usuário logado (o front decide se mostra o cadastro de
+// 1º acesso ou o conteúdo). Nunca devolve chave privada; CPF vem mascarado.
+app.get('/api/depop/perfil', (req, res) => {
+  const perfil = db.prepare(`SELECT cpf, criado_em FROM depop_perfil WHERE user_id = ?`).get(req.user.user_id);
+  if (!perfil) return res.json({ cadastrado: false });
+  const cpfMasc = perfil.cpf.replace(/^(\d{3})\d{6}(\d{2})$/, '$1.***.**-$2');
+  res.json({ cadastrado: true, cpf_mascarado: cpfMasc, criado_em: perfil.criado_em });
+});
+
+// Cadastro de 1º acesso: CPF (validado) + senha de assinatura → gera e guarda o
+// par de chaves. Só uma vez por usuário; CPF é único no módulo.
+app.post('/api/depop/perfil', (req, res) => {
+  const { cpf, senha_assinatura } = req.body || {};
+  const ja = db.prepare(`SELECT 1 FROM depop_perfil WHERE user_id = ?`).get(req.user.user_id);
+  if (ja) return res.status(400).json({ error: 'Perfil já configurado' });
+  const cpfLimpo = String(cpf || '').replace(/\D/g, '');
+  if (!cpfValido(cpfLimpo)) return res.status(400).json({ error: 'CPF inválido' });
+  if (!senha_assinatura || String(senha_assinatura).length < 6) {
+    return res.status(400).json({ error: 'A senha de assinatura deve ter ao menos 6 caracteres' });
+  }
+  const donoCpf = db.prepare(`SELECT user_id FROM depop_perfil WHERE cpf = ?`).get(cpfLimpo);
+  if (donoCpf) return res.status(400).json({ error: 'Este CPF já está cadastrado por outro usuário' });
+
+  const { publicKey, privateKey } = gerarParDeChaves(String(senha_assinatura));
+  db.prepare(`INSERT INTO depop_perfil (user_id, cpf, chave_publica, chave_privada_pem) VALUES (?, ?, ?, ?)`)
+    .run(req.user.user_id, cpfLimpo, publicKey, privateKey);
+  registrarLog(req, 'DEPOP', 'PERFIL', 'Configurou CPF e assinatura digital do Depop');
+  res.status(201).json({ ok: true });
 });
 
 // ── Versão ───────────────────────────────────────────────────────────────────

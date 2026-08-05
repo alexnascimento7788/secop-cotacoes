@@ -15,6 +15,11 @@ window.getCurrentUser = () => window._userPromise || (window._userPromise = (asy
   const user = await window.getCurrentUser();
   if (!user) return;
 
+  // Módulo ativo: aplica marca/accent e barra acesso a página de outro módulo.
+  // Pode redirecionar (escolher módulo / home do módulo ativo) — nesse caso o
+  // resto nem chega a rodar.
+  if (!(await _aplicarModulo(user))) return;
+
   const el = document.getElementById('sidebar-username');
   if (el) el.textContent = user.username;
   // Configurações (e a Lixeira dentro dela) só ficam visíveis pro master ou
@@ -27,6 +32,53 @@ window.getCurrentUser = () => window._userPromise || (window._userPromise = (asy
   _injetarVersao();
   _initInatividade();
 })();
+
+/* ── Módulo ativo (plataforma CEASA CONECTA) ───────────────────────────────────
+   Retorna true se a página pode continuar carregando; false se disparou um
+   redirecionamento (a página pertence a outro módulo, ou a sessão ainda não tem
+   módulo escolhido / perdeu acesso ao módulo ativo). */
+async function _aplicarModulo(user) {
+  let data;
+  try {
+    const r = await fetch('/api/auth/modulos');
+    if (!r.ok) return true; // não bloqueia a página por falha transitória do endpoint
+    data = await r.json();
+  } catch { return true; }
+
+  const { modulos, modulo_ativo } = data;
+  // Slug do módulo a que a página pertence (declarado em <body data-modulo>).
+  // Páginas transversais (ex.: admin) não declaram e não passam por checagem de módulo.
+  const pageModulo = document.body.dataset.modulo;
+
+  if (!modulo_ativo) { window.location.replace('/selecionar-modulo.html'); return false; }
+  const ativo = (modulos || []).find(m => m.slug === modulo_ativo);
+  if (!ativo) { window.location.replace('/selecionar-modulo.html'); return false; }
+  if (pageModulo && pageModulo !== modulo_ativo) { window.location.replace(ativo.home); return false; }
+
+  document.documentElement.setAttribute('data-modulo', ativo.slug);
+  _injetarModuloLabel(ativo, (modulos || []).length > 1);
+  return true;
+}
+
+function _injetarModuloLabel(modulo, podeTrocar) {
+  const brand = document.querySelector('.sidebar-brand');
+  if (!brand || document.getElementById('sidebar-modulo')) return;
+  const wrap = document.createElement('div');
+  wrap.id = 'sidebar-modulo';
+  wrap.style.cssText = 'padding:10px 20px 0;display:flex;align-items:center;gap:8px;';
+  wrap.innerHTML =
+    `<span style="width:9px;height:9px;border-radius:50%;background:${modulo.cor};flex-shrink:0;"></span>` +
+    `<span style="font-size:12px;font-weight:700;color:var(--text);letter-spacing:.3px;">${modulo.nome}</span>`;
+  if (podeTrocar) {
+    const troca = document.createElement('a');
+    troca.href = '/selecionar-modulo.html';
+    troca.title = 'Trocar de módulo';
+    troca.textContent = 'trocar';
+    troca.style.cssText = 'margin-left:auto;font-size:11px;color:var(--text-subtle);text-decoration:underline;flex-shrink:0;';
+    wrap.appendChild(troca);
+  }
+  brand.insertAdjacentElement('afterend', wrap);
+}
 
 async function logout() {
   try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
@@ -128,7 +180,7 @@ async function _injetarVersao() {
     const el = document.createElement('div');
     el.id = 'sidebar-version';
     el.textContent = `v${version}`;
-    el.title = `SECOP Cotações — versão ${version}`;
+    el.title = `CEASA CONECTA — versão ${version}`;
     el.style.cssText = 'font-size:13px;font-weight:700;color:var(--verde);text-align:center;padding:6px 0;letter-spacing:.4px;flex-shrink:0;';
     // .sidebar é uma coluna flex de altura fixa (top:0/bottom:0, sem overflow) —
     // appendChild no final (depois do footer) empurrava esta linha pra fora da
