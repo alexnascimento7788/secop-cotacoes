@@ -202,9 +202,13 @@ async function fazerLogin(e) {
       return;
     }
     const data = await res.json();
-    // Vários módulos (ou master): escolhe antes de entrar. Um só: vai direto pra
-    // home dele. O bloqueio (sem módulo) já cai no ramo !res.ok acima.
-    window.location.replace(data.escolher ? '/selecionar-modulo.html' : (data.home || '/index.html'));
+    // Senha provisória (1º acesso / senha redefinida): obriga a trocar antes de
+    // entrar. Depois: vários módulos (ou master) escolhem; um só vai direto pra
+    // home. O bloqueio (sem módulo) já cai no ramo !res.ok acima.
+    window.location.replace(
+      data.trocar_senha ? '/trocar-senha.html'
+      : (data.escolher ? '/selecionar-modulo.html' : (data.home || '/index.html'))
+    );
   } catch {
     err.textContent = 'Erro de conexão com o servidor';
     err.style.display = 'block';

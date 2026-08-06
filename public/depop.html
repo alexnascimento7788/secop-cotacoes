@@ -3,13 +3,127 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Depop — CEASA CONECTA</title>
+  <title>Validação de Contratos — CEASA CONECTA</title>
   <link rel="stylesheet" href="css/style.css" />
   <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#1565C0">
   <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
   <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');</script>
+  <style>
+    /* ── Ferramenta de validação (Depop) ─────────────────────────────────────── */
+    .dp-pane { display: none; }
+    .dp-pane.active { display: block; }
+
+    /* Gráfico de barras por cidade (SVG/CSS puro, sem libs) */
+    .dp-chart { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px; }
+    .dp-chart-legend { display: flex; gap: 18px; font-size: 12px; color: var(--cinza-t); margin-bottom: 4px; }
+    .dp-chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .dp-legend-sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+    .dp-bar-row { display: grid; grid-template-columns: 130px 1fr; gap: 10px; align-items: center; }
+    .dp-bar-city { font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dp-bar-pair { display: flex; flex-direction: column; gap: 4px; }
+    .dp-bar { display: flex; align-items: center; gap: 8px; }
+    .dp-bar-track { flex: 1; height: 12px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+    .dp-bar-fill { height: 100%; border-radius: 4px; transition: width .4s ease; }
+    .dp-bar-fill.contratos { background: var(--verde); }
+    .dp-bar-fill.concessionarios { background: var(--amarelo); }
+    .dp-bar-val { font-size: 11.5px; font-weight: 700; color: var(--text); width: 34px; text-align: right; flex-shrink: 0; }
+
+    .dp-mini-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .dp-mini { background: var(--surface); border: 1px solid var(--cinza-b); border-radius: 10px; padding: 14px 16px; }
+    .dp-mini-label { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--cinza-t); font-weight: 600; }
+    .dp-mini-value { font-size: 22px; font-weight: 700; color: var(--text); margin-top: 4px; }
+    .dp-mini-hint { font-size: 11px; color: var(--text-subtle); margin-top: 2px; }
+
+    /* Lista de validação */
+    .dp-city-block { margin-bottom: 18px; }
+    .dp-row { cursor: pointer; }
+    .dp-row.locked { cursor: not-allowed; opacity: .72; }
+    .dp-row td .dp-forn { font-weight: 600; }
+    .dp-group-tag { display:inline-block; font-size:10.5px; font-weight:700; color: var(--verde); background: rgba(21,101,192,.12); padding: 2px 9px; border-radius: 20px; }
+    .dp-lock-tag { font-size: 11px; color: var(--vermelho); font-weight: 600; white-space: nowrap; }
+    .dp-mine-tag { font-size: 11px; color: var(--verde); font-weight: 600; white-space: nowrap; }
+    /* "A validar" em vermelho, "Errado" em âmbar (pra não confundir os dois) */
+    .badge-pendente { background: #fee2e2; color: #b91c1c; }
+    .badge-validado { background: #dcfce7; color: #15803d; }
+    .badge-errado   { background: #fef3c7; color: #b45309; }
+    [data-theme="dark"] .badge-pendente { background: rgba(220,38,38,.18); color: #fca5a5; }
+    [data-theme="dark"] .badge-validado { background: rgba(21,128,61,.22); color: #86efac; }
+    [data-theme="dark"] .badge-errado   { background: rgba(180,83,9,.24); color: #fcd34d; }
+
+    /* Linha de grupo (concessionário com vários contratos) — clica e abre a tela dele */
+    .dp-group-row { cursor: pointer; }
+    .dp-group-row:hover { background: var(--surface-2); }
+    .dp-group-row td { padding: 12px 14px; }
+    .dp-group-row .dp-forn { font-weight: 700; }
+    .dp-group-cell { text-align: right; white-space: normal; }
+    .dp-group-cell .badge, .dp-group-cell .dp-group-tag { margin-left: 6px; vertical-align: middle; }
+    .dp-chev { display: inline-block; margin-left: 10px; color: var(--verde); font-weight: 700; font-size: 17px; vertical-align: middle; }
+    /* Tela (drill-down) de contratos de um concessionário */
+    #dp-preview { z-index: 950; }
+    #dp-contratos-titulo { text-align: right; }
+    .dp-ct-nome { font-size: 15px; font-weight: 700; color: var(--text); }
+    .dp-ct-sub { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .dp-ct-card { max-width: 860px; margin: 0 auto; }
+
+    /* Preview overlay (Anexo I interno) */
+    .dp-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.55); z-index: 900; display: flex; flex-direction: column; }
+    .dp-preview-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; background: var(--surface); border-bottom: 1px solid var(--cinza-b); flex-wrap: wrap; }
+    .dp-preview-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .dp-paper-wrap { flex: 1; overflow: auto; padding: 24px 16px; }
+
+    .dp-paper {
+      background: #fff; color: #1a2035; max-width: 820px; margin: 0 auto;
+      padding: 40px 44px; border-radius: 4px; box-shadow: 0 8px 30px rgba(0,0,0,.25);
+      font-size: 13.5px; line-height: 1.55;
+    }
+    .dp-doc-head { display: flex; align-items: center; gap: 16px; border-bottom: 2px solid #1565C0; padding-bottom: 14px; margin-bottom: 18px; }
+    .dp-doc-head img { height: 52px; width: auto; }
+    .dp-doc-org { font-size: 15px; font-weight: 700; color: #0f2f5c; letter-spacing: .3px; }
+    .dp-doc-org small { display: block; font-size: 11px; font-weight: 500; color: #5a6478; letter-spacing: .5px; text-transform: uppercase; margin-top: 2px; }
+    .dp-doc-title { text-align: right; margin-left: auto; font-size: 12px; color: #5a6478; }
+    .dp-doc-title strong { display: block; font-size: 15px; color: #0f2f5c; }
+
+    .dp-abertura { font-size: 12.5px; color: #334155; background: #f1f5f9; border-left: 3px solid #1565C0; padding: 10px 14px; border-radius: 4px; margin-bottom: 18px; }
+    .dp-sec-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: #0f2f5c; margin: 18px 0 10px; }
+
+    .dp-resumo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; }
+    .dp-resumo .full { grid-column: 1 / -1; }
+    .dp-field label { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: .3px; color: #64748b; font-weight: 600; }
+    .dp-field span { font-size: 13.5px; color: #1a2035; }
+
+    .dp-valores { display: flex; gap: 16px; margin: 16px 0; flex-wrap: wrap; }
+    .dp-valor-box { flex: 1; min-width: 200px; border: 1.5px solid #1565C0; border-radius: 8px; padding: 12px 16px; background: #eff6ff; }
+    .dp-valor-box .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: #1565C0; font-weight: 700; }
+    .dp-valor-box .val { font-size: 24px; font-weight: 800; color: #0f2f5c; margin-top: 2px; }
+
+    .dp-linhas { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+    .dp-linhas th { background: #0f2f5c; color: #fff; text-align: left; padding: 7px 9px; font-size: 11px; text-transform: uppercase; letter-spacing: .3px; }
+    .dp-linhas td { border: 1px solid #d7dee8; padding: 6px 9px; vertical-align: top; }
+    .dp-linhas tbody tr:nth-child(even) { background: #f6f9fc; }
+    .dp-linhas .num { text-align: right; white-space: nowrap; }
+    .dp-empty-lines { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; padding: 12px 14px; border-radius: 6px; font-size: 12.5px; }
+
+    .dp-selo { margin: 20px 0 6px; text-align: center; border: 1.5px dashed #1565C0; border-radius: 8px; padding: 12px; color: #0f2f5c; font-weight: 700; font-size: 12.5px; background: #eff6ff; }
+    .dp-doc-foot { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 22px; padding-top: 12px; border-top: 1px solid #d7dee8; font-size: 11.5px; color: #5a6478; gap: 16px; }
+    .dp-assinatura { text-align: right; }
+    .dp-assinatura .nome { font-weight: 700; color: #1a2035; font-size: 13px; border-top: 1px solid #94a3b8; padding-top: 4px; min-width: 220px; display: inline-block; }
+    .dp-assinatura .timbre { font-size: 10.5px; color: #64748b; font-family: ui-monospace, monospace; margin-top: 3px; }
+    .dp-assinatura .pendente { color: #94a3b8; font-style: italic; }
+
+    /* Container de impressão (individual e em massa) */
+    #dp-print { display: none; }
+
+    @media print {
+      @page { size: A4 portrait; margin: 12mm 12mm; }
+      .layout, .dp-overlay, #toast { display: none !important; }
+      #dp-print { display: block !important; }
+      body { background: #fff !important; }
+      #dp-print .dp-paper { box-shadow: none; border-radius: 0; max-width: 100%; margin: 0; padding: 0; page-break-after: always; }
+      #dp-print .dp-paper:last-child { page-break-after: auto; }
+    }
+  </style>
 </head>
 <body data-modulo="depop">
 <div class="layout">
@@ -26,8 +140,8 @@
     </div>
     <nav>
       <a href="depop.html" class="nav-item active">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1-5h16l1 5"/><path d="M4 9v11a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9"/><path d="M9 21v-6h6v6"/></svg>
-        Concessionários
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M21 12c-1 0-3-1-3-3s2-3 3-3-2-2-2-4-1-1-3-1-3 2-3 2-1-2-3-2-2 1-2 4 2 3 2 4-3 1-3 3 2 3 3 3"/></svg>
+        Validação de Contratos
       </a>
     </nav>
     <div class="sidebar-footer">
@@ -47,8 +161,8 @@
   <main class="main">
     <div class="page-header">
       <div>
-        <div class="page-title">Depop - Concessionários</div>
-        <div class="page-subtitle">Gestão de concessionários da CEASAMINAS</div>
+        <div class="page-title">Validação de Contratos</div>
+        <div class="page-subtitle">Conferência do Setor de Cadastro · CEASAMINAS</div>
       </div>
     </div>
 
@@ -61,41 +175,126 @@
     <div id="depop-setup" class="card" style="display:none;max-width:520px;">
       <div class="card-header"><div class="card-title">Configure seu acesso</div></div>
       <div style="padding:20px 24px;">
-        <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.5;">
-          Antes de trabalhar com os contratos, cadastre seu <strong>CPF</strong> e crie uma
-          <strong>senha de assinatura</strong>. Ela é usada só para assinar as validações
-          (é diferente da senha de login) e não pode ser recuperada — guarde com cuidado.
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:18px;line-height:1.5;">
+          Para validar os contratos, informe seu <strong>CPF</strong>. Vamos confirmá-lo
+          na base da Receita e trazer o seu <strong>nome</strong> automaticamente.
         </p>
-        <div class="form-row cols-1" style="margin-bottom:14px;">
+        <div class="form-row cols-1" style="margin-bottom:6px;">
           <div class="form-group">
             <label>CPF</label>
             <input type="text" id="dp-cpf" inputmode="numeric" maxlength="14" placeholder="000.000.000-00" />
           </div>
         </div>
-        <div class="form-row cols-2" style="margin-bottom:14px;gap:12px;">
-          <div class="form-group">
-            <label>Senha de assinatura</label>
-            <input type="password" id="dp-senha" placeholder="Mínimo 6 caracteres" />
-          </div>
-          <div class="form-group">
-            <label>Confirme a senha</label>
-            <input type="password" id="dp-senha2" placeholder="Repita a senha" />
-          </div>
+        <div id="dp-cpf-status" style="font-size:12.5px;min-height:18px;margin-bottom:10px;color:var(--text-muted);"></div>
+        <div id="dp-nome-box" style="display:none;margin-bottom:18px;padding:16px 18px;background:var(--surface-2);border:1px solid var(--cinza-b);border-left:3px solid var(--verde);border-radius:8px;">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);font-weight:600;margin-bottom:3px;">✓ Nome encontrado</div>
+          <div id="dp-nome-val" style="font-size:18px;font-weight:700;color:var(--text);">—</div>
         </div>
+        <p style="font-size:12px;color:var(--text-subtle);margin-bottom:14px;line-height:1.5;">
+          Para <strong>assinar</strong> cada validação você vai usar a sua própria
+          <strong>senha de login</strong> — não há uma segunda senha para lembrar.
+        </p>
         <div id="dp-setup-msg" style="font-size:13px;font-weight:600;min-height:18px;margin-bottom:12px;"></div>
-        <button class="btn btn-primary" id="dp-setup-btn" onclick="salvarPerfilDepop()">Salvar e continuar</button>
+        <button class="btn btn-primary" id="dp-setup-btn" onclick="salvarPerfilDepop()" style="display:none;">Confirmar — sou eu</button>
       </div>
     </div>
 
     <!-- Conteúdo do módulo (após cadastro) -->
-    <div id="depop-content" class="card" style="display:none;">
-      <div style="padding:64px 24px;text-align:center;">
-        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--verde)" stroke-width="1.5" style="margin-bottom:16px;"><path d="M3 9l1-5h16l1 5"/><path d="M4 9v11a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9"/><path d="M9 21v-6h6v6"/></svg>
-        <div style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:6px;">Depop - Concessionários</div>
-        <div style="font-size:14px;color:var(--text-muted);">Acesso configurado. Módulo em desenvolvimento.</div>
+    <div id="depop-content" style="display:none;">
+
+      <div class="page-tabs" id="dp-tabs">
+        <button class="page-tab active" data-tab="painel">Painel</button>
+        <button class="page-tab" data-tab="pendente">A validar <span class="page-tab-count" id="cnt-pendente">0</span></button>
+        <button class="page-tab" data-tab="errado">Errados <span class="page-tab-count" id="cnt-errado">0</span></button>
+        <button class="page-tab" data-tab="validado">Assinados <span class="page-tab-count" id="cnt-validado">0</span></button>
       </div>
+
+      <!-- Painel -->
+      <div id="pane-painel" class="dp-pane active">
+        <div class="cards-grid" id="dp-cards"></div>
+        <div class="bottom-grid">
+          <div class="card">
+            <div class="card-header"><span class="card-title">📊 Contratos e concessionários por cidade</span></div>
+            <div class="dp-chart" id="dp-chart"></div>
+          </div>
+          <div class="right-col">
+            <div class="card">
+              <div class="card-header"><span class="card-title dash-card-title">Métricas de metragem e tarifa</span></div>
+              <div style="padding:16px 20px;"><div class="dp-mini-grid" id="dp-mini"></div></div>
+            </div>
+            <div class="card">
+              <div class="card-header"><span class="card-title dash-card-title">⚠️ Menor % de validação</span></div>
+              <div class="setor-list" id="dp-ranking"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Listas -->
+      <div id="pane-lista" class="dp-pane">
+        <div class="card" style="margin-bottom:16px;">
+          <div style="padding:14px 16px;">
+            <div class="filters">
+              <select id="dp-filtro-cidade" class="filter-select"><option value="">Todas as cidades</option></select>
+              <input id="dp-busca" class="filter-input" placeholder="Buscar concessionário ou CCU..." />
+              <button class="btn btn-secondary btn-sm" id="dp-btn-export-massa" style="display:none;margin-left:auto;">🖨️ Exportar todos (PDF)</button>
+            </div>
+          </div>
+        </div>
+        <div id="dp-lista"></div>
+      </div>
+
     </div>
   </main>
+</div>
+
+<!-- Preview (Anexo I interno) -->
+<div id="dp-preview" class="dp-overlay" style="display:none;">
+  <div class="dp-preview-bar">
+    <button class="btn btn-secondary btn-sm" onclick="fecharPreview()">← Voltar</button>
+    <div class="dp-preview-actions" id="dp-preview-actions"></div>
+  </div>
+  <div class="dp-paper-wrap"><div class="dp-paper" id="dp-doc"></div></div>
+</div>
+
+<!-- Tela (drill-down): contratos de um concessionário com vários contratos -->
+<div id="dp-contratos" class="dp-overlay" style="display:none;">
+  <div class="dp-preview-bar">
+    <button class="btn btn-secondary btn-sm" onclick="fecharContratos()">← Voltar</button>
+    <div id="dp-contratos-titulo"></div>
+  </div>
+  <div class="dp-paper-wrap"><div id="dp-contratos-body"></div></div>
+</div>
+
+<!-- Container de impressão -->
+<div id="dp-print"></div>
+
+<!-- Modal: senha de assinatura -->
+<div id="dp-modal-senha" class="modal-overlay">
+  <div class="modal-box">
+    <h3>Confirmar e assinar</h3>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">Digite a sua <strong>senha de login</strong> para assinar esta validação.</p>
+    <input type="password" id="dp-senha-assinatura" class="filter-input" style="width:100%;" placeholder="Sua senha de login" autocomplete="current-password" />
+    <div id="dp-senha-msg" style="font-size:12.5px;font-weight:600;color:var(--vermelho);min-height:16px;margin-top:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="fecharModal('dp-modal-senha')">Cancelar</button>
+      <button class="btn btn-primary btn-sm" id="dp-btn-assinar" onclick="confirmarAssinatura()">Assinar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: marcar como errado -->
+<div id="dp-modal-erro" class="modal-overlay">
+  <div class="modal-box">
+    <h3>Marcar como errado</h3>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">Descreva o <strong>motivo</strong> — o que está divergente na planilha.</p>
+    <textarea id="dp-erro-obs" class="filter-input" style="width:100%;min-height:90px;resize:vertical;" placeholder="Ex.: Valor do ponto diferente do contrato físico..."></textarea>
+    <div id="dp-erro-msg" style="font-size:12.5px;font-weight:600;color:var(--vermelho);min-height:16px;margin-top:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="fecharModal('dp-modal-erro')">Cancelar</button>
+      <button class="btn btn-danger btn-sm" id="dp-btn-erro" onclick="confirmarErro()">Confirmar erro</button>
+    </div>
+  </div>
 </div>
 
 <div id="toast"></div>

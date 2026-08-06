@@ -210,6 +210,12 @@ function setupDb() {
 
   try { _db.exec(`ALTER TABLE processos ADD COLUMN criado_por_id INTEGER REFERENCES users(id)`); } catch {}
 
+  // Email do usuário (definido pelo admin na criação) e flag de senha provisória:
+  // ao ser criado/ter a senha redefinida pelo admin, o usuário precisa trocar a
+  // senha no próximo login antes de usar o sistema (ver /api/auth/trocar-senha).
+  try { _db.exec(`ALTER TABLE users ADD COLUMN email TEXT`); } catch {}
+  try { _db.exec(`ALTER TABLE users ADD COLUMN senha_provisoria INTEGER NOT NULL DEFAULT 0`); } catch {}
+
   // ── Módulos da plataforma CEASA CONECTA ───────────────────────────────────────
   // O sistema virou multi-módulo: SECOP - Cotações é o módulo atual (todo o app de
   // hoje), Depop - Concessionários é um segundo módulo (placeholder). `cor` dá a
@@ -277,6 +283,39 @@ function setupDb() {
       chave_publica      TEXT NOT NULL,
       chave_privada_pem  TEXT NOT NULL,
       criado_em          DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+  // Nome completo do titular do CPF, retornado pela API de consulta (cpfhub.io)
+  // no cadastro — usado como nome do validador no Anexo I / assinatura.
+  try { _db.exec(`ALTER TABLE depop_perfil ADD COLUMN nome TEXT`); } catch {}
+
+  // ── Depop: ferramenta de validação de contratos ──────────────────────────────
+  // A conferência dos contratos (dados vindos das planilhas, carregados no
+  // depop.db) é registrada AQUI, no secop.db — de propósito: o depop.db é só
+  // leitura e pode ser re-sincronizado do SQL Server a qualquer momento sem
+  // apagar o trabalho de validação. A ligação com o contrato é só o número
+  // `id_avaliacao` (= AvaliacaoAreaRenovacao.id no depop.db); não há FK entre os
+  // dois arquivos. Uma linha por contrato (id_avaliacao UNIQUE); sem linha = pendente.
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS validacao_contrato (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      id_avaliacao         INTEGER NOT NULL UNIQUE,
+      status               TEXT    NOT NULL DEFAULT 'pendente',
+      observacao           TEXT,
+      id_usuario_validador INTEGER,
+      dt_validacao         DATETIME,
+      hash_assinatura      TEXT,
+      assinatura_b64       TEXT,
+      FOREIGN KEY (id_usuario_validador) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS validacao_lock (
+      id_avaliacao INTEGER PRIMARY KEY,
+      user_id      INTEGER NOT NULL,
+      nome         TEXT,
+      aberto_em    DATETIME DEFAULT CURRENT_TIMESTAMP,
+      ultimo_ping  DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
   `);

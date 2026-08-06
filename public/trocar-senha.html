@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trocar senha — CEASA CONECTA</title>
+  <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+  <meta name="theme-color" content="#1A6B35">
+  <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');</script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, Arial, sans-serif; background: #f0f4f1; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .wrap { width: 100%; max-width: 400px; padding: 16px; }
+    .logo { text-align: center; margin-bottom: 24px; }
+    .logo h1 { font-size: 22px; font-weight: 700; color: #1A6B35; letter-spacing: .5px; }
+    .card { background: #fff; border-radius: 12px; padding: 32px 28px; box-shadow: 0 4px 24px rgba(0,0,0,.10); }
+    .card h2 { font-size: 17px; font-weight: 700; color: #1a2035; margin-bottom: 4px; }
+    .card p.sub { font-size: 13px; color: #888; margin-bottom: 22px; line-height: 1.5; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 12px; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 6px; }
+    .form-group input { width: 100%; padding: 10px 12px; border: 1.5px solid #e0e4ea; border-radius: 6px; font-size: 14px; outline: none; transition: border-color .15s; }
+    .form-group input:focus { border-color: #1A6B35; }
+    .btn { width: 100%; padding: 11px; background: #1A6B35; color: #fff; border: none; border-radius: 7px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 4px; transition: background .15s; }
+    .btn:hover { background: #155929; }
+    .btn:disabled { background: #aaa; cursor: not-allowed; }
+    .msg { display: none; border-radius: 6px; padding: 10px 12px; font-size: 13px; margin-bottom: 14px; }
+    .msg.err { background: #FFEBEE; border: 1px solid #EF9A9A; color: #C62828; }
+    .msg.ok  { background: #E8F5E9; border: 1px solid #A5D6A7; color: #2E7D32; }
+    [data-theme="dark"] body { background: #0d1117; }
+    [data-theme="dark"] .logo h1 { color: #58a6ff; }
+    [data-theme="dark"] .card { background: #161b22; box-shadow: 0 4px 24px rgba(0,0,0,.4); }
+    [data-theme="dark"] .card h2 { color: #e6edf3; }
+    [data-theme="dark"] .card p.sub { color: #8b949e; }
+    [data-theme="dark"] .form-group label { color: #8b949e; }
+    [data-theme="dark"] .form-group input { background: #0d1117; border-color: #30363d; color: #e6edf3; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo"><h1>CONECTA</h1></div>
+  <div class="card">
+    <h2>Defina uma nova senha</h2>
+    <p class="sub">Este é seu primeiro acesso (ou sua senha foi redefinida). Crie uma senha pessoal para continuar.</p>
+
+    <div class="msg err" id="msg"></div>
+
+    <form id="form" onsubmit="trocar(event)">
+      <div class="form-group">
+        <label>Nova senha</label>
+        <input type="password" id="nova" autocomplete="new-password" placeholder="Mínimo 6 caracteres" required />
+      </div>
+      <div class="form-group">
+        <label>Confirme a nova senha</label>
+        <input type="password" id="nova2" autocomplete="new-password" placeholder="Repita a senha" required />
+      </div>
+      <button class="btn" type="submit" id="btn">Salvar e continuar</button>
+    </form>
+  </div>
+</div>
+
+<script>
+function _msg(txt, ok) {
+  const m = document.getElementById('msg');
+  m.textContent = txt;
+  m.className = 'msg ' + (ok ? 'ok' : 'err');
+  m.style.display = 'block';
+}
+
+async function trocar(e) {
+  e.preventDefault();
+  const btn   = document.getElementById('btn');
+  const nova  = document.getElementById('nova').value;
+  const nova2 = document.getElementById('nova2').value;
+  if (nova.length < 6) { _msg('A nova senha deve ter ao menos 6 caracteres.'); return; }
+  if (nova !== nova2)  { _msg('As senhas não conferem.'); return; }
+
+  btn.disabled = true; btn.textContent = 'Salvando...';
+  try {
+    const res = await fetch('/api/auth/trocar-senha', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nova_senha: nova })
+    });
+    if (res.status === 401) { window.location.replace('/login.html'); return; }
+    const data = await res.json();
+    if (!res.ok) { _msg(data.error || 'Erro ao trocar a senha.'); return; }
+    _msg('Senha alterada! Redirecionando...', true);
+    await irParaModulo();
+  } catch {
+    _msg('Erro de conexão com o servidor.');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Salvar e continuar';
+  }
+}
+
+// Após trocar a senha, encaminha pro fluxo normal: 1 módulo entra direto,
+// vários vão pra escolha, nenhum mostra aviso.
+async function irParaModulo() {
+  try {
+    const r = await fetch('/api/auth/modulos');
+    if (!r.ok) { window.location.replace('/login.html'); return; }
+    const { modulos } = await r.json();
+    if (!modulos || !modulos.length) {
+      _msg('Senha alterada, mas você ainda não tem nenhum módulo liberado. Procure o administrador.');
+      return;
+    }
+    if (modulos.length === 1) {
+      await fetch('/api/auth/selecionar-modulo', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: modulos[0].slug })
+      });
+      window.location.replace(modulos[0].home);
+    } else {
+      window.location.replace('/selecionar-modulo.html');
+    }
+  } catch { window.location.replace('/login.html'); }
+}
+</script>
+</body>
+</html>
