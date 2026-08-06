@@ -320,6 +320,54 @@ function setupDb() {
     );
   `);
 
+  // ── Depop: capacidades por usuário dentro do módulo ──────────────────────────
+  // Acesso ao MÓDULO Depop continua sendo por user_modulos. AQUI é o que o usuário
+  // pode FAZER dentro dele: validar contratos e/ou gerar comunicados. Sem linha =
+  // padrão (só valida) — mantém quem já usava a validação funcionando. O master
+  // (username 'master') ignora esta tabela e pode tudo.
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS depop_acesso (
+      user_id     INTEGER PRIMARY KEY,
+      valida      INTEGER NOT NULL DEFAULT 1,
+      comunicados INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+
+  // ── Depop/Comunicados: parâmetros configuráveis do sistema ───────────────────
+  // Tabela chave/valor editável só pelo master (ex.: url_plataforma_acesso,
+  // numero_comunicado). O comunicado lê estes valores em tempo de geração — a URL
+  // NUNCA é escrita fixa no código/template. Semeia com placeholder óbvio.
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS parametro_sistema (
+      chave TEXT PRIMARY KEY,
+      valor TEXT
+    );
+  `);
+  const seedParam = _db.prepare(`INSERT OR IGNORE INTO parametro_sistema (chave, valor) VALUES (?, ?)`);
+  seedParam.run('url_plataforma_acesso', 'A DEFINIR');
+  seedParam.run('numero_comunicado', '01/2026');
+
+  // ── Depop/Comunicados: rastreamento de geração e entrega ─────────────────────
+  // Uma linha por contrato (id_avaliacao UNIQUE). `geracoes` é o CONTADOR de PDFs
+  // gerados (incrementa a cada geração — pedido do Alex: saber que já foi gerado e
+  // quantas vezes). `enviado`/`dt_envio` é o controle de entrega, marcado à mão e
+  // independente da geração. Como validacao_contrato, vive no secop.db e liga ao
+  // depop.db só pelo id_avaliacao.
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS comunicado_gerado (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      id_avaliacao      INTEGER NOT NULL UNIQUE,
+      geracoes          INTEGER NOT NULL DEFAULT 0,
+      primeira_geracao  DATETIME,
+      ultima_geracao    DATETIME,
+      gerado_por        INTEGER,
+      enviado           INTEGER NOT NULL DEFAULT 0,
+      dt_envio          DATETIME,
+      FOREIGN KEY (gerado_por) REFERENCES users(id)
+    );
+  `);
+
   _db.exec(`
     CREATE TABLE IF NOT EXISTS logs (
       id        INTEGER PRIMARY KEY AUTOINCREMENT,

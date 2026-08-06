@@ -112,6 +112,47 @@
     .dp-assinatura .timbre { font-size: 10.5px; color: #64748b; font-family: ui-monospace, monospace; margin-top: 3px; }
     .dp-assinatura .pendente { color: #94a3b8; font-style: italic; }
 
+    /* ── Comunicado oficial (papel A4 retrato) ── */
+    .dp-paper.comunicado { color: #222; font-size: 13px; line-height: 1.6; }
+    .cmn-head { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
+    .cmn-head img { height: 46px; width: auto; }
+    .cmn-org { font-size: 13.5px; font-weight: 700; color: #0f2f5c; }
+    .cmn-title { text-align: center; font-weight: 700; font-size: 14px; letter-spacing: .3px; margin: 14px 0 18px; color: #0f2f5c; text-transform: uppercase; }
+    .cmn-dest, .cmn-contrato { margin-bottom: 14px; }
+    .cmn-dest > div, .cmn-contrato > div { margin: 2px 0; }
+    .cmn-dest .lbl, .cmn-contrato .lbl { font-weight: 700; }
+    .cmn-assunto { margin: 14px 0; }
+    .cmn-p { margin: 10px 0; text-align: justify; }
+    .cmn-itens { margin: 12px 0; padding-left: 20px; }
+    .cmn-itens > li { margin-bottom: 10px; }
+    .cmn-cred { margin: 12px 0 4px; border: 2px solid #1565C0; border-radius: 10px; background: #eff6ff; padding: 14px 18px; display: grid; gap: 10px; max-width: 470px; }
+    .cmn-cred > div { display: flex; flex-direction: column; }
+    .cmn-cred-lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: #1565C0; font-weight: 700; }
+    .cmn-cred-val { font-size: 17px; font-weight: 800; color: #0f2f5c; font-family: ui-monospace, monospace; word-break: break-all; }
+    .cmn-foot { text-align: center; margin-top: 28px; line-height: 1.5; }
+
+    /* ── Lista da aba Comunicados ── */
+    .cmn-cidade-hdr { margin: 18px 0 8px; font-size: 14px; font-weight: 700; color: var(--text); }
+    .cmn-cidade-hdr .btn { margin-left: 10px; }
+    .cmn-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--cinza-b); border-radius: 10px; background: var(--surface); margin-bottom: 8px; }
+    .cmn-chk { margin-top: 3px; width: 16px; height: 16px; cursor: pointer; }
+    .cmn-main { flex: 1; min-width: 0; }
+    .cmn-nome { font-size: 14px; font-weight: 700; color: var(--text); word-break: break-word; }
+    .cmn-badges { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
+    .cmn-acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .cmn-tag { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+    .cmn-tag.total    { background: #e0e7ff; color: #3730a3; }
+    .cmn-tag.eleg     { background: #dcfce7; color: #166534; }
+    .cmn-tag.fora     { background: #fef3c7; color: #92400e; }
+    .cmn-tag.gerado   { background: #dbeafe; color: #1e40af; }
+    .cmn-tag.entregue { background: #cffafe; color: #155e75; }
+    /* Drill: contratos de um concessionário na aba Comunicados */
+    .cmn-ct { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--cinza-b); flex-wrap: wrap; }
+    .cmn-ct:last-child { border-bottom: none; }
+    .cmn-ct .ccu { font-weight: 700; color: var(--text); }
+    .cmn-ct .meta { font-size: 12px; color: var(--text-muted); }
+    .cmn-ct .grow { flex: 1; min-width: 180px; }
+
     /* Container de impressão (individual e em massa) */
     #dp-print { display: none; }
 
@@ -207,6 +248,7 @@
         <button class="page-tab" data-tab="pendente">A validar <span class="page-tab-count" id="cnt-pendente">0</span></button>
         <button class="page-tab" data-tab="errado">Errados <span class="page-tab-count" id="cnt-errado">0</span></button>
         <button class="page-tab" data-tab="validado">Assinados <span class="page-tab-count" id="cnt-validado">0</span></button>
+        <button class="page-tab" data-tab="comunicados" id="tab-comunicados" style="display:none;">Comunicados</button>
       </div>
 
       <!-- Painel -->
@@ -242,6 +284,26 @@
           </div>
         </div>
         <div id="dp-lista"></div>
+      </div>
+
+      <!-- Comunicados -->
+      <div id="pane-comunicados" class="dp-pane">
+        <div class="card" style="margin-bottom:16px;">
+          <div style="padding:14px 16px;">
+            <div class="filters">
+              <select id="dpc-filtro-cidade" class="filter-select"><option value="">Todas as cidades</option></select>
+              <input id="dpc-busca" class="filter-input" placeholder="Buscar concessionário ou CCU..." />
+              <button class="btn btn-secondary btn-sm" id="dpc-btn-param" style="display:none;margin-left:auto;">⚙️ Parâmetros</button>
+            </div>
+            <div id="dpc-avisos" style="margin-top:10px;"></div>
+            <div id="dpc-selbar" style="display:none;margin-top:10px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--cinza-b);border-radius:8px;font-size:13px;align-items:center;gap:12px;">
+              <span id="dpc-selcount" style="font-weight:600;">0 selecionados</span>
+              <button class="btn btn-primary btn-sm" onclick="gerarSelecionados()">🖨️ Gerar selecionados</button>
+              <button class="btn btn-secondary btn-sm" onclick="limparSelecao()">Limpar</button>
+            </div>
+          </div>
+        </div>
+        <div id="dpc-lista"></div>
       </div>
 
     </div>
@@ -293,6 +355,23 @@
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
       <button class="btn btn-secondary btn-sm" onclick="fecharModal('dp-modal-erro')">Cancelar</button>
       <button class="btn btn-danger btn-sm" id="dp-btn-erro" onclick="confirmarErro()">Confirmar erro</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: parâmetros do comunicado (só master) -->
+<div id="dpc-modal-param" class="modal-overlay">
+  <div class="modal-box">
+    <h3>Parâmetros do comunicado</h3>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">Usados na geração da carta. A URL nunca fica fixa no código.</p>
+    <label style="display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;">URL da plataforma de adesão</label>
+    <input type="text" id="dpc-param-url" class="filter-input" style="width:100%;" placeholder="www.ceasaminas.com/..." />
+    <label style="display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin:14px 0 6px;">Número do comunicado</label>
+    <input type="text" id="dpc-param-num" class="filter-input" style="width:100%;" placeholder="01/2026" />
+    <div id="dpc-param-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin-top:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="fecharModal('dpc-modal-param')">Cancelar</button>
+      <button class="btn btn-primary btn-sm" onclick="salvarParametros()">Salvar</button>
     </div>
   </div>
 </div>

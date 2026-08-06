@@ -499,6 +499,7 @@
                 <th>Email</th>
                 <th>Perfil</th>
                 <th>Acesso avançado</th>
+                <th>Depop</th>
                 <th>Status</th>
                 <th>Criado em</th>
                 <th></th>
@@ -1262,6 +1263,12 @@ async function carregarUsuarios() {
             </select>
           `:'<span style="font-size:11px;color:#aaa;">—</span>'}
         </td>
+        <td style="white-space:nowrap;">
+          ${u.username!=='master'?`
+            <label style="font-size:11px;margin-right:10px;cursor:pointer;" title="Pode validar contratos"><input type="checkbox" ${u.depop_valida?'checked':''} onchange="alterarDepopAcesso(${u.id},'depop_valida',this.checked)"> Validação</label>
+            <label style="font-size:11px;cursor:pointer;" title="Pode gerar comunicados"><input type="checkbox" ${u.depop_comunicados?'checked':''} onchange="alterarDepopAcesso(${u.id},'depop_comunicados',this.checked)"> Comunicados</label>
+          `:'<span style="font-size:11px;color:#aaa;">tudo</span>'}
+        </td>
         <td><span class="${u.ativo?'badge-ativo':'badge-inativo'}">${u.ativo?'Ativo':'Inativo'}</span></td>
         <td>${fmtData(u.criado_em)}</td>
         <td style="white-space:nowrap;text-align:right;">
@@ -1305,6 +1312,21 @@ async function adicionarUsuario() {
   } catch(e) {
     msg.style.color='#c00'; msg.textContent = 'Erro: ' + e.message;
   }
+}
+
+// Capacidades do usuário dentro do módulo Depop (validar / gerar comunicados).
+// Só tem efeito para quem tem o módulo Depop concedido (aba Módulos).
+async function alterarDepopAcesso(id, campo, checked) {
+  try {
+    const res = await fetch(`/api/admin/users/${id}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ [campo]: checked })
+    });
+    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || 'erro'); }
+    const u = (window._usersCache || []).find(x => x.id === id);
+    if (u) u[campo] = checked ? 1 : 0;
+    toast('Acesso Depop atualizado.', 'success');
+  } catch(e) { toast('Erro: ' + e.message, 'error'); carregarUsuarios(); }
 }
 
 async function editarEmail(id) {

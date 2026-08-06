@@ -71,6 +71,7 @@ async function initDepop() {
     if (res.status === 403) { window.location.replace('/selecionar-modulo.html'); return; }
     const data = await res.json();
     estado.perfil = data.perfil || 'validador';
+    estado.caps = data.caps || { is_master: false, pode_validar: true, pode_comunicados: false };
     if (data.precisa_setup) { _mostrar('depop-setup'); return; }
     _mostrar('depop-content');
     bootApp();
@@ -80,7 +81,18 @@ async function initDepop() {
 }
 
 function bootApp() {
-  // Abas
+  const caps = estado.caps || { is_master: false, pode_validar: true, pode_comunicados: false };
+  const podeValidar = caps.is_master || caps.pode_validar;
+  const podeComunicados = caps.is_master || caps.pode_comunicados;
+
+  // Visibilidade das abas por capacidade: quem só faz comunicados não vê validação.
+  ['painel', 'pendente', 'errado', 'validado'].forEach(k => {
+    const t = document.querySelector(`#dp-tabs .page-tab[data-tab="${k}"]`);
+    if (t) t.style.display = podeValidar ? '' : 'none';
+  });
+  const tCom = document.getElementById('tab-comunicados');
+  if (tCom) tCom.style.display = podeComunicados ? '' : 'none';
+
   document.querySelectorAll('#dp-tabs .page-tab').forEach(t => {
     t.addEventListener('click', () => trocarAba(t.dataset.tab));
   });
@@ -88,19 +100,24 @@ function bootApp() {
   document.getElementById('dp-busca').addEventListener('input', e => { estado.busca = e.target.value.toLowerCase().trim(); renderLista(); });
   document.getElementById('dp-btn-export-massa').addEventListener('click', exportarMassa);
   if (estado.perfil === 'master') document.getElementById('dp-btn-export-massa').style.display = '';
+  if (podeComunicados) bootComunicados();
   window.addEventListener('beforeunload', () => {
     if (_det && _lockMine && navigator.sendBeacon) navigator.sendBeacon(`/api/depop/contratos/${_det.id}/fechar`);
   });
-  carregarDashboard();
-  carregarContratos();
+
+  if (podeValidar) { carregarDashboard(); carregarContratos(); }
+  else if (podeComunicados) { trocarAba('comunicados'); }
 }
 
 function trocarAba(aba) {
   estado.aba = aba;
   document.querySelectorAll('#dp-tabs .page-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === aba));
   const ehPainel = aba === 'painel';
+  const ehComunic = aba === 'comunicados';
   document.getElementById('pane-painel').classList.toggle('active', ehPainel);
-  document.getElementById('pane-lista').classList.toggle('active', !ehPainel);
+  document.getElementById('pane-lista').classList.toggle('active', !ehPainel && !ehComunic);
+  document.getElementById('pane-comunicados').classList.toggle('active', ehComunic);
+  if (ehComunic) { carregarComunicados(); return; }
   if (!ehPainel) renderLista();
 }
 
@@ -589,6 +606,255 @@ async function consultarCpfSetup() {
     }
     btn.style.display = ''; // CPF válido (com ou sem nome) → libera o botão
   } catch { status.textContent = ''; _cpfConsultado = ''; }
+}
+
+// ── Comunicados oficiais (Setor de Cadastro / Depto de Operações) ─────────────
+// Notifica cada concessionário elegível da prorrogação antecipada, com as
+// credenciais de acesso à plataforma de adesão. Um comunicado por CONTRATO.
+const comEstado = { contratos: [], sel: new Set(), cidade: '', busca: '', urlDefinida: false, wired: false };
+
+function bootComunicados() {
+  if (comEstado.wired) return;
+  comEstado.wired = true;
+  document.getElementById('dpc-filtro-cidade').addEventListener('change', e => { comEstado.cidade = e.target.value; renderComunicados(); });
+  document.getElementById('dpc-busca').addEventListener('input', e => { comEstado.busca = e.target.value.toLowerCase().trim(); renderComunicados(); });
+  const btnParam = document.getElementById('dpc-btn-param');
+  if (estado.caps && estado.caps.is_master) { btnParam.style.display = ''; btnParam.addEventListener('click', abrirParametros); }
+}
+
+async function carregarComunicados() {
+  try {
+    const data = await (await fetch('/api/depop/comunicados/lista')).json();
+    comEstado.contratos = data.contratos || [];
+    comEstado.urlDefinida = !!data.url_definida;
+    const sel = document.getElementById('dpc-filtro-cidade');
+    if (sel.options.length <= 1) {
+      (data.cidades || []).forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; sel.appendChild(o); });
+    }
+    renderAvisosCom();
+    renderComunicados();
+  } catch { document.getElementById('dpc-lista').innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">Erro ao carregar comunicados.</div>'; }
+}
+
+function renderAvisosCom() {
+  const box = document.getElementById('dpc-avisos');
+  const ehMaster = estado.caps && estado.caps.is_master;
+  box.innerHTML = comEstado.urlDefinida ? '' :
+    `<div style="padding:8px 12px;background:var(--surface-2);border:1px solid #FFCC80;border-left:3px solid #E65100;border-radius:8px;color:#E65100;font-size:12.5px;font-weight:600;">⚠️ A URL da plataforma de adesão está como "A DEFINIR" — os comunicados sairão com esse texto até ${ehMaster ? 'você configurar em ⚙️ Parâmetros.' : 'o master configurá-la.'}</div>`;
+}
+
+// Agrupa contratos por cidade → concessionário (codigo), aplicando filtro/busca.
+function agruparComunicados() {
+  const q = comEstado.busca, cid = comEstado.cidade;
+  const porCidade = new Map();
+  for (const c of comEstado.contratos) {
+    if (cid && c.cidade !== cid) continue;
+    if (q && !(`${c.concessionario} ${c.numero_ccu}`.toLowerCase().includes(q))) continue;
+    if (!porCidade.has(c.cidade)) porCidade.set(c.cidade, new Map());
+    const g = porCidade.get(c.cidade);
+    if (!g.has(c.codigo)) g.set(c.codigo, { codigo: c.codigo, nome: c.concessionario, contratos: [] });
+    g.get(c.codigo).contratos.push(c);
+  }
+  return porCidade;
+}
+
+function renderComunicados() {
+  const wrap = document.getElementById('dpc-lista');
+  const porCidade = agruparComunicados();
+  if (!porCidade.size) {
+    wrap.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">Nenhum concessionário no filtro atual.</div>';
+    atualizarSelBar(); return;
+  }
+  let html = '';
+  for (const [cidade, grupos] of porCidade) {
+    const cidEsc = esc(cidade).replace(/'/g, "\\'");
+    html += `<div class="cmn-cidade-hdr">📍 ${esc(cidade)}
+      <button class="btn btn-secondary btn-sm" onclick="gerarPorCidade('${cidEsc}')">🖨️ Gerar cidade</button></div>`;
+    for (const g of grupos.values()) {
+      const total = g.contratos.length;
+      const eleg = g.contratos.filter(c => c.elegivel).length;
+      const fora = total - eleg;
+      const ger = g.contratos.reduce((s, c) => s + (c.geracoes || 0), 0);
+      const entregues = g.contratos.filter(c => c.enviado).length;
+      const checked = comEstado.sel.has(g.codigo) ? 'checked' : '';
+      html += `<div class="cmn-row">
+        <input type="checkbox" class="cmn-chk" ${checked} onchange="toggleSel(${g.codigo},this.checked)">
+        <div class="cmn-main">
+          <div class="cmn-nome">${esc(g.nome)}</div>
+          <div class="cmn-badges">
+            <span class="cmn-tag total">${total} contrato${total > 1 ? 's' : ''}</span>
+            ${eleg ? `<span class="cmn-tag eleg">${eleg} elegível${eleg > 1 ? 'is' : ''}</span>` : ''}
+            ${fora ? `<span class="cmn-tag fora">${fora} fora/sem credencial</span>` : ''}
+            ${ger ? `<span class="cmn-tag gerado">✓ gerado ${ger}×</span>` : ''}
+            ${entregues ? `<span class="cmn-tag entregue">entregue ${entregues}/${total}</span>` : ''}
+          </div>
+        </div>
+        <div class="cmn-acts">
+          <button class="btn btn-primary btn-sm" onclick="gerarPorConcessionario(${g.codigo})" ${eleg ? '' : 'disabled'}>🖨️ Gerar</button>
+          <button class="btn btn-secondary btn-sm" onclick="abrirDrillComunicado(${g.codigo})">Ver ›</button>
+        </div>
+      </div>`;
+    }
+  }
+  wrap.innerHTML = html;
+  atualizarSelBar();
+}
+
+function toggleSel(codigo, on) { if (on) comEstado.sel.add(codigo); else comEstado.sel.delete(codigo); atualizarSelBar(); }
+function limparSelecao() { comEstado.sel.clear(); renderComunicados(); }
+function atualizarSelBar() {
+  const n = comEstado.sel.size;
+  document.getElementById('dpc-selcount').textContent = `${n} concessionário${n === 1 ? '' : 's'} selecionado${n === 1 ? '' : 's'}`;
+  document.getElementById('dpc-selbar').style.display = n ? 'flex' : 'none';
+}
+
+// Geração (3 modos) → imprime os elegíveis e recarrega a lista (atualiza contador).
+async function gerarComunicados(qs, rotulo) {
+  try {
+    const data = await (await fetch('/api/depop/comunicados/gerar?' + qs)).json();
+    if (data.error) { toast(data.error, 'error'); return; }
+    const coms = data.comunicados || [], pulados = data.pulados || [];
+    if (!coms.length) {
+      toast(`Nada elegível em ${rotulo}${pulados.length ? ` (${pulados.length} pulado(s))` : ''}.`, 'error');
+      mostrarPulados(pulados); await carregarComunicados(); return;
+    }
+    imprimirComunicados(coms);
+    toast(`${coms.length} comunicado(s) gerado(s)${pulados.length ? ` — ${pulados.length} pulado(s)` : ''}.`, 'success');
+    await carregarComunicados();
+    mostrarPulados(pulados);
+  } catch { toast('Falha ao gerar.', 'error'); }
+}
+function gerarPorCidade(cidade) { gerarComunicados('cidade=' + encodeURIComponent(cidade), cidade); }
+function gerarPorConcessionario(codigo) { gerarComunicados('codigo=' + codigo, 'concessionário'); }
+function gerarSelecionados() {
+  if (!comEstado.sel.size) { toast('Selecione ao menos um concessionário.', 'error'); return; }
+  gerarComunicados('codigos=' + [...comEstado.sel].join(','), 'seleção');
+}
+
+function mostrarPulados(pulados) {
+  if (!pulados || !pulados.length) return;
+  const itens = pulados.slice(0, 50).map(p =>
+    `<li>${esc(p.concessionario || '')} — CCU ${esc(p.ccu || '—')}: ${esc(p.label || p.motivo)}</li>`).join('');
+  document.getElementById('dpc-avisos').innerHTML =
+    `<div style="padding:10px 12px;background:var(--surface-2);border:1px solid #FFCC80;border-left:3px solid #E65100;border-radius:8px;color:#9a3412;font-size:12.5px;">
+      <strong>${pulados.length} contrato(s) não gerado(s):</strong><ul style="margin:6px 0 0 18px;">${itens}</ul></div>`;
+}
+
+function imprimirComunicados(coms) {
+  document.getElementById('dp-print').innerHTML = coms.map(comunicadoPaper).join('');
+  const limpar = () => { document.getElementById('dp-print').innerHTML = ''; window.removeEventListener('afterprint', limpar); };
+  window.addEventListener('afterprint', limpar);
+  window.print();
+}
+
+// Carta redesenhada: cabeçalho institucional + itens numerados sem negrito
+// indiscriminado + bloco de login/senha destacado (a ação do concessionário).
+function comunicadoPaper(c) {
+  return `<div class="dp-paper comunicado">
+    <div class="cmn-head">
+      <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" onerror="this.style.display='none'"/>
+      <div class="cmn-org">Centrais de Abastecimento de Minas Gerais S.A — CEASAMINAS</div>
+    </div>
+    <div class="cmn-title">Comunicado Oficial — CEASAMINAS Nº ${esc(c.numero_comunicado)}</div>
+    <div class="cmn-dest">
+      <div><span class="lbl">À empresa:</span> ${esc(c.empresa)}</div>
+      <div><span class="lbl">CNPJ nº:</span> ${esc(c.cnpj)}</div>
+      <div><span class="lbl">Endereço:</span> ${esc(c.endereco)}</div>
+    </div>
+    <div class="cmn-contrato">
+      <div><span class="lbl">Contrato de concessão de uso nº:</span> ${esc(c.numero_ccu)}</div>
+      <div><span class="lbl">Área/espaço concedido:</span> ${esc(c.area)}</div>
+      <div><span class="lbl">Ano de vencimento original:</span> ${esc(c.ano_vencimento)}</div>
+    </div>
+    <div class="cmn-assunto"><strong>Assunto:</strong> Notificação de elegibilidade e instruções para prorrogação antecipada de contrato — Edital de Chamamento de Interessados nº 001/2026</div>
+    <p class="cmn-p">Prezado(a) Concessionário(a),</p>
+    <p class="cmn-p">A CENTRAIS DE ABASTECIMENTO DE MINAS GERAIS S/A — CEASAMINAS informa que a empresa acima qualificada se encontra <strong>elegível</strong> para requerer a prorrogação antecipada do Contrato de Concessão de Uso (CCU) citado acima, nos termos e condições do Edital de Chamamento de Interessados nº 001/2026.</p>
+    <ol class="cmn-itens">
+      <li>O prazo para adesão e envio da documentação será de <strong>${esc(c.data_inicio)}</strong> a <strong>${esc(c.prazo_final)}</strong>.</li>
+      <li>Para acessar a plataforma para envio da documentação, utilize as credenciais individuais abaixo:
+        <div class="cmn-cred">
+          <div><span class="cmn-cred-lbl">Endereço de acesso</span><span class="cmn-cred-val">${esc(c.url_acesso)}</span></div>
+          <div><span class="cmn-cred-lbl">Login de acesso</span><span class="cmn-cred-val">${esc(c.login)}</span></div>
+          <div><span class="cmn-cred-lbl">Senha provisória</span><span class="cmn-cred-val">${esc(c.senha)}</span></div>
+        </div>
+      </li>
+      <li>Condições financeiras, prazos, cronograma, exigências e demais informações estão descritas no Edital de Chamamento de Interessados nº 001/2026, disponível no site www.ceasaminas.com.br.</li>
+      <li>A não adesão no prazo estabelecido implica na renúncia ao direito subjetivo à renovação do contrato proposta no Termo de Compromisso de Conduta (TCC) firmado com o MPMG.</li>
+    </ol>
+    <div class="cmn-foot"><div>Diretoria Executiva</div><div>CEASAMINAS</div></div>
+  </div>`;
+}
+
+// Drill de um concessionário: status por contrato + contador + toggle de entrega.
+function abrirDrillComunicado(codigo) {
+  const cts = comEstado.contratos.filter(c => c.codigo === codigo);
+  if (!cts.length) return;
+  document.getElementById('dp-contratos-titulo').innerHTML =
+    `<div class="dp-ct-nome">${esc(cts[0].concessionario)}</div><div class="dp-ct-sub">${cts.length} contrato(s) · comunicados</div>`;
+  document.getElementById('dp-contratos-body').innerHTML =
+    `<div class="dp-paper dp-ct-card">${cts.map(drillLinhaComunicado).join('')}</div>`;
+  document.getElementById('dp-contratos').style.display = 'flex';
+}
+
+function drillLinhaComunicado(c) {
+  const statusPill = c.elegivel
+    ? `<span class="cmn-tag eleg">Elegível · prazo ${esc(c.prazo_final)}</span>`
+    : `<span class="cmn-tag fora">${c.motivo === 'sem_credencial' ? 'Sem credencial' : `Fora do intervalo (${esc(c.ano_vencimento || '?')})`}</span>`;
+  const ger = c.geracoes
+    ? `<span class="cmn-tag gerado">✓ ${c.geracoes}× · ${fmtData(c.ultima_geracao)}</span>`
+    : '<span class="meta">nunca gerado</span>';
+  const btnEntrega = c.geracoes
+    ? `<button class="btn ${c.enviado ? 'btn-secondary' : 'btn-primary'} btn-sm" onclick="marcarEntrega(${c.id},${c.enviado ? 0 : 1})">${c.enviado ? '✓ Entregue — desmarcar' : 'Marcar entregue'}</button>`
+    : '';
+  return `<div class="cmn-ct">
+    <div class="grow">
+      <div class="ccu">CCU ${esc(c.numero_ccu)}</div>
+      <div class="meta">${esc(c.area)} · venc. ${esc(c.ano_vencimento || '—')}</div>
+    </div>
+    ${statusPill} ${ger} ${btnEntrega}
+  </div>`;
+}
+
+async function marcarEntrega(id, enviado) {
+  try {
+    const res = await fetch(`/api/depop/comunicados/${id}/enviado`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enviado: !!enviado })
+    });
+    const data = await res.json();
+    if (!res.ok) { toast(data.error || 'Erro.', 'error'); return; }
+    const c = comEstado.contratos.find(x => x.id === id);
+    if (c) { c.enviado = !!enviado; c.dt_envio = data.dt_envio; abrirDrillComunicado(c.codigo); }
+    renderComunicados();
+    toast(enviado ? 'Marcado como entregue.' : 'Entrega desmarcada.', 'success');
+  } catch { toast('Falha de conexão.', 'error'); }
+}
+
+// Parâmetros do sistema (só master).
+async function abrirParametros() {
+  try {
+    const p = await (await fetch('/api/depop/parametros')).json();
+    const u = p.url_plataforma_acesso;
+    document.getElementById('dpc-param-url').value = (u && u !== 'A DEFINIR') ? u : '';
+    document.getElementById('dpc-param-num').value = p.numero_comunicado || '';
+  } catch {}
+  document.getElementById('dpc-param-msg').textContent = '';
+  document.getElementById('dpc-modal-param').classList.add('open');
+}
+async function salvarParametros() {
+  const url = document.getElementById('dpc-param-url').value.trim();
+  const num = document.getElementById('dpc-param-num').value.trim();
+  const msg = document.getElementById('dpc-param-msg');
+  try {
+    const res = await fetch('/api/depop/parametros', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url_plataforma_acesso: url || 'A DEFINIR', numero_comunicado: num || '01/2026' })
+    });
+    const data = await res.json();
+    if (!res.ok) { msg.style.color = 'var(--vermelho)'; msg.textContent = data.error || 'Erro.'; return; }
+    fecharModal('dpc-modal-param');
+    toast('Parâmetros salvos.', 'success');
+    await carregarComunicados();
+  } catch { msg.style.color = 'var(--vermelho)'; msg.textContent = 'Falha de conexão.'; }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
