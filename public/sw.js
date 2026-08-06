@@ -1,4 +1,4 @@
-const CACHE_NAME = 'secop-shell-v6';
+const CACHE_NAME = 'secop-shell-v7';
 
 const SHELL_FILES = [
   '/login.html',

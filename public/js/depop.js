@@ -58,7 +58,7 @@ async function salvarPerfilDepop() {
 
 // ── App de validação ──────────────────────────────────────────────────────────
 
-const estado = { perfil: 'validador', contratos: [], aba: 'painel', cidade: '', busca: '' };
+const estado = { perfil: 'validador', contratos: [], aba: 'painel', cidade: '', busca: '', expandido: new Set() };
 let _det = null;          // contrato aberto no preview
 let _lockMine = false;    // se a trava do contrato aberto é minha (validador)
 let _pingTimer = null;
@@ -191,55 +191,99 @@ async function carregarContratos() {
   if (estado.aba !== 'painel') renderLista();
 }
 
+const _rotulo = s => ({ pendente: 'A validar', validado: 'Assinado', errado: 'Errado' })[s] || s;
+
+// Badges de resumo de um concessionário (total azul + por status).
+function rollupBadges(cnt) {
+  let b = `<span class="dp-group-tag">${cnt.total} contrato${cnt.total > 1 ? 's' : ''}</span>`;
+  if (cnt.validado) b += `<span class="badge badge-validado">${cnt.validado} validado${cnt.validado > 1 ? 's' : ''}</span>`;
+  if (cnt.pendente) b += `<span class="badge badge-pendente">${cnt.pendente} a validar</span>`;
+  if (cnt.errado)   b += `<span class="badge badge-errado">${cnt.errado} errado${cnt.errado > 1 ? 's' : ''}</span>`;
+  return b;
+}
+
+// Uma linha de contrato (comNome=true mostra o concessionário na 1ª coluna;
+// filho=true é linha dentro de um grupo expandido, indentada).
+function rowContrato(c, comNome, filho) {
+  const bloqueado = c.lock && !c.lock.por_mim;
+  const sit = bloqueado
+    ? `<span class="dp-lock-tag">🔒 em uso · ${esc(c.lock.nome)}</span>`
+    : (c.lock && c.lock.por_mim ? '<span class="dp-mine-tag">aberto por você</span>' : `<span class="badge badge-${c.status}">${_rotulo(c.status)}</span>`);
+  const nomeCel = comNome ? `<span class="dp-forn">${esc(c.concessionario)}</span>` : (filho ? '<span class="dp-child-mark">└</span>' : '');
+  return `<tr class="dp-row${bloqueado ? ' locked' : ''}${filho ? ' dp-child' : ''}" data-id="${c.id}" data-bloq="${bloqueado ? 1 : 0}" data-lock="${bloqueado ? esc(c.lock.nome) : ''}">
+    <td>${nomeCel}</td>
+    <td>${esc(c.numero_ccu || '—')}</td>
+    <td style="text-align:right">${fmtMoeda(c.valor_ponto)}</td>
+    <td style="text-align:right">${fmtMoeda(c.valor_30_ceasa)}</td>
+    <td style="text-align:right">${sit}</td>
+  </tr>`;
+}
+
 function renderLista() {
   const alvo = document.getElementById('dp-lista');
-  let arr = estado.contratos.filter(c => c.status === estado.aba);
-  if (estado.cidade) arr = arr.filter(c => c.cidade === estado.cidade);
-  if (estado.busca) arr = arr.filter(c =>
+  const aba = estado.aba; // pendente | validado | errado
+
+  // Base filtrada só por cidade + busca (o STATUS não filtra o grupo: o
+  // concessionário mostra todos os seus contratos, de qualquer status).
+  let base = estado.contratos.slice();
+  if (estado.cidade) base = base.filter(c => c.cidade === estado.cidade);
+  if (estado.busca) base = base.filter(c =>
     (c.concessionario || '').toLowerCase().includes(estado.busca) ||
     (c.numero_ccu || '').toLowerCase().includes(estado.busca));
 
-  if (!arr.length) {
-    alvo.innerHTML = `<div class="card"><div class="empty-state"><p>Nenhum contrato ${({ pendente: 'a validar', validado: 'assinado', errado: 'marcado como errado' })[estado.aba]} aqui.</p></div></div>`;
-    return;
-  }
-
-  // Agrupa por cidade (1º nível), depois conta contratos por concessionário
-  const porCidade = new Map();
-  arr.forEach(c => { if (!porCidade.has(c.cidade)) porCidade.set(c.cidade, []); porCidade.get(c.cidade).push(c); });
+  // Agrupa por cidade → concessionário (codigo)
+  const cidades = new Map();
+  base.forEach(c => {
+    if (!cidades.has(c.cidade)) cidades.set(c.cidade, new Map());
+    const g = cidades.get(c.cidade);
+    if (!g.has(c.codigo)) g.set(c.codigo, []);
+    g.get(c.codigo).push(c);
+  });
 
   let html = '';
-  for (const [cidade, lista] of porCidade) {
-    const cnt = {};
-    lista.forEach(c => { cnt[c.codigo] = (cnt[c.codigo] || 0) + 1; });
-    let visto = {};
-    const rows = lista.map(c => {
-      const multi = cnt[c.codigo] > 1;
-      const primeiro = !visto[c.codigo]; visto[c.codigo] = true;
-      const nomeCel = multi
-        ? (primeiro ? `<span class="dp-forn">${esc(c.concessionario)}</span><span class="dp-group-tag">${cnt[c.codigo]} contratos</span>` : '<span class="text-muted">↳</span>')
-        : `<span class="dp-forn">${esc(c.concessionario)}</span>`;
-      const bloqueado = c.lock && !c.lock.por_mim;
-      const sit = bloqueado
-        ? `<span class="dp-lock-tag">🔒 em uso · ${esc(c.lock.nome)}</span>`
-        : (c.lock && c.lock.por_mim ? '<span class="dp-mine-tag">aberto por você</span>' : `<span class="badge badge-${c.status}">${({ pendente: 'A validar', validado: 'Assinado', errado: 'Errado' })[c.status]}</span>`);
-      return `<tr class="dp-row${bloqueado ? ' locked' : ''}" data-id="${c.id}" data-bloq="${bloqueado ? 1 : 0}" data-lock="${bloqueado ? esc(c.lock.nome) : ''}">
-        <td>${nomeCel}</td>
-        <td>${esc(c.numero_ccu || '—')}</td>
-        <td class="num" style="text-align:right">${fmtMoeda(c.valor_ponto)}</td>
-        <td class="num" style="text-align:right">${fmtMoeda(c.valor_30_ceasa)}</td>
-        <td style="text-align:right">${sit}</td>
-      </tr>`;
-    }).join('');
+  let totalVisivel = 0;
+  for (const [cidade, grupos] of cidades) {
+    let rows = '';
+    let cityCount = 0;
+    for (const [codigo, contratos] of grupos) {
+      const cnt = { total: contratos.length, pendente: 0, validado: 0, errado: 0 };
+      contratos.forEach(c => { cnt[c.status]++; });
+      if (!cnt[aba]) continue; // grupo só aparece se tiver ≥1 contrato do status da aba
+      cityCount += cnt[aba];
+
+      if (contratos.length === 1) {
+        rows += rowContrato(contratos[0], true, false);
+      } else {
+        const key = cidade + '|' + codigo;
+        const aberto = estado.expandido.has(key);
+        rows += `<tr class="dp-group-head" data-key="${esc(key)}">
+          <td colspan="5"><span class="dp-chev">${aberto ? '▾' : '▸'}</span><span class="dp-forn">${esc(contratos[0].concessionario)}</span>${rollupBadges(cnt)}</td>
+        </tr>`;
+        if (aberto) contratos.forEach(c => { rows += rowContrato(c, false, true); });
+      }
+    }
+    if (!cityCount) continue;
+    totalVisivel += cityCount;
     html += `<div class="dp-city-block card">
-      <div class="card-header"><span class="card-title">${esc(cidade)}</span><span class="page-tab-count">${lista.length}</span></div>
+      <div class="card-header"><span class="card-title">${esc(cidade)}</span><span class="page-tab-count">${cityCount}</span></div>
       <div class="table-wrap"><table>
         <thead><tr><th>Concessionário</th><th>CCU</th><th style="text-align:right">Valor do Ponto</th><th style="text-align:right">Outorga (30%)</th><th style="text-align:right">Situação</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
     </div>`;
   }
+
+  if (!totalVisivel) {
+    alvo.innerHTML = `<div class="card"><div class="empty-state"><p>Nenhum contrato ${({ pendente: 'a validar', validado: 'assinado', errado: 'marcado como errado' })[aba]} aqui.</p></div></div>`;
+    return;
+  }
   alvo.innerHTML = html;
+
+  alvo.querySelectorAll('.dp-group-head').forEach(tr => tr.addEventListener('click', () => {
+    const k = tr.dataset.key;
+    if (estado.expandido.has(k)) estado.expandido.delete(k); else estado.expandido.add(k);
+    renderLista();
+  }));
   alvo.querySelectorAll('.dp-row').forEach(tr => tr.addEventListener('click', () => {
     if (tr.dataset.bloq === '1') { toast(`Contrato em uso por ${tr.dataset.lock}.`, 'error'); return; }
     abrirContrato(parseInt(tr.dataset.id, 10));

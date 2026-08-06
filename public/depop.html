@@ -41,13 +41,26 @@
     .dp-row { cursor: pointer; }
     .dp-row.locked { cursor: not-allowed; opacity: .72; }
     .dp-row td .dp-forn { font-weight: 600; }
-    .dp-group-tag { display:inline-block; margin-left:8px; font-size:10.5px; font-weight:700; color: var(--verde); background: rgba(21,101,192,.10); padding: 1px 7px; border-radius: 20px; }
+    .dp-group-tag { display:inline-block; font-size:10.5px; font-weight:700; color: var(--verde); background: rgba(21,101,192,.12); padding: 2px 9px; border-radius: 20px; }
     .dp-lock-tag { font-size: 11px; color: var(--vermelho); font-weight: 600; white-space: nowrap; }
     .dp-mine-tag { font-size: 11px; color: var(--verde); font-weight: 600; white-space: nowrap; }
-    .badge-pendente { background: #e2e8f0; color: #475569; }
-    [data-theme="dark"] .badge-pendente { background: #21324a; color: #cbd5e1; }
+    /* "A validar" em vermelho, "Errado" em âmbar (pra não confundir os dois) */
+    .badge-pendente { background: #fee2e2; color: #b91c1c; }
     .badge-validado { background: #dcfce7; color: #15803d; }
-    .badge-errado   { background: #fee2e2; color: #991b1b; }
+    .badge-errado   { background: #fef3c7; color: #b45309; }
+    [data-theme="dark"] .badge-pendente { background: rgba(220,38,38,.18); color: #fca5a5; }
+    [data-theme="dark"] .badge-validado { background: rgba(21,128,61,.22); color: #86efac; }
+    [data-theme="dark"] .badge-errado   { background: rgba(180,83,9,.24); color: #fcd34d; }
+
+    /* Linha de grupo (concessionário com vários contratos) — recolhível */
+    .dp-group-head { cursor: pointer; background: var(--surface-2); }
+    .dp-group-head:hover { background: var(--cinza-b); }
+    .dp-group-head td { padding: 11px 14px; }
+    .dp-group-head .dp-forn { font-weight: 700; }
+    .dp-group-head .badge, .dp-group-head .dp-group-tag { margin-left: 8px; vertical-align: middle; }
+    .dp-chev { display: inline-block; width: 15px; color: var(--verde); font-weight: 700; }
+    .dp-child td:first-child { padding-left: 30px; }
+    .dp-child-mark { color: var(--text-subtle); }
 
     /* Preview overlay (Anexo I interno) */
     .dp-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.55); z-index: 900; display: flex; flex-direction: column; }
