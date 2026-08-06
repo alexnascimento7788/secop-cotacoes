@@ -337,6 +337,24 @@
             </button>
           </div>
         </div>
+        <div class="admin-section" style="margin-top:24px;">
+          <div class="admin-section-title">Validação de CPF (cpfhub.io)</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Chave de integração da API de consulta de CPF. Fica guardada só no
+            servidor — <strong>nunca vai para o navegador</strong>. No cadastro do
+            Depop, o CPF é validado e o nome vem por ela. Se estiver em branco, a
+            cota acabar ou a API cair, o cadastro cai para a validação offline dos
+            dígitos.
+          </p>
+          <div class="add-user-form" style="display:flex;flex-wrap:wrap;gap:10px;align-items:end;">
+            <div class="form-group" style="flex:1 1 280px;">
+              <label>Chave da API (x-api-key)</label>
+              <input type="password" id="cfg-cpfhub-key" placeholder="cole a chave aqui" autocomplete="off" />
+            </div>
+            <button class="btn btn-primary" onclick="salvarChaveCpf()" style="white-space:nowrap;">Salvar chave</button>
+          </div>
+          <div id="cpfhub-status" style="margin-top:10px;font-size:12.5px;color:var(--text-muted);"></div>
+        </div>
       </div>
     </div>
 
@@ -474,6 +492,7 @@
             <thead>
               <tr>
                 <th>Usuário</th>
+                <th>Email</th>
                 <th>Perfil</th>
                 <th>Acesso avançado</th>
                 <th>Status</th>
@@ -482,7 +501,7 @@
               </tr>
             </thead>
             <tbody id="users-tbody">
-              <tr><td colspan="6" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
+              <tr><td colspan="7" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
             </tbody>
           </table>
           <p style="font-size:12px;color:var(--text-muted);margin-top:10px;line-height:1.5;">
@@ -496,13 +515,17 @@
 
         <div class="admin-section">
           <div class="admin-section-title">Adicionar usuário</div>
-          <div class="add-user-form" style="grid-template-columns:1fr 1fr auto auto auto;">
-            <div class="form-group">
+          <div class="add-user-form" style="display:flex;flex-wrap:wrap;gap:10px;align-items:end;">
+            <div class="form-group" style="flex:1 1 150px;">
               <label>Usuário</label>
               <input type="text" id="new-username" placeholder="nome.usuario" />
             </div>
-            <div class="form-group">
-              <label>Senha</label>
+            <div class="form-group" style="flex:1 1 190px;">
+              <label>Email</label>
+              <input type="email" id="new-email" placeholder="email@exemplo.com" />
+            </div>
+            <div class="form-group" style="flex:1 1 130px;">
+              <label>Senha provisória</label>
               <input type="password" id="new-senha" placeholder="••••••••" />
             </div>
             <div class="form-group">
@@ -742,6 +765,33 @@ async function carregarParametros() {
     const lixeiraTxt = document.getElementById('lixeira-dias-txt');
     if (lixeiraTxt) lixeiraTxt.textContent = cfg.lixeira_dias || 60;
   } catch {}
+  // Status da chave da API de CPF (sem expor o valor — vem de rota admin própria)
+  try {
+    const r = await fetch('/api/admin/cpfhub');
+    if (r.ok) {
+      const s = await r.json();
+      const el = document.getElementById('cpfhub-status');
+      if (el) el.textContent = s.configurada
+        ? `Chave configurada (${s.mascara}).`
+        : 'Nenhuma chave configurada — usando validação offline dos dígitos.';
+    }
+  } catch {}
+}
+
+async function salvarChaveCpf() {
+  const inp = document.getElementById('cfg-cpfhub-key');
+  const val = inp.value.trim();
+  if (!val) { toast('Cole a chave antes de salvar.', 'error'); return; }
+  try {
+    const res = await fetch('/api/admin/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cpfhub_api_key: val })
+    });
+    if (!res.ok) throw new Error();
+    inp.value = '';
+    toast('Chave da API salva!', 'success');
+    carregarParametros();
+  } catch { toast('Erro ao salvar a chave.', 'error'); }
 }
 
 async function salvarParametros() {
@@ -1187,9 +1237,11 @@ async function carregarUsuarios() {
   try {
     const res = await fetch('/api/admin/users');
     const users = await res.json();
+    window._usersCache = users;
     document.getElementById('users-tbody').innerHTML = users.map(u => `
       <tr>
-        <td><strong>${u.username}</strong>${u.username==='master'?' <span style="font-size:10px;color:#888;">(master)</span>':''}</td>
+        <td><strong>${u.username}</strong>${u.username==='master'?' <span style="font-size:10px;color:#888;">(master)</span>':''}${u.senha_provisoria?' <span title="Senha provisória — troca no 1º login" style="font-size:10px;color:#E65100;">⏳ senha provisória</span>':''}</td>
+        <td style="font-size:12px;color:var(--text-muted);">${u.email || '<span style="color:#bbb;">—</span>'}</td>
         <td>
           ${u.username!=='master'?`
             <select onchange="alterarRole(${u.id},this.value)" style="padding:4px 6px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text);">
@@ -1210,6 +1262,7 @@ async function carregarUsuarios() {
         <td>${fmtData(u.criado_em)}</td>
         <td style="white-space:nowrap;text-align:right;">
           ${u.username!=='master'?`
+            <button class="btn btn-secondary btn-sm" onclick="editarEmail(${u.id})">Email</button>
             <button class="btn btn-secondary btn-sm" onclick="alterarSenha(${u.id})">Senha</button>
             <button class="btn btn-secondary btn-sm" onclick="toggleAtivo(${u.id},${u.ativo})">${u.ativo?'Desativar':'Ativar'}</button>
             <button class="btn btn-danger btn-sm" onclick="excluirUsuario(${u.id},'${u.username}')">Excluir</button>
@@ -1224,6 +1277,7 @@ async function carregarUsuarios() {
 
 async function adicionarUsuario() {
   const username = document.getElementById('new-username').value.trim();
+  const email    = document.getElementById('new-email').value.trim();
   const senha    = document.getElementById('new-senha').value;
   const role     = document.getElementById('new-role').value;
   const acesso_avancado = document.getElementById('new-acesso-avancado').value === '1';
@@ -1233,12 +1287,13 @@ async function adicionarUsuario() {
   try {
     const res = await fetch('/api/admin/users', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ username, senha, role, acesso_avancado })
+      body: JSON.stringify({ username, email, senha, role, acesso_avancado })
     });
     if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
     msg.style.color = '#2E7D32';
-    msg.textContent = `Usuário "${username}" criado com sucesso.`;
+    msg.textContent = `Usuário "${username}" criado. A senha é provisória — ele troca no 1º login.`;
     document.getElementById('new-username').value = '';
+    document.getElementById('new-email').value    = '';
     document.getElementById('new-senha').value    = '';
     document.getElementById('new-role').value     = 'usuario';
     document.getElementById('new-acesso-avancado').value = '0';
@@ -1246,6 +1301,22 @@ async function adicionarUsuario() {
   } catch(e) {
     msg.style.color='#c00'; msg.textContent = 'Erro: ' + e.message;
   }
+}
+
+async function editarEmail(id) {
+  const u = (window._usersCache || []).find(x => x.id === id);
+  const atual = u ? (u.email || '') : '';
+  const novo = prompt('Email do usuário:', atual);
+  if (novo === null) return; // cancelou
+  try {
+    const res = await fetch(`/api/admin/users/${id}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ email: novo.trim() })
+    });
+    if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
+    toast('Email atualizado', 'success');
+    carregarUsuarios();
+  } catch(e) { toast('Erro: ' + e.message, 'error'); }
 }
 
 async function alterarAcessoAvancado(id, valor) {

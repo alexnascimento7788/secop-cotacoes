@@ -1,7 +1,8 @@
-const CACHE_NAME = 'secop-shell-v8';
+const CACHE_NAME = 'secop-shell-v9';
 
 const SHELL_FILES = [
   '/login.html',
+  '/trocar-senha.html',
   '/selecionar-modulo.html',
   '/index.html',
   '/processos.html',

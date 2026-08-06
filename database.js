@@ -210,6 +210,12 @@ function setupDb() {
 
   try { _db.exec(`ALTER TABLE processos ADD COLUMN criado_por_id INTEGER REFERENCES users(id)`); } catch {}
 
+  // Email do usuário (definido pelo admin na criação) e flag de senha provisória:
+  // ao ser criado/ter a senha redefinida pelo admin, o usuário precisa trocar a
+  // senha no próximo login antes de usar o sistema (ver /api/auth/trocar-senha).
+  try { _db.exec(`ALTER TABLE users ADD COLUMN email TEXT`); } catch {}
+  try { _db.exec(`ALTER TABLE users ADD COLUMN senha_provisoria INTEGER NOT NULL DEFAULT 0`); } catch {}
+
   // ── Módulos da plataforma CEASA CONECTA ───────────────────────────────────────
   // O sistema virou multi-módulo: SECOP - Cotações é o módulo atual (todo o app de
   // hoje), Depop - Concessionários é um segundo módulo (placeholder). `cor` dá a
@@ -280,6 +286,9 @@ function setupDb() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
+  // Nome completo do titular do CPF, retornado pela API de consulta (cpfhub.io)
+  // no cadastro — usado como nome do validador no Anexo I / assinatura.
+  try { _db.exec(`ALTER TABLE depop_perfil ADD COLUMN nome TEXT`); } catch {}
 
   // ── Depop: ferramenta de validação de contratos ──────────────────────────────
   // A conferência dos contratos (dados vindos das planilhas, carregados no

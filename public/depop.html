@@ -175,25 +175,36 @@
     <div id="depop-setup" class="card" style="display:none;max-width:520px;">
       <div class="card-header"><div class="card-title">Configure seu acesso</div></div>
       <div style="padding:20px 24px;">
-        <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.5;">
-          Antes de validar os contratos, cadastre seu <strong>CPF</strong> e crie uma
-          <strong>senha de assinatura</strong>. Ela é usada só para assinar as validações
-          (é diferente da senha de login) e não pode ser recuperada — guarde com cuidado.
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:18px;line-height:1.5;">
+          Para validar os contratos, informe seu <strong>CPF</strong> — vamos confirmá-lo e
+          buscar seu nome automaticamente — e crie sua <strong>senha da assinatura digital</strong>.
         </p>
-        <div class="form-row cols-1" style="margin-bottom:14px;">
+        <div class="form-row cols-1" style="margin-bottom:6px;">
           <div class="form-group">
             <label>CPF</label>
             <input type="text" id="dp-cpf" inputmode="numeric" maxlength="14" placeholder="000.000.000-00" />
           </div>
         </div>
-        <div class="form-row cols-2" style="margin-bottom:14px;gap:12px;">
-          <div class="form-group">
-            <label>Senha de assinatura</label>
-            <input type="password" id="dp-senha" placeholder="Mínimo 6 caracteres" />
-          </div>
-          <div class="form-group">
-            <label>Confirme a senha</label>
-            <input type="password" id="dp-senha2" placeholder="Repita a senha" />
+        <div id="dp-cpf-status" style="font-size:12px;min-height:16px;margin-bottom:8px;color:var(--text-muted);"></div>
+        <div id="dp-nome-box" style="display:none;margin-bottom:16px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--cinza-b);border-radius:6px;font-size:13px;">
+          <span style="color:var(--text-muted);">Nome:</span> <strong id="dp-nome-val">—</strong>
+        </div>
+
+        <div style="border:1px solid var(--cinza-b);border-left:3px solid var(--verde);border-radius:6px;padding:12px 14px;margin-bottom:14px;">
+          <div style="font-size:12.5px;font-weight:700;color:var(--verde);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">🖊️ Senha da assinatura digital</div>
+          <p style="font-size:12.5px;color:var(--text-muted);line-height:1.5;margin-bottom:12px;">
+            É com ela que você <strong>assina</strong> cada validação. É <strong>diferente da senha de login</strong>
+            e <strong>não pode ser recuperada</strong> — guarde com cuidado.
+          </p>
+          <div class="form-row cols-2" style="gap:12px;margin-bottom:0;">
+            <div class="form-group">
+              <label>Senha de assinatura</label>
+              <input type="password" id="dp-senha" placeholder="Mínimo 6 caracteres" />
+            </div>
+            <div class="form-group">
+              <label>Confirme a senha</label>
+              <input type="password" id="dp-senha2" placeholder="Repita a senha" />
+            </div>
           </div>
         </div>
         <div id="dp-setup-msg" style="font-size:13px;font-weight:600;min-height:18px;margin-bottom:12px;"></div>

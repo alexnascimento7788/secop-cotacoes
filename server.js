@@ -183,6 +183,18 @@ app.post('/api/auth/login', (req, res) => {
   const hash = crypto.pbkdf2Sync(senha, user.salt, 100000, 64, 'sha512').toString('hex');
   if (hash !== user.senha_hash) return res.status(401).json({ error: 'Usuário ou senha inválidos' });
 
+  // Senha provisória (usuário recém-criado pelo admin, ou senha redefinida): cria
+  // uma sessão sem módulo só pra permitir a troca e força trocar antes de entrar.
+  if (user.senha_provisoria) {
+    const token   = crypto.randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + getInatividadeMinutos() * 60 * 1000).toISOString();
+    db.prepare("INSERT INTO sessions (token, user_id, expires, modulo_ativo) VALUES (?, ?, ?, NULL)")
+      .run(token, user.id, expires);
+    registrarLog(req, 'AUTH', 'LOGIN', 'Login com senha provisória (troca obrigatória)', user.username, user.id);
+    res.cookie('secop_sid', token, { httpOnly: true, sameSite: 'strict', maxAge: 24 * 60 * 60 * 1000 });
+    return res.json({ ok: true, trocar_senha: true });
+  }
+
   // Sem nenhum módulo liberado o usuário não entra — nem cria sessão. O admin
   // precisa conceder acesso na área de Módulos.
   const mods = modulosDoUsuario(user);
@@ -286,6 +298,36 @@ app.post('/api/auth/confirmar-senha', (req, res) => {
   const hash = crypto.pbkdf2Sync(senha, session.salt, 100000, 64, 'sha512').toString('hex');
   if (hash !== session.senha_hash) return res.status(401).json({ error: 'Senha incorreta' });
   renovarSessao(token);
+  res.json({ ok: true });
+});
+
+// Troca de senha provisória no 1º acesso (usuário JÁ logado com a sessão criada
+// no login provisório). Ao trocar, limpa o flag senha_provisoria e o usuário
+// segue pro fluxo normal (escolha de módulo / cadastro do Depop).
+app.post('/api/auth/trocar-senha', (req, res) => {
+  const token = getCookie(req, 'secop_sid');
+  if (!token) return res.status(401).json({ error: 'Não autenticado' });
+  const session = db.prepare(`
+    SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
+    WHERE s.token = ? AND s.expires > datetime('now') AND u.ativo = 1
+  `).get(token);
+  if (!session) return res.status(401).json({ error: 'Não autenticado' });
+
+  const { senha_atual, nova_senha } = req.body || {};
+  if (!nova_senha || String(nova_senha).length < 6) {
+    return res.status(400).json({ error: 'A nova senha deve ter ao menos 6 caracteres.' });
+  }
+  // Se a senha atual for informada, confere (defesa a mais); não é obrigatória
+  // porque o usuário acabou de autenticar com ela no login.
+  if (senha_atual) {
+    const hAtual = crypto.pbkdf2Sync(String(senha_atual), session.salt, 100000, 64, 'sha512').toString('hex');
+    if (hAtual !== session.senha_hash) return res.status(401).json({ error: 'Senha atual incorreta.' });
+  }
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(String(nova_senha), salt, 100000, 64, 'sha512').toString('hex');
+  db.prepare("UPDATE users SET senha_hash = ?, salt = ?, senha_provisoria = 0 WHERE id = ?").run(hash, salt, session.id);
+  renovarSessao(token);
+  registrarLog(req, 'AUTH', 'SENHA', 'Trocou a senha provisória no 1º acesso', session.username, session.id);
   res.json({ ok: true });
 });
 
@@ -623,10 +665,14 @@ app.patch('/api/processos/:id/status', requireEditProcesso(req => req.params.id)
 
 // ── Configurações (parâmetros do sistema) ─────────────────────────────────────
 
+// Chaves de config que NUNCA podem ir pro frontend (segredos). Este endpoint é
+// consumido por qualquer usuário logado (auth.js), então segredos ficam de fora.
+const CONFIG_SECRETA = new Set(['cpfhub_api_key']);
+
 app.get('/api/config', (req, res) => {
   const rows = db.prepare(`SELECT chave, valor FROM config`).all();
   const cfg = {};
-  rows.forEach(r => { cfg[r.chave] = r.valor; });
+  rows.forEach(r => { if (!CONFIG_SECRETA.has(r.chave)) cfg[r.chave] = r.valor; });
   res.json(cfg);
 });
 
@@ -801,19 +847,21 @@ app.get('/api/setores', (req, res) => {
 // ── Admin: usuários ───────────────────────────────────────────────────────────
 
 app.get('/api/admin/users', (req, res) => {
-  res.json(db.prepare("SELECT id, username, role, ativo, acesso_avancado, criado_em FROM users WHERE username != 'master' ORDER BY id").all());
+  res.json(db.prepare("SELECT id, username, email, role, ativo, acesso_avancado, senha_provisoria, criado_em FROM users WHERE username != 'master' ORDER BY id").all());
 });
 
 app.post('/api/admin/users', (req, res) => {
-  const { username, senha, role, acesso_avancado } = req.body;
+  const { username, senha, email, role, acesso_avancado } = req.body;
   if (!username || !senha) return res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.pbkdf2Sync(senha, salt, 100000, 64, 'sha512').toString('hex');
   const acessoVal = acesso_avancado ? 1 : 0;
   try {
+    // senha_provisoria = 1: o admin define uma senha inicial e o usuário é
+    // obrigado a trocá-la no 1º login.
     const info = db.prepare(
-      "INSERT INTO users (username, senha_hash, salt, role, ativo, acesso_avancado) VALUES (?, ?, ?, ?, 1, ?)"
-    ).run(username, hash, salt, role || 'usuario', acessoVal);
+      "INSERT INTO users (username, senha_hash, salt, role, ativo, acesso_avancado, email, senha_provisoria) VALUES (?, ?, ?, ?, 1, ?, ?, 1)"
+    ).run(username, hash, salt, role || 'usuario', acessoVal, email ? String(email).trim() : null);
     registrarLog(req, 'USUARIO', 'CRIOU', `Criou usuário "${username}"`);
     // Acesso padrão ao SECOP para o novo usuário não nascer bloqueado — o admin
     // ajusta (concede outros / revoga) na aba Módulos.
@@ -829,9 +877,14 @@ app.post('/api/admin/users', (req, res) => {
 });
 
 app.patch('/api/admin/users/:id', (req, res) => {
-  const { ativo, senha, role, acesso_avancado } = req.body;
+  const { ativo, senha, email, role, acesso_avancado } = req.body;
   const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
   if (!user) return res.status(404).json({ error: 'Não encontrado' });
+
+  if (email !== undefined) {
+    db.prepare("UPDATE users SET email = ? WHERE id = ?").run(email ? String(email).trim() : null, req.params.id);
+    registrarLog(req, 'USUARIO', 'EMAIL', `Alterou o email do usuário "${user.username}"`);
+  }
 
   if (ativo !== undefined) {
     if (user.username === 'master') return res.status(400).json({ error: 'Não é possível desativar o master' });
@@ -841,9 +894,11 @@ app.patch('/api/admin/users/:id', (req, res) => {
   if (senha) {
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = crypto.pbkdf2Sync(senha, salt, 100000, 64, 'sha512').toString('hex');
-    db.prepare("UPDATE users SET senha_hash = ?, salt = ? WHERE id = ?").run(hash, salt, req.params.id);
+    // Redefinir a senha pelo admin também vira provisória: força o usuário a
+    // trocá-la no próximo login.
+    db.prepare("UPDATE users SET senha_hash = ?, salt = ?, senha_provisoria = 1 WHERE id = ?").run(hash, salt, req.params.id);
     db.prepare("DELETE FROM sessions WHERE user_id = ?").run(req.params.id);
-    registrarLog(req, 'USUARIO', 'SENHA', `Alterou senha do usuário "${user.username}"`);
+    registrarLog(req, 'USUARIO', 'SENHA', `Alterou senha do usuário "${user.username}" (provisória)`);
   }
   if (role !== undefined) {
     if (user.username === 'master') return res.status(400).json({ error: 'Não é possível alterar o perfil do master' });
@@ -1043,26 +1098,101 @@ function verificarAssinatura(perfil, payload, assinaturaB64) {
   return v.verify(perfil.chave_publica, assinaturaB64, 'base64');
 }
 
+// ── Consulta de CPF na API externa (cpfhub.io) ────────────────────────────────
+// A chave fica no config (chave 'cpfhub_api_key', gerenciada nos Parâmetros do
+// admin) e NUNCA vai pro frontend (ver CONFIG_SECRETA). Fallback: variável de
+// ambiente CPFHUB_API_KEY.
+function getCpfHubKey() {
+  const row = db.prepare(`SELECT valor FROM config WHERE chave = 'cpfhub_api_key'`).get();
+  const v = row && row.valor ? String(row.valor).trim() : '';
+  return v || process.env.CPFHUB_API_KEY || '';
+}
+
+// Cache curto das consultas — o plano grátis é só ~50 consultas, então evitamos
+// bater 2x (uma ao digitar o CPF, outra ao salvar o perfil). Chave = CPF limpo.
+const _cpfCache = new Map(); // cpf -> { fonte, existe, nome, ts }
+const CPF_CACHE_TTL = 15 * 60 * 1000;
+
+// Consulta o CPF na cpfhub.io. Retorna { fonte:'api'|'offline', existe, nome }.
+// fonte 'offline' = não deu pra confirmar (sem chave / API fora / cota estourada)
+// → o chamador aceita com base nos dígitos. fonte 'api' + existe:false = a API
+// respondeu que o CPF não existe (aí bloqueia).
+async function consultarCpfApi(cpfLimpo) {
+  const cache = _cpfCache.get(cpfLimpo);
+  if (cache && (Date.now() - cache.ts) < CPF_CACHE_TTL) return cache;
+
+  const key = getCpfHubKey();
+  let out;
+  if (!key) {
+    out = { fonte: 'offline', existe: null, nome: null };
+  } else {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 8000);
+      const r = await fetch(`https://api.cpfhub.io/cpf/${cpfLimpo}`, {
+        headers: { 'x-api-key': key, 'Accept': 'application/json' },
+        signal: ctrl.signal
+      });
+      clearTimeout(t);
+      if (!r.ok) {
+        out = { fonte: 'offline', existe: null, nome: null }; // 401/429/5xx → cai pra offline
+      } else {
+        const j = await r.json().catch(() => null);
+        if (j && j.success && j.data) {
+          out = { fonte: 'api', existe: true, nome: j.data.name || j.data.nome || null };
+        } else {
+          out = { fonte: 'api', existe: false, nome: null };
+        }
+      }
+    } catch {
+      out = { fonte: 'offline', existe: null, nome: null };
+    }
+  }
+  out.ts = Date.now();
+  _cpfCache.set(cpfLimpo, out);
+  return out;
+}
+
+// Status da chave (pro admin saber se está configurada, sem expor o valor).
+app.get('/api/admin/cpfhub', (req, res) => {
+  const row = db.prepare(`SELECT valor FROM config WHERE chave = 'cpfhub_api_key'`).get();
+  const v = row && row.valor ? String(row.valor).trim() : '';
+  res.json({ configurada: !!v, mascara: v ? (v.slice(0, 4) + '••••••' + v.slice(-2)) : '' });
+});
+
 // Todas as rotas /api/depop/* exigem o módulo Depop ativo na sessão.
 app.use('/api/depop', requireModulo('depop'));
+
+// Consulta um CPF: valida dígitos offline e, se passar, confirma na API e
+// devolve o nome (pra tela mostrar antes de salvar). Não grava nada.
+app.post('/api/depop/consultar-cpf', async (req, res) => {
+  const cpfLimpo = String((req.body && req.body.cpf) || '').replace(/\D/g, '');
+  if (!cpfValido(cpfLimpo)) return res.json({ valido: false, motivo: 'digitos', error: 'CPF inválido.' });
+  const r = await consultarCpfApi(cpfLimpo);
+  if (r.fonte === 'api' && r.existe === false) {
+    return res.json({ valido: false, motivo: 'nao_encontrado', error: 'CPF não encontrado na base da Receita.' });
+  }
+  res.json({ valido: true, nome: r.nome || null, fonte: r.fonte });
+});
 
 // Situação do perfil do usuário logado (o front decide se mostra o cadastro de
 // 1º acesso ou o conteúdo). Nunca devolve chave privada; CPF vem mascarado.
 app.get('/api/depop/perfil', (req, res) => {
   const ferramenta = perfilFerramenta(req); // 'master' | 'validador'
-  const perfil = db.prepare(`SELECT cpf, criado_em FROM depop_perfil WHERE user_id = ?`).get(req.user.user_id);
+  const perfil = db.prepare(`SELECT cpf, nome, criado_em FROM depop_perfil WHERE user_id = ?`).get(req.user.user_id);
   const cadastrado = !!perfil;
   // O supervisor (master) só lê e exporta — nunca assina —, então não passa pelo
   // cadastro de 1º acesso (CPF + senha de assinatura). O validador precisa.
   const precisa_setup = ferramenta !== 'master' && !cadastrado;
   const cpfMasc = perfil ? perfil.cpf.replace(/^(\d{3})\d{6}(\d{2})$/, '$1.***.**-$2') : null;
   res.json({ cadastrado, precisa_setup, perfil: ferramenta, nome: req.user.username,
+             nome_titular: perfil ? perfil.nome : null,
              cpf_mascarado: cpfMasc, criado_em: perfil ? perfil.criado_em : null });
 });
 
 // Cadastro de 1º acesso: CPF (validado) + senha de assinatura → gera e guarda o
 // par de chaves. Só uma vez por usuário; CPF é único no módulo.
-app.post('/api/depop/perfil', (req, res) => {
+app.post('/api/depop/perfil', async (req, res) => {
   const { cpf, senha_assinatura } = req.body || {};
   const ja = db.prepare(`SELECT 1 FROM depop_perfil WHERE user_id = ?`).get(req.user.user_id);
   if (ja) return res.status(400).json({ error: 'Perfil já configurado' });
@@ -1074,11 +1204,18 @@ app.post('/api/depop/perfil', (req, res) => {
   const donoCpf = db.prepare(`SELECT user_id FROM depop_perfil WHERE cpf = ?`).get(cpfLimpo);
   if (donoCpf) return res.status(400).json({ error: 'Este CPF já está cadastrado por outro usuário' });
 
+  // Confirma o CPF na API e captura o nome (cai pra offline se a API não responder).
+  const info = await consultarCpfApi(cpfLimpo);
+  if (info.fonte === 'api' && info.existe === false) {
+    return res.status(400).json({ error: 'CPF não encontrado na base da Receita.' });
+  }
+  const nome = info.nome || null;
+
   const { publicKey, privateKey } = gerarParDeChaves(String(senha_assinatura));
-  db.prepare(`INSERT INTO depop_perfil (user_id, cpf, chave_publica, chave_privada_pem) VALUES (?, ?, ?, ?)`)
-    .run(req.user.user_id, cpfLimpo, publicKey, privateKey);
-  registrarLog(req, 'DEPOP', 'PERFIL', 'Configurou CPF e assinatura digital do Depop');
-  res.status(201).json({ ok: true });
+  db.prepare(`INSERT INTO depop_perfil (user_id, cpf, chave_publica, chave_privada_pem, nome) VALUES (?, ?, ?, ?, ?)`)
+    .run(req.user.user_id, cpfLimpo, publicKey, privateKey, nome);
+  registrarLog(req, 'DEPOP', 'PERFIL', `Configurou CPF e assinatura digital do Depop${info.fonte === 'offline' ? ' (CPF validado offline)' : ''}`);
+  res.status(201).json({ ok: true, nome });
 });
 
 // ── Depop: ferramenta de validação de contratos ───────────────────────────────
@@ -1122,8 +1259,11 @@ function montarDetalhe(idAvaliacao) {
     SELECT sequencial, concessionario, endereco, area_m2, atual_tarifa_uso, nova_tarifa_uso
     FROM TarifaContrato20Anos WHERE id_contrato = ? ORDER BY sequencial`).all(a.id_contrato);
   const v = db.prepare(`
-    SELECT vc.status, vc.observacao, vc.dt_validacao, vc.hash_assinatura, u.username AS validador
-    FROM validacao_contrato vc LEFT JOIN users u ON u.id = vc.id_usuario_validador
+    SELECT vc.status, vc.observacao, vc.dt_validacao, vc.hash_assinatura,
+           COALESCE(dp.nome, u.username) AS validador
+    FROM validacao_contrato vc
+    LEFT JOIN users u ON u.id = vc.id_usuario_validador
+    LEFT JOIN depop_perfil dp ON dp.user_id = vc.id_usuario_validador
     WHERE vc.id_avaliacao = ?`).get(idAvaliacao);
   return {
     id: a.id, id_contrato: a.id_contrato, codigo: a.codigo,
