@@ -1571,6 +1571,12 @@ function montarComunicado(idAvaliacao) {
                        label: `Ano de vencimento ${ano || '?'} fora do intervalo previsto (2027–2032) — verificar dado antes de gerar` };
   if (!a.login || !a.codeaccess) return { ...base, ok: false, motivo: 'sem_credencial',
                        label: 'Concessionário sem credencial de acesso — não é possível gerar' };
+  // Só gera comunicado de contrato JÁ VALIDADO (assinado na ferramenta de
+  // validação). O comunicado carrega credenciais oficiais — não sai antes de a
+  // conferência estar concluída.
+  const v = db.prepare(`SELECT status FROM validacao_contrato WHERE id_avaliacao = ?`).get(idAvaliacao);
+  if (!v || v.status !== 'validado') return { ...base, ok: false, motivo: 'nao_validado',
+                       label: 'Contrato ainda não foi validado — valide antes de gerar o comunicado' };
   return { ok: true, comunicado: {
     id: a.id, codigo: a.codigo,
     numero_comunicado: paramSistema('numero_comunicado', '01/2026'),
@@ -1602,17 +1608,24 @@ app.get('/api/depop/comunicados/lista', requireCap('comunicados'), (req, res) =>
     ORDER BY c.descricao, cli.cliente, a.numero_ccu`).all();
   const gmap = new Map(db.prepare(`SELECT id_avaliacao, geracoes, ultima_geracao, enviado, dt_envio FROM comunicado_gerado`)
     .all().map(r => [r.id_avaliacao, r]));
+  const vmap = new Map(db.prepare(`SELECT id_avaliacao, status FROM validacao_contrato`)
+    .all().map(r => [r.id_avaliacao, r.status]));
   const contratos = avals.map(a => {
     const ano = parseInt(String(a.data_vencimento || '').slice(0, 4), 10);
     const prazo = prazoFinalAdesao(ano);
     const g = gmap.get(a.id) || {};
+    const validado = vmap.get(a.id) === 'validado';
+    // Gerável só quando: ano no intervalo E tem credencial E já validado. O motivo
+    // segue essa prioridade (dado errado > falta credencial > falta validar).
     let elegivel = true, motivo = null;
     if (!prazo) { elegivel = false; motivo = 'ano_fora'; }
     else if (!a.tem_credencial) { elegivel = false; motivo = 'sem_credencial'; }
+    else if (!validado) { elegivel = false; motivo = 'nao_validado'; }
     return {
       id: a.id, codigo: a.codigo, concessionario: a.cliente || '—', cidade: a.cidade || '—',
       numero_ccu: a.numero_ccu || '—', area: a.area || '—', ano_vencimento: ano || null,
-      prazo_final: prazo, elegivel, motivo,
+      prazo_final: prazo, no_intervalo: !!prazo, tem_credencial: !!a.tem_credencial,
+      validado, elegivel, motivo,
       geracoes: g.geracoes || 0, ultima_geracao: g.ultima_geracao || null,
       enviado: !!g.enviado, dt_envio: g.dt_envio || null
     };

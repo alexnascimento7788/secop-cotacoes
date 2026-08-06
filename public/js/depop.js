@@ -85,14 +85,11 @@ function bootApp() {
   const podeValidar = caps.is_master || caps.pode_validar;
   const podeComunicados = caps.is_master || caps.pode_comunicados;
 
-  // Visibilidade das abas por capacidade: quem só faz comunicados não vê validação.
-  ['painel', 'pendente', 'errado', 'validado'].forEach(k => {
-    const t = document.querySelector(`#dp-tabs .page-tab[data-tab="${k}"]`);
-    if (t) t.style.display = podeValidar ? '' : 'none';
-  });
-  const tCom = document.getElementById('tab-comunicados');
-  if (tCom) tCom.style.display = podeComunicados ? '' : 'none';
+  // Sidebar: mostra Validação e/ou Comunicados conforme capacidade.
+  document.getElementById('nav-validacao').style.display = podeValidar ? '' : 'none';
+  document.getElementById('nav-comunicados').style.display = podeComunicados ? '' : 'none';
 
+  // Abas da validação
   document.querySelectorAll('#dp-tabs .page-tab').forEach(t => {
     t.addEventListener('click', () => trocarAba(t.dataset.tab));
   });
@@ -106,19 +103,37 @@ function bootApp() {
   });
 
   if (podeValidar) { carregarDashboard(); carregarContratos(); }
-  else if (podeComunicados) { trocarAba('comunicados'); }
+  mostrarView(podeValidar ? 'validacao' : 'comunicados');
+}
+
+// Alterna entre as duas seções (sidebar): Validação de Contratos × Comunicados.
+function mostrarView(view) {
+  const ehCom = view === 'comunicados';
+  document.getElementById('view-validacao').style.display = ehCom ? 'none' : '';
+  document.getElementById('view-comunicados').style.display = ehCom ? '' : 'none';
+  document.getElementById('nav-validacao').classList.toggle('active', !ehCom);
+  document.getElementById('nav-comunicados').classList.toggle('active', ehCom);
+  document.getElementById('dp-page-title').textContent = ehCom ? 'Comunicados' : 'Validação de Contratos';
+  document.getElementById('dp-page-subtitle').textContent = ehCom
+    ? 'Setor de Cadastro · Departamento de Operações · CEASAMINAS'
+    : 'Conferência do Setor de Cadastro · CEASAMINAS';
+  if (ehCom) carregarComunicados();
 }
 
 function trocarAba(aba) {
   estado.aba = aba;
   document.querySelectorAll('#dp-tabs .page-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === aba));
   const ehPainel = aba === 'painel';
-  const ehComunic = aba === 'comunicados';
   document.getElementById('pane-painel').classList.toggle('active', ehPainel);
-  document.getElementById('pane-lista').classList.toggle('active', !ehPainel && !ehComunic);
-  document.getElementById('pane-comunicados').classList.toggle('active', ehComunic);
-  if (ehComunic) { carregarComunicados(); return; }
+  document.getElementById('pane-lista').classList.toggle('active', !ehPainel);
   if (!ehPainel) renderLista();
+}
+
+// Sub-abas da seção Comunicados: Painel × Contratos.
+function trocarCTab(ctab) {
+  document.querySelectorAll('#dpc-tabs .page-tab').forEach(t => t.classList.toggle('active', t.dataset.ctab === ctab));
+  document.getElementById('pane-com-painel').classList.toggle('active', ctab === 'painel');
+  document.getElementById('pane-com-lista').classList.toggle('active', ctab === 'lista');
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -616,6 +631,9 @@ const comEstado = { contratos: [], sel: new Set(), cidade: '', busca: '', urlDef
 function bootComunicados() {
   if (comEstado.wired) return;
   comEstado.wired = true;
+  document.querySelectorAll('#dpc-tabs .page-tab').forEach(t => {
+    t.addEventListener('click', () => trocarCTab(t.dataset.ctab));
+  });
   document.getElementById('dpc-filtro-cidade').addEventListener('change', e => { comEstado.cidade = e.target.value; renderComunicados(); });
   document.getElementById('dpc-busca').addEventListener('input', e => { comEstado.busca = e.target.value.toLowerCase().trim(); renderComunicados(); });
   const btnParam = document.getElementById('dpc-btn-param');
@@ -632,15 +650,54 @@ async function carregarComunicados() {
       (data.cidades || []).forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; sel.appendChild(o); });
     }
     renderAvisosCom();
+    renderComPainel();
     renderComunicados();
   } catch { document.getElementById('dpc-lista').innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">Erro ao carregar comunicados.</div>'; }
 }
 
 function renderAvisosCom() {
-  const box = document.getElementById('dpc-avisos');
   const ehMaster = estado.caps && estado.caps.is_master;
-  box.innerHTML = comEstado.urlDefinida ? '' :
+  const html = comEstado.urlDefinida ? '' :
     `<div style="padding:8px 12px;background:var(--surface-2);border:1px solid #FFCC80;border-left:3px solid #E65100;border-radius:8px;color:#E65100;font-size:12.5px;font-weight:600;">⚠️ A URL da plataforma de adesão está como "A DEFINIR" — os comunicados sairão com esse texto até ${ehMaster ? 'você configurar em ⚙️ Parâmetros.' : 'o master configurá-la.'}</div>`;
+  document.getElementById('dpc-avisos').innerHTML = html;
+  document.getElementById('dpc-avisos-painel').innerHTML = html;
+}
+
+// Dashboard da seção Comunicados (calculado a partir da lista carregada).
+function renderComPainel() {
+  const cs = comEstado.contratos;
+  const prontos    = cs.filter(c => c.elegivel).length;                                   // validado + no prazo + credencial
+  const aguardando = cs.filter(c => c.no_intervalo && c.tem_credencial && !c.validado).length;
+  const gerados    = cs.filter(c => c.geracoes > 0).length;
+  const entregues  = cs.filter(c => c.enviado).length;
+  const foraOuSem  = cs.filter(c => !c.no_intervalo || !c.tem_credencial).length;
+  const cards = [
+    { icon: '✅', label: 'Prontos p/ gerar',        val: prontos,    hint: 'validados, no prazo e com credencial', cls: 'metric-concluido', vcls: 'metric-val-concluido' },
+    { icon: '⏳', label: 'Aguardando validação',    val: aguardando, hint: 'precisam ser validados antes',          cls: 'metric-parado',    vcls: 'metric-val-parado' },
+    { icon: '🖨️', label: 'Comunicados gerados',     val: gerados,    hint: 'contratos com PDF já gerado',           cls: 'metric-cotacao',   vcls: 'metric-val-cotacao' },
+    { icon: '📬', label: 'Entregues',               val: entregues,  hint: 'marcados como entregues',               cls: 'metric-aprovacao', vcls: 'metric-val-aprovacao' },
+    { icon: '⚠️', label: 'Fora do intervalo / sem credencial', val: foraOuSem, hint: 'não geram nesta etapa',       cls: 'metric-parado',    vcls: 'metric-val-parado' },
+  ];
+  document.getElementById('dpc-cards').innerHTML = cards.map(c => `
+    <div class="metric-card ${c.cls}">
+      <div class="metric-card-top"><span class="metric-icon">${c.icon}</span><span class="metric-label">${c.label}</span></div>
+      <div class="metric-value ${c.vcls}">${c.val}</div>
+      <div class="metric-hint">${c.hint}</div>
+    </div>`).join('');
+
+  const porCid = new Map();
+  for (const c of cs) {
+    const o = porCid.get(c.cidade) || { cidade: c.cidade, prontos: 0, aguard: 0, gerados: 0, entregues: 0 };
+    if (c.elegivel) o.prontos++;
+    if (c.no_intervalo && c.tem_credencial && !c.validado) o.aguard++;
+    if (c.geracoes > 0) o.gerados++;
+    if (c.enviado) o.entregues++;
+    porCid.set(c.cidade, o);
+  }
+  const linhas = [...porCid.values()].sort((a, b) => b.prontos - a.prontos);
+  document.getElementById('dpc-porcidade').innerHTML =
+    `<table class="dpc-tbl"><thead><tr><th>Cidade</th><th>Prontos</th><th>Aguardando validação</th><th>Gerados</th><th>Entregues</th></tr></thead>
+     <tbody>${linhas.map(l => `<tr><td>${esc(l.cidade)}</td><td>${l.prontos}</td><td>${l.aguard}</td><td>${l.gerados}</td><td>${l.entregues}</td></tr>`).join('')}</tbody></table>`;
 }
 
 // Agrupa contratos por cidade → concessionário (codigo), aplicando filtro/busca.
@@ -672,8 +729,9 @@ function renderComunicados() {
       <button class="btn btn-secondary btn-sm" onclick="gerarPorCidade('${cidEsc}')">🖨️ Gerar cidade</button></div>`;
     for (const g of grupos.values()) {
       const total = g.contratos.length;
-      const eleg = g.contratos.filter(c => c.elegivel).length;
-      const fora = total - eleg;
+      const prontos = g.contratos.filter(c => c.elegivel).length;
+      const aguard = g.contratos.filter(c => c.no_intervalo && c.tem_credencial && !c.validado).length;
+      const fora = g.contratos.filter(c => !c.no_intervalo || !c.tem_credencial).length;
       const ger = g.contratos.reduce((s, c) => s + (c.geracoes || 0), 0);
       const entregues = g.contratos.filter(c => c.enviado).length;
       const checked = comEstado.sel.has(g.codigo) ? 'checked' : '';
@@ -683,14 +741,15 @@ function renderComunicados() {
           <div class="cmn-nome">${esc(g.nome)}</div>
           <div class="cmn-badges">
             <span class="cmn-tag total">${total} contrato${total > 1 ? 's' : ''}</span>
-            ${eleg ? `<span class="cmn-tag eleg">${eleg} elegível${eleg > 1 ? 'is' : ''}</span>` : ''}
+            ${prontos ? `<span class="cmn-tag eleg">${prontos} pronto${prontos > 1 ? 's' : ''}</span>` : ''}
+            ${aguard ? `<span class="cmn-tag aguard">${aguard} aguardando validação</span>` : ''}
             ${fora ? `<span class="cmn-tag fora">${fora} fora/sem credencial</span>` : ''}
             ${ger ? `<span class="cmn-tag gerado">✓ gerado ${ger}×</span>` : ''}
             ${entregues ? `<span class="cmn-tag entregue">entregue ${entregues}/${total}</span>` : ''}
           </div>
         </div>
         <div class="cmn-acts">
-          <button class="btn btn-primary btn-sm" onclick="gerarPorConcessionario(${g.codigo})" ${eleg ? '' : 'disabled'}>🖨️ Gerar</button>
+          <button class="btn btn-primary btn-sm" onclick="gerarPorConcessionario(${g.codigo})" ${prontos ? '' : 'disabled'}>🖨️ Gerar</button>
           <button class="btn btn-secondary btn-sm" onclick="abrirDrillComunicado(${g.codigo})">Ver ›</button>
         </div>
       </div>`;
@@ -755,7 +814,7 @@ function comunicadoPaper(c) {
       <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" onerror="this.style.display='none'"/>
       <div class="cmn-org">Centrais de Abastecimento de Minas Gerais S.A — CEASAMINAS</div>
     </div>
-    <div class="cmn-title">Comunicado Oficial — CEASAMINAS Nº ${esc(c.numero_comunicado)}</div>
+    <div class="cmn-title">COMUNICADO OFICIAL — CEASAMINAS Nº ${esc(c.numero_comunicado)}</div>
     <div class="cmn-dest">
       <div><span class="lbl">À empresa:</span> ${esc(c.empresa)}</div>
       <div><span class="lbl">CNPJ nº:</span> ${esc(c.cnpj)}</div>
@@ -773,9 +832,9 @@ function comunicadoPaper(c) {
       <li>O prazo para adesão e envio da documentação será de <strong>${esc(c.data_inicio)}</strong> a <strong>${esc(c.prazo_final)}</strong>.</li>
       <li>Para acessar a plataforma para envio da documentação, utilize as credenciais individuais abaixo:
         <div class="cmn-cred">
-          <div><span class="cmn-cred-lbl">Endereço de acesso</span><span class="cmn-cred-val">${esc(c.url_acesso)}</span></div>
-          <div><span class="cmn-cred-lbl">Login de acesso</span><span class="cmn-cred-val">${esc(c.login)}</span></div>
-          <div><span class="cmn-cred-lbl">Senha provisória</span><span class="cmn-cred-val">${esc(c.senha)}</span></div>
+          <div><span class="cmn-cred-lbl">Endereço de acesso:</span> ${esc(c.url_acesso)}</div>
+          <div><span class="cmn-cred-lbl">Login de acesso:</span> ${esc(c.login)}</div>
+          <div><span class="cmn-cred-lbl">Senha provisória:</span> ${esc(c.senha)}</div>
         </div>
       </li>
       <li>Condições financeiras, prazos, cronograma, exigências e demais informações estão descritas no Edital de Chamamento de Interessados nº 001/2026, disponível no site www.ceasaminas.com.br.</li>
@@ -797,9 +856,11 @@ function abrirDrillComunicado(codigo) {
 }
 
 function drillLinhaComunicado(c) {
-  const statusPill = c.elegivel
-    ? `<span class="cmn-tag eleg">Elegível · prazo ${esc(c.prazo_final)}</span>`
-    : `<span class="cmn-tag fora">${c.motivo === 'sem_credencial' ? 'Sem credencial' : `Fora do intervalo (${esc(c.ano_vencimento || '?')})`}</span>`;
+  let statusPill;
+  if (c.elegivel) statusPill = `<span class="cmn-tag eleg">Pronto · prazo ${esc(c.prazo_final)}</span>`;
+  else if (c.motivo === 'nao_validado') statusPill = `<span class="cmn-tag aguard">Aguardando validação</span>`;
+  else if (c.motivo === 'sem_credencial') statusPill = `<span class="cmn-tag fora">Sem credencial</span>`;
+  else statusPill = `<span class="cmn-tag fora">Fora do intervalo (${esc(c.ano_vencimento || '?')})</span>`;
   const ger = c.geracoes
     ? `<span class="cmn-tag gerado">✓ ${c.geracoes}× · ${fmtData(c.ultima_geracao)}</span>`
     : '<span class="meta">nunca gerado</span>';
@@ -825,6 +886,7 @@ async function marcarEntrega(id, enviado) {
     const c = comEstado.contratos.find(x => x.id === id);
     if (c) { c.enviado = !!enviado; c.dt_envio = data.dt_envio; abrirDrillComunicado(c.codigo); }
     renderComunicados();
+    renderComPainel();
     toast(enviado ? 'Marcado como entregue.' : 'Entrega desmarcada.', 'success');
   } catch { toast('Falha de conexão.', 'error'); }
 }

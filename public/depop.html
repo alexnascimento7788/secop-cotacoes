@@ -112,24 +112,25 @@
     .dp-assinatura .timbre { font-size: 10.5px; color: #64748b; font-family: ui-monospace, monospace; margin-top: 3px; }
     .dp-assinatura .pendente { color: #94a3b8; font-style: italic; }
 
-    /* ── Comunicado oficial (papel A4 retrato) ── */
-    .dp-paper.comunicado { color: #222; font-size: 13px; line-height: 1.6; }
-    .cmn-head { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
-    .cmn-head img { height: 46px; width: auto; }
-    .cmn-org { font-size: 13.5px; font-weight: 700; color: #0f2f5c; }
-    .cmn-title { text-align: center; font-weight: 700; font-size: 14px; letter-spacing: .3px; margin: 14px 0 18px; color: #0f2f5c; text-transform: uppercase; }
-    .cmn-dest, .cmn-contrato { margin-bottom: 14px; }
-    .cmn-dest > div, .cmn-contrato > div { margin: 2px 0; }
-    .cmn-dest .lbl, .cmn-contrato .lbl { font-weight: 700; }
-    .cmn-assunto { margin: 14px 0; }
-    .cmn-p { margin: 10px 0; text-align: justify; }
-    .cmn-itens { margin: 12px 0; padding-left: 20px; }
-    .cmn-itens > li { margin-bottom: 10px; }
-    .cmn-cred { margin: 12px 0 4px; border: 2px solid #1565C0; border-radius: 10px; background: #eff6ff; padding: 14px 18px; display: grid; gap: 10px; max-width: 470px; }
-    .cmn-cred > div { display: flex; flex-direction: column; }
-    .cmn-cred-lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: #1565C0; font-weight: 700; }
-    .cmn-cred-val { font-size: 17px; font-weight: 800; color: #0f2f5c; font-family: ui-monospace, monospace; word-break: break-all; }
-    .cmn-foot { text-align: center; margin-top: 28px; line-height: 1.5; }
+    /* ── Comunicado oficial (papel A4 retrato) — fiel ao modelo: preto e branco,
+       fonte serifada, sem realces coloridos ── */
+    .dp-paper.comunicado { color: #000; font-family: 'Times New Roman', Georgia, 'Nimbus Roman', serif; font-size: 13.5px; line-height: 1.5; }
+    .comunicado .cmn-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+    .comunicado .cmn-head img { height: 40px; width: auto; filter: grayscale(100%) contrast(115%); }
+    .comunicado .cmn-org { font-size: 14px; font-weight: 700; color: #000; }
+    .comunicado .cmn-title { font-weight: 700; font-size: 14px; margin: 14px 0 16px; color: #000; }
+    .comunicado .cmn-dest, .comunicado .cmn-contrato { margin-bottom: 12px; }
+    .comunicado .cmn-dest > div, .comunicado .cmn-contrato > div { margin: 2px 0; }
+    .comunicado .lbl { font-weight: 700; }
+    .comunicado .cmn-assunto { margin: 12px 0; }
+    .comunicado .cmn-p { margin: 10px 0; text-align: justify; }
+    .comunicado .cmn-itens { margin: 12px 0; padding-left: 22px; }
+    .comunicado .cmn-itens > li { margin-bottom: 10px; }
+    .comunicado .cmn-cred { margin: 10px 0 4px; border: 1px solid #000; padding: 12px 16px; max-width: 470px; }
+    .comunicado .cmn-cred > div { margin: 4px 0; }
+    .comunicado .cmn-cred-lbl { font-weight: 700; }
+    .comunicado .cmn-cred-val { font-weight: 700; }
+    .comunicado .cmn-foot { text-align: center; margin-top: 30px; line-height: 1.5; }
 
     /* ── Lista da aba Comunicados ── */
     .cmn-cidade-hdr { margin: 18px 0 8px; font-size: 14px; font-weight: 700; color: var(--text); }
@@ -144,8 +145,15 @@
     .cmn-tag.total    { background: #e0e7ff; color: #3730a3; }
     .cmn-tag.eleg     { background: #dcfce7; color: #166534; }
     .cmn-tag.fora     { background: #fef3c7; color: #92400e; }
+    .cmn-tag.aguard   { background: #e2e8f0; color: #475569; }
     .cmn-tag.gerado   { background: #dbeafe; color: #1e40af; }
     .cmn-tag.entregue { background: #cffafe; color: #155e75; }
+    /* Tabela do dashboard de Comunicados (por cidade) */
+    .dpc-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .dpc-tbl th { text-align: left; padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .3px; color: var(--text-muted); border-bottom: 1px solid var(--cinza-b); }
+    .dpc-tbl th:not(:first-child), .dpc-tbl td:not(:first-child) { text-align: center; }
+    .dpc-tbl td { padding: 8px 12px; border-bottom: 1px solid var(--cinza-b); color: var(--text); }
+    .dpc-tbl tbody tr:last-child td { border-bottom: none; }
     /* Drill: contratos de um concessionário na aba Comunicados */
     .cmn-ct { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--cinza-b); flex-wrap: wrap; }
     .cmn-ct:last-child { border-bottom: none; }
@@ -157,11 +165,13 @@
     #dp-print { display: none; }
 
     @media print {
-      @page { size: A4 portrait; margin: 12mm 12mm; }
+      /* margin:0 na @page suprime o cabeçalho/rodapé automático do navegador
+         (data, título, URL, "1/1"). A margem visível do papel vem do padding. */
+      @page { size: A4 portrait; margin: 0; }
       .layout, .dp-overlay, #toast { display: none !important; }
       #dp-print { display: block !important; }
       body { background: #fff !important; }
-      #dp-print .dp-paper { box-shadow: none; border-radius: 0; max-width: 100%; margin: 0; padding: 0; page-break-after: always; }
+      #dp-print .dp-paper { box-shadow: none; border-radius: 0; max-width: 100%; margin: 0; padding: 16mm 15mm; page-break-after: always; }
       #dp-print .dp-paper:last-child { page-break-after: auto; }
     }
   </style>
@@ -180,9 +190,13 @@
       <div class="logo-divider"></div>
     </div>
     <nav>
-      <a href="depop.html" class="nav-item active">
+      <a href="#" id="nav-validacao" class="nav-item active" onclick="mostrarView('validacao');return false;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M21 12c-1 0-3-1-3-3s2-3 3-3-2-2-2-4-1-1-3-1-3 2-3 2-1-2-3-2-2 1-2 4 2 3 2 4-3 1-3 3 2 3 3 3"/></svg>
         Validação de Contratos
+      </a>
+      <a href="#" id="nav-comunicados" class="nav-item" onclick="mostrarView('comunicados');return false;" style="display:none;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H5.17L4 17.17z"/><path d="M8 9h8"/><path d="M8 12h5"/></svg>
+        Comunicados
       </a>
     </nav>
     <div class="sidebar-footer">
@@ -202,8 +216,8 @@
   <main class="main">
     <div class="page-header">
       <div>
-        <div class="page-title">Validação de Contratos</div>
-        <div class="page-subtitle">Conferência do Setor de Cadastro · CEASAMINAS</div>
+        <div class="page-title" id="dp-page-title">Validação de Contratos</div>
+        <div class="page-subtitle" id="dp-page-subtitle">Conferência do Setor de Cadastro · CEASAMINAS</div>
       </div>
     </div>
 
@@ -243,12 +257,13 @@
     <!-- Conteúdo do módulo (após cadastro) -->
     <div id="depop-content" style="display:none;">
 
+     <!-- ═══ VIEW: Validação de Contratos ═══ -->
+     <div id="view-validacao">
       <div class="page-tabs" id="dp-tabs">
         <button class="page-tab active" data-tab="painel">Painel</button>
         <button class="page-tab" data-tab="pendente">A validar <span class="page-tab-count" id="cnt-pendente">0</span></button>
         <button class="page-tab" data-tab="errado">Errados <span class="page-tab-count" id="cnt-errado">0</span></button>
         <button class="page-tab" data-tab="validado">Assinados <span class="page-tab-count" id="cnt-validado">0</span></button>
-        <button class="page-tab" data-tab="comunicados" id="tab-comunicados" style="display:none;">Comunicados</button>
       </div>
 
       <!-- Painel -->
@@ -285,9 +300,27 @@
         </div>
         <div id="dp-lista"></div>
       </div>
+     </div><!-- /view-validacao -->
 
-      <!-- Comunicados -->
-      <div id="pane-comunicados" class="dp-pane">
+     <!-- ═══ VIEW: Comunicados ═══ -->
+     <div id="view-comunicados" style="display:none;">
+      <div class="page-tabs" id="dpc-tabs">
+        <button class="page-tab active" data-ctab="painel">Painel</button>
+        <button class="page-tab" data-ctab="lista">Contratos</button>
+      </div>
+
+      <!-- Painel de Comunicados -->
+      <div id="pane-com-painel" class="dp-pane active">
+        <div id="dpc-avisos-painel" style="margin-bottom:14px;"></div>
+        <div class="cards-grid" id="dpc-cards"></div>
+        <div class="card" style="margin-top:16px;">
+          <div class="card-header"><span class="card-title">📊 Por cidade — prontos, gerados e entregues</span></div>
+          <div id="dpc-porcidade" style="padding:6px 4px;"></div>
+        </div>
+      </div>
+
+      <!-- Contratos (lista + geração) -->
+      <div id="pane-com-lista" class="dp-pane">
         <div class="card" style="margin-bottom:16px;">
           <div style="padding:14px 16px;">
             <div class="filters">
@@ -305,6 +338,7 @@
         </div>
         <div id="dpc-lista"></div>
       </div>
+     </div><!-- /view-comunicados -->
 
     </div>
   </main>
