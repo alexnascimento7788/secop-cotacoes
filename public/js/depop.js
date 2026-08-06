@@ -43,11 +43,12 @@ async function salvarPerfilDepop() {
       body: JSON.stringify({ cpf })
     });
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao salvar'); }
+    const data = await res.json().catch(() => ({}));
     _mostrar('depop-content'); bootApp();
+    toast(data.nome ? `Acesso ativado — ${data.nome}` : 'Acesso ativado.', 'success');
   } catch (e) {
     msg.textContent = e.message;
-  } finally {
-    btn.disabled = false; btn.textContent = 'Confirmar e ativar acesso';
+    btn.disabled = false; btn.textContent = 'Confirmar — sou eu';
   }
 }
 
@@ -556,29 +557,37 @@ async function consultarCpfSetup() {
   const status  = document.getElementById('dp-cpf-status');
   const box     = document.getElementById('dp-nome-box');
   const nomeVal = document.getElementById('dp-nome-val');
+  const btn     = document.getElementById('dp-setup-btn');
   if (!status) return;
+  // O botão de confirmar só reaparece depois que a consulta valida o CPF — assim
+  // o usuário não passa direto sem ver o retorno da API.
+  btn.style.display = 'none';
   if (raw.length !== 11) { box.style.display = 'none'; status.textContent = ''; return; }
   if (!cpfValidoClient(raw)) { box.style.display = 'none'; status.style.color = 'var(--vermelho)'; status.textContent = 'CPF inválido.'; _cpfConsultado = ''; return; }
   if (raw === _cpfConsultado) return;
   _cpfConsultado = raw;
-  status.style.color = 'var(--text-muted)'; status.textContent = 'Consultando CPF...';
+  status.style.color = 'var(--text-muted)'; status.textContent = 'Consultando CPF na Receita...';
   try {
     const r = await fetch('/api/depop/consultar-cpf', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cpf: raw })
     });
     const d = await r.json();
+    if (raw !== document.getElementById('dp-cpf').value.replace(/\D/g, '')) return; // mudou enquanto consultava
     if (!d.valido) {
       box.style.display = 'none'; status.style.color = 'var(--vermelho)';
       status.textContent = d.error || 'CPF inválido.'; _cpfConsultado = ''; return;
     }
     if (d.nome) {
       nomeVal.textContent = d.nome; box.style.display = '';
-      status.style.color = 'var(--verde)'; status.textContent = 'CPF confirmado.';
+      status.style.color = 'var(--verde)'; status.textContent = 'CPF confirmado. Confira o nome abaixo.';
+      btn.textContent = 'Confirmar — sou eu';
     } else {
       box.style.display = 'none'; status.style.color = 'var(--text-muted)';
-      status.textContent = d.fonte === 'offline' ? 'CPF válido (confirmação online indisponível).' : 'CPF válido.';
+      status.textContent = d.fonte === 'offline' ? 'CPF válido (não deu para confirmar o nome online agora).' : 'CPF válido.';
+      btn.textContent = 'Confirmar e ativar acesso';
     }
+    btn.style.display = ''; // CPF válido (com ou sem nome) → libera o botão
   } catch { status.textContent = ''; _cpfConsultado = ''; }
 }
 
