@@ -1070,33 +1070,10 @@ function cpfValido(cpf) {
   return dv(10) === parseInt(cpf[9], 10) && dv(11) === parseInt(cpf[10], 10);
 }
 
-// Par de chaves EC P-256; a privada sai em PEM PKCS8 já cifrada pela senha de
-// assinatura (nunca guardamos a senha nem a chave em claro).
-function gerarParDeChaves(senhaAssinatura) {
-  return crypto.generateKeyPairSync('ec', {
-    namedCurve: 'P-256',
-    publicKeyEncoding:  { type: 'spki',  format: 'pem' },
-    privateKeyEncoding: { type: 'pkcs8', format: 'pem', cipher: 'aes-256-cbc', passphrase: senhaAssinatura }
-  });
-}
-
-// Assina um payload canônico com a chave privada do perfil (destravada pela
-// senha). Lança se a senha estiver errada — quem chama traduz pra "senha
-// incorreta". Devolve a assinatura em base64. (Usado na validação de contrato,
-// quando as tabelas do Depop existirem.)
-function assinarPayload(perfil, senhaAssinatura, payload) {
-  const s = crypto.createSign('SHA256');
-  s.update(payload);
-  s.end();
-  return s.sign({ key: perfil.chave_privada_pem, passphrase: senhaAssinatura }, 'base64');
-}
-
-function verificarAssinatura(perfil, payload, assinaturaB64) {
-  const v = crypto.createVerify('SHA256');
-  v.update(payload);
-  v.end();
-  return v.verify(perfil.chave_publica, assinaturaB64, 'base64');
-}
+// (Assinatura por par de chaves EC removida: a validação passou a ser confirmada
+// pela senha de LOGIN do próprio usuário + timbre SHA-256 verificável — uma senha
+// só. Ver POST /api/depop/contratos/:id/validar. As colunas chave_* de
+// depop_perfil viram legado, gravadas vazias.)
 
 // ── Consulta de CPF na API externa (cpfhub.io) ────────────────────────────────
 // A chave fica no config (chave 'cpfhub_api_key', gerenciada nos Parâmetros do
@@ -1193,14 +1170,11 @@ app.get('/api/depop/perfil', (req, res) => {
 // Cadastro de 1º acesso: CPF (validado) + senha de assinatura → gera e guarda o
 // par de chaves. Só uma vez por usuário; CPF é único no módulo.
 app.post('/api/depop/perfil', async (req, res) => {
-  const { cpf, senha_assinatura } = req.body || {};
+  const { cpf } = req.body || {};
   const ja = db.prepare(`SELECT 1 FROM depop_perfil WHERE user_id = ?`).get(req.user.user_id);
   if (ja) return res.status(400).json({ error: 'Perfil já configurado' });
   const cpfLimpo = String(cpf || '').replace(/\D/g, '');
   if (!cpfValido(cpfLimpo)) return res.status(400).json({ error: 'CPF inválido' });
-  if (!senha_assinatura || String(senha_assinatura).length < 6) {
-    return res.status(400).json({ error: 'A senha de assinatura deve ter ao menos 6 caracteres' });
-  }
   const donoCpf = db.prepare(`SELECT user_id FROM depop_perfil WHERE cpf = ?`).get(cpfLimpo);
   if (donoCpf) return res.status(400).json({ error: 'Este CPF já está cadastrado por outro usuário' });
 
@@ -1211,10 +1185,11 @@ app.post('/api/depop/perfil', async (req, res) => {
   }
   const nome = info.nome || null;
 
-  const { publicKey, privateKey } = gerarParDeChaves(String(senha_assinatura));
-  db.prepare(`INSERT INTO depop_perfil (user_id, cpf, chave_publica, chave_privada_pem, nome) VALUES (?, ?, ?, ?, ?)`)
-    .run(req.user.user_id, cpfLimpo, publicKey, privateKey, nome);
-  registrarLog(req, 'DEPOP', 'PERFIL', `Configurou CPF e assinatura digital do Depop${info.fonte === 'offline' ? ' (CPF validado offline)' : ''}`);
+  // Sem par de chaves: a assinatura da validação usa a senha de login + timbre.
+  // As colunas chave_* (NOT NULL, legado) ficam vazias.
+  db.prepare(`INSERT INTO depop_perfil (user_id, cpf, chave_publica, chave_privada_pem, nome) VALUES (?, ?, '', '', ?)`)
+    .run(req.user.user_id, cpfLimpo, nome);
+  registrarLog(req, 'DEPOP', 'PERFIL', `Cadastrou CPF no Depop${info.fonte === 'offline' ? ' (validado offline)' : ''}`);
   res.status(201).json({ ok: true, nome });
 });
 
@@ -1384,6 +1359,11 @@ app.post('/api/depop/contratos/:id/abrir', (req, res) => {
   const det = montarDetalhe(id);
   if (!det) return res.status(404).json({ error: 'Contrato não encontrado' });
 
+  // Contrato já validado é final: abre só em leitura, sem travar (nem pra quem
+  // for validador) — não dá mais pra assinar nem marcar erro.
+  if (det.validacao && det.validacao.status === 'validado') {
+    return res.json({ perfil: perfilFerramenta(req), detalhe: det, lock: null });
+  }
   if (perfilFerramenta(req) === 'master') {
     return res.json({ perfil: 'master', detalhe: det, lock: null });
   }
@@ -1420,7 +1400,7 @@ app.post('/api/depop/contratos/:id/fechar', (req, res) => {
 app.post('/api/depop/contratos/:id/validar', (req, res) => {
   if (perfilFerramenta(req) === 'master') return res.status(403).json({ error: 'O supervisor não assina validações.' });
   const id = parseInt(req.params.id, 10);
-  const { senha_assinatura } = req.body || {};
+  const { senha } = req.body || {};
 
   const trava = travaAtiva(id);
   if (trava && trava.user_id !== req.user.user_id) {
@@ -1428,31 +1408,38 @@ app.post('/api/depop/contratos/:id/validar', (req, res) => {
   }
   const det = montarDetalhe(id);
   if (!det) return res.status(404).json({ error: 'Contrato não encontrado' });
+  if (det.validacao && det.validacao.status === 'validado') {
+    return res.status(409).json({ error: 'Este contrato já foi validado e não pode ser assinado novamente.' });
+  }
 
-  const perfil = db.prepare(`SELECT cpf, chave_publica, chave_privada_pem FROM depop_perfil WHERE user_id = ?`).get(req.user.user_id);
-  if (!perfil) return res.status(400).json({ error: 'Configure seu acesso (CPF + senha de assinatura) antes de validar.' });
-  if (!senha_assinatura) return res.status(400).json({ error: 'Informe a senha de assinatura.' });
+  const perfil = db.prepare(`SELECT cpf, nome FROM depop_perfil WHERE user_id = ?`).get(req.user.user_id);
+  if (!perfil) return res.status(400).json({ error: 'Cadastre seu CPF antes de validar.' });
+  if (!senha) return res.status(400).json({ error: 'Informe sua senha para assinar.' });
+
+  // Confirma com a senha de LOGIN do próprio usuário (uma senha só no sistema).
+  const u = db.prepare(`SELECT senha_hash, salt FROM users WHERE id = ?`).get(req.user.user_id);
+  const h = crypto.pbkdf2Sync(String(senha), u.salt, 100000, 64, 'sha512').toString('hex');
+  if (h !== u.senha_hash) return res.status(401).json({ error: 'Senha incorreta.' });
 
   const iso = new Date().toISOString();
-  const payload = payloadContrato(det, perfil.cpf, iso);
-  let assinatura;
-  try { assinatura = assinarPayload(perfil, String(senha_assinatura), payload); }
-  catch { return res.status(401).json({ error: 'Senha de assinatura incorreta.' }); }
-
-  // Timbre visível (carimbo) — hash simples do contrato+validador+instante.
-  const timbre = crypto.createHash('sha256').update(`${det.id_contrato}|${req.user.username}|${iso}`).digest('hex');
+  const nome = perfil.nome || req.user.username;
+  // Timbre verificável: hash dos valores conferidos (payload canônico) + a
+  // identidade de quem assinou + o instante. Recalculável para conferência.
+  const timbre = crypto.createHash('sha256')
+    .update(`${payloadContrato(det, perfil.cpf, iso)}|${nome}|${req.user.username}`)
+    .digest('hex');
 
   db.prepare(`
     INSERT INTO validacao_contrato (id_avaliacao, status, observacao, id_usuario_validador, dt_validacao, hash_assinatura, assinatura_b64)
-    VALUES (?, 'validado', NULL, ?, ?, ?, ?)
+    VALUES (?, 'validado', NULL, ?, ?, ?, NULL)
     ON CONFLICT(id_avaliacao) DO UPDATE SET
       status = 'validado', observacao = NULL, id_usuario_validador = excluded.id_usuario_validador,
       dt_validacao = excluded.dt_validacao, hash_assinatura = excluded.hash_assinatura,
-      assinatura_b64 = excluded.assinatura_b64`)
-    .run(id, req.user.user_id, iso, timbre, assinatura);
+      assinatura_b64 = NULL`)
+    .run(id, req.user.user_id, iso, timbre);
   db.prepare(`DELETE FROM validacao_lock WHERE id_avaliacao = ?`).run(id);
   registrarLog(req, 'DEPOP', 'VALIDOU', `Validou contrato CCU ${det.numero_ccu || det.id_contrato}`);
-  res.json({ ok: true, timbre: timbre.slice(0, 12), dt_validacao: iso, validador: req.user.username });
+  res.json({ ok: true, timbre: timbre.slice(0, 12), dt_validacao: iso, validador: nome });
 });
 
 // Marcar como errado: grava o motivo (observação) e status 'errado'.
@@ -1468,6 +1455,9 @@ app.post('/api/depop/contratos/:id/errado', (req, res) => {
   }
   const det = montarDetalhe(id);
   if (!det) return res.status(404).json({ error: 'Contrato não encontrado' });
+  if (det.validacao && det.validacao.status === 'validado') {
+    return res.status(409).json({ error: 'Este contrato já foi validado — não pode ser marcado como errado.' });
+  }
 
   const iso = new Date().toISOString();
   db.prepare(`

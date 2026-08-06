@@ -30,29 +30,24 @@ function _mostrar(id) {
 }
 
 async function salvarPerfilDepop() {
-  const msg    = document.getElementById('dp-setup-msg');
-  const btn    = document.getElementById('dp-setup-btn');
-  const cpf    = document.getElementById('dp-cpf').value;
-  const senha  = document.getElementById('dp-senha').value;
-  const senha2 = document.getElementById('dp-senha2').value;
+  const msg = document.getElementById('dp-setup-msg');
+  const btn = document.getElementById('dp-setup-btn');
+  const cpf = document.getElementById('dp-cpf').value;
   msg.style.color = 'var(--vermelho)';
+  if (!cpfValidoClient(cpf)) { msg.textContent = 'Informe um CPF válido.'; return; }
 
-  if (!cpfValidoClient(cpf)) { msg.textContent = 'CPF inválido.'; return; }
-  if (!senha || senha.length < 6) { msg.textContent = 'A senha de assinatura deve ter ao menos 6 caracteres.'; return; }
-  if (senha !== senha2) { msg.textContent = 'As senhas não conferem.'; return; }
-
-  btn.disabled = true; btn.textContent = 'Salvando...';
+  btn.disabled = true; btn.textContent = 'Ativando...';
   try {
     const res = await fetch('/api/depop/perfil', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cpf, senha_assinatura: senha })
+      body: JSON.stringify({ cpf })
     });
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao salvar'); }
     _mostrar('depop-content'); bootApp();
   } catch (e) {
     msg.textContent = e.message;
   } finally {
-    btn.disabled = false; btn.textContent = 'Salvar e continuar';
+    btn.disabled = false; btn.textContent = 'Confirmar e ativar acesso';
   }
 }
 
@@ -376,6 +371,9 @@ function renderPreviewActions() {
   const chip = `<span class="badge badge-${st}" style="align-self:center">${({ pendente: 'A validar', validado: 'Assinado', errado: 'Errado' })[st]}</span>`;
   if (estado.perfil === 'master') {
     box.innerHTML = chip + `<button class="btn btn-secondary btn-sm" onclick="imprimirIndividual()">🖨️ Exportar PDF</button>`;
+  } else if (st === 'validado') {
+    // Contrato assinado é final: não reabre pra assinar de novo nem marcar erro.
+    box.innerHTML = chip + `<span style="align-self:center;font-size:12px;color:var(--text-muted);">🔒 Assinado — não pode ser alterado.</span>`;
   } else {
     box.innerHTML = chip +
       `<button class="btn btn-danger btn-sm" onclick="abrirModalErro()">Marcar como errado</button>` +
@@ -475,12 +473,12 @@ async function confirmarAssinatura() {
   const senha = document.getElementById('dp-senha-assinatura').value;
   const msg = document.getElementById('dp-senha-msg');
   const btn = document.getElementById('dp-btn-assinar');
-  if (!senha) { msg.textContent = 'Informe a senha de assinatura.'; return; }
+  if (!senha) { msg.textContent = 'Informe a sua senha de login.'; return; }
   btn.disabled = true; btn.textContent = 'Assinando...';
   try {
     const res = await fetch(`/api/depop/contratos/${_det.id}/validar`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ senha_assinatura: senha })
+      body: JSON.stringify({ senha })
     });
     const data = await res.json();
     if (!res.ok) { msg.textContent = data.error || 'Erro ao assinar.'; return; }
