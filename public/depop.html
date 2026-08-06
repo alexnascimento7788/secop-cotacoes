@@ -52,15 +52,20 @@
     [data-theme="dark"] .badge-validado { background: rgba(21,128,61,.22); color: #86efac; }
     [data-theme="dark"] .badge-errado   { background: rgba(180,83,9,.24); color: #fcd34d; }
 
-    /* Linha de grupo (concessionário com vários contratos) — recolhível */
-    .dp-group-head { cursor: pointer; background: var(--surface-2); }
-    .dp-group-head:hover { background: var(--cinza-b); }
-    .dp-group-head td { padding: 11px 14px; }
-    .dp-group-head .dp-forn { font-weight: 700; }
-    .dp-group-head .badge, .dp-group-head .dp-group-tag { margin-left: 8px; vertical-align: middle; }
-    .dp-chev { display: inline-block; width: 15px; color: var(--verde); font-weight: 700; }
-    .dp-child td:first-child { padding-left: 30px; }
-    .dp-child-mark { color: var(--text-subtle); }
+    /* Linha de grupo (concessionário com vários contratos) — clica e abre a tela dele */
+    .dp-group-row { cursor: pointer; }
+    .dp-group-row:hover { background: var(--surface-2); }
+    .dp-group-row td { padding: 12px 14px; }
+    .dp-group-row .dp-forn { font-weight: 700; }
+    .dp-group-cell { text-align: right; white-space: normal; }
+    .dp-group-cell .badge, .dp-group-cell .dp-group-tag { margin-left: 6px; vertical-align: middle; }
+    .dp-chev { display: inline-block; margin-left: 10px; color: var(--verde); font-weight: 700; font-size: 17px; vertical-align: middle; }
+    /* Tela (drill-down) de contratos de um concessionário */
+    #dp-preview { z-index: 950; }
+    #dp-contratos-titulo { text-align: right; }
+    .dp-ct-nome { font-size: 15px; font-weight: 700; color: var(--text); }
+    .dp-ct-sub { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .dp-ct-card { max-width: 860px; margin: 0 auto; }
 
     /* Preview overlay (Anexo I interno) */
     .dp-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.55); z-index: 900; display: flex; flex-direction: column; }
@@ -252,6 +257,15 @@
     <div class="dp-preview-actions" id="dp-preview-actions"></div>
   </div>
   <div class="dp-paper-wrap"><div class="dp-paper" id="dp-doc"></div></div>
+</div>
+
+<!-- Tela (drill-down): contratos de um concessionário com vários contratos -->
+<div id="dp-contratos" class="dp-overlay" style="display:none;">
+  <div class="dp-preview-bar">
+    <button class="btn btn-secondary btn-sm" onclick="fecharContratos()">← Voltar</button>
+    <div id="dp-contratos-titulo"></div>
+  </div>
+  <div class="dp-paper-wrap"><div id="dp-contratos-body"></div></div>
 </div>
 
 <!-- Container de impressão -->

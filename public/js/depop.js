@@ -58,7 +58,7 @@ async function salvarPerfilDepop() {
 
 // ── App de validação ──────────────────────────────────────────────────────────
 
-const estado = { perfil: 'validador', contratos: [], aba: 'painel', cidade: '', busca: '', expandido: new Set() };
+const estado = { perfil: 'validador', contratos: [], aba: 'painel', cidade: '', busca: '' };
 let _det = null;          // contrato aberto no preview
 let _lockMine = false;    // se a trava do contrato aberto é minha (validador)
 let _pingTimer = null;
@@ -192,6 +192,7 @@ async function carregarContratos() {
 }
 
 const _rotulo = s => ({ pendente: 'A validar', validado: 'Assinado', errado: 'Errado' })[s] || s;
+const _statusOrdem = { pendente: 0, errado: 1, validado: 2 };
 
 // Badges de resumo de um concessionário (total azul + por status).
 function rollupBadges(cnt) {
@@ -202,20 +203,22 @@ function rollupBadges(cnt) {
   return b;
 }
 
-// Uma linha de contrato (comNome=true mostra o concessionário na 1ª coluna;
-// filho=true é linha dentro de um grupo expandido, indentada).
-function rowContrato(c, comNome, filho) {
+// Situação (badge de status ou indicador de trava) de um contrato.
+function situacaoCel(c) {
+  if (c.lock && !c.lock.por_mim) return `<span class="dp-lock-tag">🔒 em uso · ${esc(c.lock.nome)}</span>`;
+  if (c.lock && c.lock.por_mim)  return '<span class="dp-mine-tag">aberto por você</span>';
+  return `<span class="badge badge-${c.status}">${_rotulo(c.status)}</span>`;
+}
+
+// Linha de contrato único na lista principal (com o nome do concessionário).
+function rowContrato(c) {
   const bloqueado = c.lock && !c.lock.por_mim;
-  const sit = bloqueado
-    ? `<span class="dp-lock-tag">🔒 em uso · ${esc(c.lock.nome)}</span>`
-    : (c.lock && c.lock.por_mim ? '<span class="dp-mine-tag">aberto por você</span>' : `<span class="badge badge-${c.status}">${_rotulo(c.status)}</span>`);
-  const nomeCel = comNome ? `<span class="dp-forn">${esc(c.concessionario)}</span>` : (filho ? '<span class="dp-child-mark">└</span>' : '');
-  return `<tr class="dp-row${bloqueado ? ' locked' : ''}${filho ? ' dp-child' : ''}" data-id="${c.id}" data-bloq="${bloqueado ? 1 : 0}" data-lock="${bloqueado ? esc(c.lock.nome) : ''}">
-    <td>${nomeCel}</td>
+  return `<tr class="dp-row${bloqueado ? ' locked' : ''}" data-id="${c.id}" data-bloq="${bloqueado ? 1 : 0}" data-lock="${bloqueado ? esc(c.lock.nome) : ''}">
+    <td><span class="dp-forn">${esc(c.concessionario)}</span></td>
     <td>${esc(c.numero_ccu || '—')}</td>
     <td style="text-align:right">${fmtMoeda(c.valor_ponto)}</td>
     <td style="text-align:right">${fmtMoeda(c.valor_30_ceasa)}</td>
-    <td style="text-align:right">${sit}</td>
+    <td style="text-align:right">${situacaoCel(c)}</td>
   </tr>`;
 }
 
@@ -252,14 +255,14 @@ function renderLista() {
       cityCount += cnt[aba];
 
       if (contratos.length === 1) {
-        rows += rowContrato(contratos[0], true, false);
+        rows += rowContrato(contratos[0]); // clica → abre o contrato direto
       } else {
-        const key = cidade + '|' + codigo;
-        const aberto = estado.expandido.has(key);
-        rows += `<tr class="dp-group-head" data-key="${esc(key)}">
-          <td colspan="5"><span class="dp-chev">${aberto ? '▾' : '▸'}</span><span class="dp-forn">${esc(contratos[0].concessionario)}</span>${rollupBadges(cnt)}</td>
+        // Concessionário com vários contratos: 1 linha só; clicar abre a tela
+        // com os contratos dele (drill-down), sem sanfona.
+        rows += `<tr class="dp-group-row" data-cidade="${esc(cidade)}" data-codigo="${codigo}">
+          <td><span class="dp-forn">${esc(contratos[0].concessionario)}</span></td>
+          <td colspan="4" class="dp-group-cell">${rollupBadges(cnt)}<span class="dp-chev">›</span></td>
         </tr>`;
-        if (aberto) contratos.forEach(c => { rows += rowContrato(c, false, true); });
       }
     }
     if (!cityCount) continue;
@@ -279,15 +282,74 @@ function renderLista() {
   }
   alvo.innerHTML = html;
 
-  alvo.querySelectorAll('.dp-group-head').forEach(tr => tr.addEventListener('click', () => {
-    const k = tr.dataset.key;
-    if (estado.expandido.has(k)) estado.expandido.delete(k); else estado.expandido.add(k);
-    renderLista();
-  }));
+  alvo.querySelectorAll('.dp-group-row').forEach(tr => tr.addEventListener('click', () =>
+    openGrupoContratos(tr.dataset.cidade, parseInt(tr.dataset.codigo, 10))));
   alvo.querySelectorAll('.dp-row').forEach(tr => tr.addEventListener('click', () => {
     if (tr.dataset.bloq === '1') { toast(`Contrato em uso por ${tr.dataset.lock}.`, 'error'); return; }
     abrirContrato(parseInt(tr.dataset.id, 10));
   }));
+}
+
+// ── Drill-down: contratos de um concessionário (quando tem vários) ─────────────
+let _grupoAberto = null; // { cidade, codigo }
+
+function openGrupoContratos(cidade, codigo) {
+  _grupoAberto = { cidade, codigo };
+  renderContratosOverlay();
+  document.getElementById('dp-contratos').style.display = 'flex';
+  document.querySelector('#dp-contratos .dp-paper-wrap').scrollTop = 0;
+}
+
+function renderContratosOverlay() {
+  if (!_grupoAberto) return;
+  const { cidade, codigo } = _grupoAberto;
+  const lista = estado.contratos
+    .filter(c => c.cidade === cidade && c.codigo === codigo)
+    .sort((a, b) => (_statusOrdem[a.status] - _statusOrdem[b.status]) || String(a.numero_ccu || '').localeCompare(String(b.numero_ccu || '')));
+  if (!lista.length) { fecharContratos(); return; }
+
+  const cnt = { total: lista.length, pendente: 0, validado: 0, errado: 0 };
+  lista.forEach(c => { cnt[c.status]++; });
+
+  document.getElementById('dp-contratos-titulo').innerHTML =
+    `<div class="dp-ct-nome">${esc(lista[0].concessionario)}</div>
+     <div class="dp-ct-sub">${esc(cidade)} · ${rollupBadges(cnt)}</div>`;
+
+  const rows = lista.map(c => {
+    const bloqueado = c.lock && !c.lock.por_mim;
+    return `<tr class="dp-row${bloqueado ? ' locked' : ''}" data-id="${c.id}" data-bloq="${bloqueado ? 1 : 0}" data-lock="${bloqueado ? esc(c.lock.nome) : ''}">
+      <td><span class="dp-forn">${esc(c.numero_ccu || '—')}</span></td>
+      <td style="text-align:right">${fmtMoeda(c.valor_ponto)}</td>
+      <td style="text-align:right">${fmtMoeda(c.valor_30_ceasa)}</td>
+      <td style="text-align:right">${situacaoCel(c)}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('dp-contratos-body').innerHTML =
+    `<div class="card dp-ct-card">
+      <div class="card-header"><span class="card-title">Contratos deste concessionário</span><span class="page-tab-count">${lista.length}</span></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>CCU</th><th style="text-align:right">Valor do Ponto</th><th style="text-align:right">Outorga (30%)</th><th style="text-align:right">Situação</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+
+  document.querySelectorAll('#dp-contratos-body .dp-row').forEach(tr => tr.addEventListener('click', () => {
+    if (tr.dataset.bloq === '1') { toast(`Contrato em uso por ${tr.dataset.lock}.`, 'error'); return; }
+    abrirContrato(parseInt(tr.dataset.id, 10));
+  }));
+}
+
+function fecharContratos() {
+  document.getElementById('dp-contratos').style.display = 'none';
+  _grupoAberto = null;
+}
+
+// Recarrega a lista e, se a tela de contratos do concessionário estiver aberta,
+// atualiza-a também (pra refletir status/trava após assinar/marcar erro).
+async function recarregar() {
+  await carregarContratos();
+  if (_grupoAberto && document.getElementById('dp-contratos').style.display !== 'none') renderContratosOverlay();
 }
 
 // ── Preview (Anexo I interno) ─────────────────────────────────────────────────
@@ -295,7 +357,7 @@ async function abrirContrato(id) {
   let res, data;
   try { res = await fetch(`/api/depop/contratos/${id}/abrir`, { method: 'POST' }); data = await res.json(); }
   catch { toast('Falha ao abrir o contrato.', 'error'); return; }
-  if (res.status === 409) { toast(data.error || 'Contrato em uso.', 'error'); carregarContratos(); return; }
+  if (res.status === 409) { toast(data.error || 'Contrato em uso.', 'error'); recarregar(); return; }
   if (!res.ok) { toast(data.error || 'Erro ao abrir.', 'error'); return; }
 
   _det = data.detalhe;
@@ -326,7 +388,7 @@ async function fecharPreview() {
   if (_det && _lockMine) { try { await fetch(`/api/depop/contratos/${_det.id}/fechar`, { method: 'POST' }); } catch {} }
   document.getElementById('dp-preview').style.display = 'none';
   _det = null; _lockMine = false;
-  carregarContratos();
+  await recarregar();
 }
 
 // Invólucro "papel" (usado na impressão; no preview o próprio #dp-doc já é .dp-paper).
