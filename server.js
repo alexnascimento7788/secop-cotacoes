@@ -682,7 +682,9 @@ app.put('/api/admin/config', (req, res) => {
   const upsert = db.prepare(`INSERT INTO config (chave, valor) VALUES (?, ?)
     ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor`);
   entries.forEach(([chave, valor]) => upsert.run(chave, String(valor)));
-  registrarLog(req, 'CONFIG', 'ALTEROU', `Parâmetros atualizados: ${entries.map(([c, v]) => `${c}=${v}`).join(', ')}`);
+  // Redige segredos (ex.: cpfhub_api_key) no log — nunca gravar o valor em claro.
+  const resumo = entries.map(([c, v]) => `${c}=${CONFIG_SECRETA.has(c) ? '***' : v}`).join(', ');
+  registrarLog(req, 'CONFIG', 'ALTEROU', `Parâmetros atualizados: ${resumo}`);
   res.json({ ok: true });
 });
 
