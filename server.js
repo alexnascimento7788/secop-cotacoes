@@ -73,7 +73,8 @@ function requireAuth(req, res, next) {
 // módulos ativos; os demais, só os que têm em user_modulos. Sempre filtra ativo=1
 // para que desligar um módulo o esconda de todos de uma vez.
 function modulosDoUsuario(user) {
-  if (user.username === 'master') {
+  // master e usuário de consulta (somente leitura) enxergam todos os módulos ativos.
+  if (user.username === 'master' || user.role === 'consulta') {
     return db.prepare(`SELECT id, slug, nome, cor, home, ordem FROM modulos WHERE ativo = 1 ORDER BY ordem`).all();
   }
   return db.prepare(`
@@ -99,6 +100,20 @@ function registrarLog(req, tipo, acao, descricao, _username, _userId) {
 app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/auth/')) return next();
   requireAuth(req, res, next);
+});
+
+// Somente leitura para o perfil "consulta": nega qualquer método que não seja
+// leitura. É a garantia real (o cliente também avisa, mas isto é o que protege).
+// Poucos POSTs de VISUALIZAÇÃO passam: abrir/ping/fechar o preview de um contrato
+// no Depop apenas montam a tela e mexem numa trava efêmera — nunca alteram dado.
+const CONSULTA_POST_OK = [
+  /^\/depop\/contratos\/\d+\/(abrir|ping|fechar)$/,
+];
+app.use('/api', (req, res, next) => {
+  if (!req.user || req.user.role !== 'consulta') return next();
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  if (CONSULTA_POST_OK.some(re => re.test(req.path))) return next();
+  return res.status(403).json({ error: 'Usuário de consulta: acesso somente leitura.' });
 });
 
 function requireAdmin(req, res, next) {
@@ -1179,9 +1194,9 @@ app.get('/api/depop/perfil', (req, res) => {
   const caps = depopCaps(req);
   const perfil = db.prepare(`SELECT cpf, nome, criado_em FROM depop_perfil WHERE user_id = ?`).get(req.user.user_id);
   const cadastrado = !!perfil;
-  // Só passa pelo cadastro de 1º acesso (CPF) quem vai VALIDAR: o master (supervisor)
-  // e o usuário só-comunicados não assinam nada, então não precisam de CPF.
-  const precisa_setup = !caps.is_master && caps.pode_validar && !cadastrado;
+  // Só passa pelo cadastro de 1º acesso (CPF) quem vai VALIDAR: master (supervisor),
+  // usuário só-comunicados e consulta (só leitura) não assinam, então não precisam.
+  const precisa_setup = !caps.is_master && !caps.is_consulta && caps.pode_validar && !cadastrado;
   const cpfMasc = perfil ? perfil.cpf.replace(/^(\d{3})\d{6}(\d{2})$/, '$1.***.**-$2') : null;
   res.json({ cadastrado, precisa_setup, perfil: ferramenta, caps, nome: req.user.username,
              nome_titular: perfil ? perfil.nome : null,
@@ -1232,15 +1247,20 @@ function perfilFerramenta(req) {
 // user_modulos). master = tudo. Sem linha em depop_acesso = padrão histórico
 // (valida contratos, sem comunicados) — não quebra quem já usava a validação.
 function depopCaps(req) {
-  if (req.user.username === 'master') return { is_master: true, pode_validar: true, pode_comunicados: true };
+  if (req.user.username === 'master') return { is_master: true, is_consulta: false, pode_validar: true, pode_comunicados: true };
+  // Consulta (somente leitura) enxerga as duas seções, mas as ações são barradas
+  // pela guarda global de leitura — aqui só liberamos a VISUALIZAÇÃO.
+  if (req.user.role === 'consulta') return { is_master: false, is_consulta: true, pode_validar: true, pode_comunicados: true };
   const row = db.prepare(`SELECT valida, comunicados FROM depop_acesso WHERE user_id = ?`).get(req.user.user_id);
-  return { is_master: false, pode_validar: row ? !!row.valida : true, pode_comunicados: row ? !!row.comunicados : false };
+  return { is_master: false, is_consulta: false, pode_validar: row ? !!row.valida : true, pode_comunicados: row ? !!row.comunicados : false };
 }
 
-// Guarda de rota por capacidade ('valida' | 'comunicados'). O master passa sempre.
+// Guarda de rota por capacidade ('valida' | 'comunicados'). O master e o consulta
+// passam sempre (consulta só lê; as escritas caem na guarda global de leitura).
 function requireCap(cap) {
   const chave = cap === 'valida' ? 'pode_validar' : 'pode_comunicados';
   return (req, res, next) => {
+    if (req.user.role === 'consulta') return next();
     const c = depopCaps(req);
     if (c.is_master || c[chave]) return next();
     return res.status(403).json({ error: 'Você não tem essa permissão no Depop.' });
@@ -1403,6 +1423,10 @@ app.post('/api/depop/contratos/:id/abrir', requireCap('valida'), (req, res) => {
   // for validador) — não dá mais pra assinar nem marcar erro.
   if (det.validacao && det.validacao.status === 'validado') {
     return res.json({ perfil: perfilFerramenta(req), detalhe: det, lock: null });
+  }
+  // Consulta (só leitura) e supervisor (master): abrem em leitura, sem travar.
+  if (req.user.role === 'consulta') {
+    return res.json({ perfil: 'consulta', detalhe: det, lock: null });
   }
   if (perfilFerramenta(req) === 'master') {
     return res.json({ perfil: 'master', detalhe: det, lock: null });
@@ -1639,7 +1663,7 @@ app.get('/api/depop/comunicados/lista', requireCap('comunicados'), (req, res) =>
 // seleção múltipla), monta os comunicados elegíveis e registra a geração
 // (incrementa o contador). Contratos fora do intervalo/sem credencial voltam em
 // `pulados` (nunca falha em silêncio).
-app.get('/api/depop/comunicados/gerar', requireCap('comunicados'), (req, res) => {
+app.post('/api/depop/comunicados/gerar', requireCap('comunicados'), (req, res) => {
   const { cidade, codigo, codigos } = req.query;
   let rows;
   if (codigo) {

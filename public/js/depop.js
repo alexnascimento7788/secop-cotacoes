@@ -402,7 +402,10 @@ function renderPreviewActions() {
   const box = document.getElementById('dp-preview-actions');
   const st = _det.validacao.status;
   const chip = `<span class="badge badge-${st}" style="align-self:center">${({ pendente: 'A validar', validado: 'Assinado', errado: 'Errado' })[st]}</span>`;
-  if (estado.perfil === 'master') {
+  if (estado.caps && estado.caps.is_consulta) {
+    // Consulta (só leitura): vê o documento e pode imprimir, sem ações.
+    box.innerHTML = chip + `<button class="btn btn-secondary btn-sm" onclick="imprimirIndividual()">🖨️ Exportar PDF</button>`;
+  } else if (estado.perfil === 'master') {
     box.innerHTML = chip + `<button class="btn btn-secondary btn-sm" onclick="imprimirIndividual()">🖨️ Exportar PDF</button>`;
   } else if (st === 'validado') {
     // Contrato assinado é final: não reabre pra assinar de novo nem marcar erro.
@@ -722,11 +725,12 @@ function renderComunicados() {
     wrap.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">Nenhum concessionário no filtro atual.</div>';
     atualizarSelBar(); return;
   }
+  const ro = !!(estado.caps && estado.caps.is_consulta); // somente leitura
   let html = '';
   for (const [cidade, grupos] of porCidade) {
     const cidEsc = esc(cidade).replace(/'/g, "\\'");
     html += `<div class="cmn-cidade-hdr">📍 ${esc(cidade)}
-      <button class="btn btn-secondary btn-sm" onclick="gerarPorCidade('${cidEsc}')">🖨️ Gerar cidade</button></div>`;
+      ${ro ? '' : `<button class="btn btn-secondary btn-sm" onclick="gerarPorCidade('${cidEsc}')">🖨️ Gerar cidade</button>`}</div>`;
     for (const g of grupos.values()) {
       const total = g.contratos.length;
       const prontos = g.contratos.filter(c => c.elegivel).length;
@@ -736,7 +740,7 @@ function renderComunicados() {
       const entregues = g.contratos.filter(c => c.enviado).length;
       const checked = comEstado.sel.has(g.codigo) ? 'checked' : '';
       html += `<div class="cmn-row">
-        <input type="checkbox" class="cmn-chk" ${checked} onchange="toggleSel(${g.codigo},this.checked)">
+        ${ro ? '' : `<input type="checkbox" class="cmn-chk" ${checked} onchange="toggleSel(${g.codigo},this.checked)">`}
         <div class="cmn-main">
           <div class="cmn-nome">${esc(g.nome)}</div>
           <div class="cmn-badges">
@@ -749,7 +753,7 @@ function renderComunicados() {
           </div>
         </div>
         <div class="cmn-acts">
-          <button class="btn btn-primary btn-sm" onclick="gerarPorConcessionario(${g.codigo})" ${prontos ? '' : 'disabled'}>🖨️ Gerar</button>
+          ${ro ? '' : `<button class="btn btn-primary btn-sm" onclick="gerarPorConcessionario(${g.codigo})" ${prontos ? '' : 'disabled'}>🖨️ Gerar</button>`}
           <button class="btn btn-secondary btn-sm" onclick="abrirDrillComunicado(${g.codigo})">Ver ›</button>
         </div>
       </div>`;
@@ -770,7 +774,7 @@ function atualizarSelBar() {
 // Geração (3 modos) → imprime os elegíveis e recarrega a lista (atualiza contador).
 async function gerarComunicados(qs, rotulo) {
   try {
-    const data = await (await fetch('/api/depop/comunicados/gerar?' + qs)).json();
+    const data = await (await fetch('/api/depop/comunicados/gerar?' + qs, { method: 'POST' })).json();
     if (data.error) { toast(data.error, 'error'); return; }
     const coms = data.comunicados || [], pulados = data.pulados || [];
     if (!coms.length) {
@@ -864,9 +868,10 @@ function drillLinhaComunicado(c) {
   const ger = c.geracoes
     ? `<span class="cmn-tag gerado">✓ ${c.geracoes}× · ${fmtData(c.ultima_geracao)}</span>`
     : '<span class="meta">nunca gerado</span>';
-  const btnEntrega = c.geracoes
+  const ro = !!(estado.caps && estado.caps.is_consulta);
+  const btnEntrega = (c.geracoes && !ro)
     ? `<button class="btn ${c.enviado ? 'btn-secondary' : 'btn-primary'} btn-sm" onclick="marcarEntrega(${c.id},${c.enviado ? 0 : 1})">${c.enviado ? '✓ Entregue — desmarcar' : 'Marcar entregue'}</button>`
-    : '';
+    : (c.enviado ? '<span class="cmn-tag entregue">entregue</span>' : '');
   return `<div class="cmn-ct">
     <div class="grow">
       <div class="ccu">CCU ${esc(c.numero_ccu)}</div>
