@@ -367,9 +367,6 @@ function setupDb() {
       FOREIGN KEY (gerado_por) REFERENCES users(id)
     );
   `);
-  // Número de protocolo de entrega: sequencial, atribuído 1x na 1ª geração e
-  // estável nas reimpressões (2ª via mostra o mesmo número).
-  try { _db.exec(`ALTER TABLE comunicado_gerado ADD COLUMN protocolo_seq INTEGER`); } catch {}
 
   _db.exec(`
     CREATE TABLE IF NOT EXISTS logs (

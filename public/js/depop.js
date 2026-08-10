@@ -926,6 +926,7 @@ function protocoloPaper(c) {
     <div class="cmn-title">PROTOCOLO DE ENTREGA Nº ${esc(c.protocolo_numero || '—')}</div>
     <div class="cmn-dest">
       <div><span class="lbl">Referente ao Comunicado Oficial nº:</span> ${esc(c.numero_comunicado)}</div>
+      <div><span class="lbl">Código do concessionário:</span> ${esc(c.codigo)}</div>
       <div><span class="lbl">À empresa:</span> ${esc(c.empresa)}</div>
       <div><span class="lbl">CNPJ nº:</span> ${esc(c.cnpj)}</div>
       <div><span class="lbl">Contrato de concessão de uso nº:</span> ${esc(c.numero_ccu)}</div>

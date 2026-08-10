@@ -1637,13 +1637,6 @@ function paramSistema(chave, padrao) {
   return r && r.valor != null ? r.valor : padrao;
 }
 
-// Nº de protocolo formatado (NNNN/AAAA) a partir do sequencial + ano da 1ª geração.
-function fmtProtocolo(seq, isoPrimeira) {
-  if (!seq) return null;
-  const ano = isoPrimeira ? new Date(isoPrimeira).getFullYear() : new Date().getFullYear();
-  return String(seq).padStart(4, '0') + '/' + ano;
-}
-
 // Monta os dados de UM comunicado (um contrato). {ok:false, motivo} quando não
 // pode gerar (ano fora do intervalo, ou sem credencial) — nunca gera carta sem
 // login/senha. A URL vem SEMPRE do parametro_sistema (nunca fixa no código).
@@ -1670,11 +1663,12 @@ function montarComunicado(idAvaliacao) {
   const v = db.prepare(`SELECT status FROM validacao_contrato WHERE id_avaliacao = ?`).get(idAvaliacao);
   if (!v || v.status !== 'validado') return { ...base, ok: false, motivo: 'nao_validado',
                        label: 'Contrato ainda não foi validado — valide antes de gerar o comunicado' };
-  const cg = db.prepare(`SELECT protocolo_seq, primeira_geracao FROM comunicado_gerado WHERE id_avaliacao = ?`).get(idAvaliacao);
   return { ok: true, comunicado: {
     id: a.id, codigo: a.codigo,
     numero_comunicado: paramSistema('numero_comunicado', '01/2026'),
-    protocolo_numero: cg ? fmtProtocolo(cg.protocolo_seq, cg.primeira_geracao) : null,
+    // Nº do protocolo = código do concessionário / CCU do contrato. Vem direto do
+    // contrato (código+CCU é único, 443/443), então é sempre estável — sem contador.
+    protocolo_numero: `${a.codigo}/${a.numero_ccu || '—'}`,
     empresa: a.cliente || a.acess_name || '—',
     cnpj: a.login,
     endereco: a.endereco || '—',
@@ -1792,18 +1786,6 @@ app.post('/api/depop/comunicados/gerar', requireCap('comunicados'), (req, res) =
     ON CONFLICT(id_avaliacao) DO UPDATE SET
       geracoes = geracoes + 1, ultima_geracao = excluded.ultima_geracao, gerado_por = excluded.gerado_por`);
   for (const c of comunicados) up.run(c.id, iso, iso, req.user.user_id);
-
-  // Nº de protocolo: sequencial global, atribuído 1x por contrato (nulo → recebe
-  // MAX+1). Regeração mantém o número. Depois anexa aos objetos p/ o PDF.
-  const assignSeq = db.prepare(`UPDATE comunicado_gerado
-    SET protocolo_seq = (SELECT COALESCE(MAX(protocolo_seq), 0) + 1 FROM comunicado_gerado)
-    WHERE id_avaliacao = ? AND protocolo_seq IS NULL`);
-  const seqRow = db.prepare(`SELECT protocolo_seq, primeira_geracao FROM comunicado_gerado WHERE id_avaliacao = ?`);
-  for (const c of comunicados) {
-    assignSeq.run(c.id);
-    const r = seqRow.get(c.id);
-    c.protocolo_numero = r ? fmtProtocolo(r.protocolo_seq, r.primeira_geracao) : null;
-  }
 
   if (novos.length) {
     registrarLog(req, 'DEPOP', 'COMUNICADO_GEROU',
