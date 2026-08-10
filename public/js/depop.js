@@ -923,8 +923,9 @@ function protocoloPaper(c) {
       <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" onerror="this.style.display='none'"/>
       <div class="cmn-org">Centrais de Abastecimento de Minas Gerais S.A — CEASAMINAS</div>
     </div>
-    <div class="cmn-title">PROTOCOLO DE ENTREGA — COMUNICADO OFICIAL Nº ${esc(c.numero_comunicado)}</div>
+    <div class="cmn-title">PROTOCOLO DE ENTREGA Nº ${esc(c.protocolo_numero || '—')}</div>
     <div class="cmn-dest">
+      <div><span class="lbl">Referente ao Comunicado Oficial nº:</span> ${esc(c.numero_comunicado)}</div>
       <div><span class="lbl">À empresa:</span> ${esc(c.empresa)}</div>
       <div><span class="lbl">CNPJ nº:</span> ${esc(c.cnpj)}</div>
       <div><span class="lbl">Contrato de concessão de uso nº:</span> ${esc(c.numero_ccu)}</div>
