@@ -852,7 +852,7 @@ function mostrarAvisos(pulados, gerados) {
   let html = '';
   if (gerados) {
     html += `<div style="padding:10px 12px;background:var(--surface-2);border:1px solid #90CAF9;border-left:3px solid #1565C0;border-radius:8px;color:#0d3d6e;font-size:12.5px;margin-bottom:8px;">
-      📎 <strong>Comprovante de entrega:</strong> imprima também o <strong>protocolo de entrega</strong> e, após a entrega, <strong>anexe uma cópia assinada</strong> como comprovante na plataforma (aba <em>Contratos › Ver › Comprovantes</em>).</div>`;
+      📎 <strong>Comprovante de entrega:</strong> o <strong>protocolo de entrega</strong> já foi impresso junto com cada comunicado. Após a entrega, <strong>anexe a cópia assinada</strong> como comprovante na plataforma (aba <em>Contratos › Ver › Comprovantes</em>).</div>`;
   }
   if (pulados && pulados.length) {
     const itens = pulados.slice(0, 50).map(p =>
@@ -863,8 +863,11 @@ function mostrarAvisos(pulados, gerados) {
   document.getElementById('dpc-avisos').innerHTML = html;
 }
 
+// Cada comunicado sai já seguido do seu protocolo de entrega (2 páginas por
+// contrato): a carta pro concessionário + o documento que ele assina no ato.
 function imprimirComunicados(coms) {
-  document.getElementById('dp-print').innerHTML = coms.map(comunicadoPaper).join('');
+  const paginas = coms.flatMap(c => [comunicadoPaper(c), protocoloPaper(c)]);
+  document.getElementById('dp-print').innerHTML = paginas.join('');
   const limpar = () => { document.getElementById('dp-print').innerHTML = ''; window.removeEventListener('afterprint', limpar); };
   window.addEventListener('afterprint', limpar);
   window.print();
