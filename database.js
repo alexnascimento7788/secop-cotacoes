@@ -429,4 +429,47 @@ const depopDb = new Proxy({}, {
   }
 });
 
-module.exports = { db, setupDb, gerarNumeroProcesso, depopDb, setupDepop, depopFilePath };
+// ── Anexos (arquivo separado: data/anexos.db) ─────────────────────────────────
+// Guarda os comprovantes de entrega dos comunicados (a cópia assinada que volta
+// como prova) — como BLOB. Fica num arquivo à parte de propósito: os anexos
+// podem crescer bastante e NÃO devem inchar/arriscar o secop.db (contratos
+// assinados). Tem export/import próprio, então viajam no backup sem tocar nos
+// outros bancos. Diferente do depop.db, o schema é NOSSO — criamos a tabela aqui
+// (idempotente), inclusive depois de uma importação. Liga ao depop.db só pelo
+// id_avaliacao; `enviado_por`/`_nome` são desnormalizados (não há FK entre .db).
+const anexosFilePath = path.join(dataDir, 'anexos.db');
+let _anexos;
+
+function setupAnexos() {
+  _anexos = new DatabaseSync(anexosFilePath);
+  _anexos.exec('PRAGMA journal_mode = WAL');
+  _anexos.exec(`
+    CREATE TABLE IF NOT EXISTS comprovante_entrega (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      id_avaliacao      INTEGER NOT NULL,
+      nome_arquivo      TEXT,
+      mime              TEXT,
+      tamanho           INTEGER,
+      conteudo          BLOB NOT NULL,
+      enviado_por       INTEGER,
+      enviado_por_nome  TEXT,
+      criado_em         DATETIME DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_compr_aval ON comprovante_entrega(id_avaliacao);
+  `);
+}
+
+setupAnexos();
+
+const anexosDb = new Proxy({}, {
+  get(_, prop) {
+    const val = _anexos[prop];
+    return typeof val === 'function' ? val.bind(_anexos) : val;
+  }
+});
+
+module.exports = {
+  db, setupDb, gerarNumeroProcesso,
+  depopDb, setupDepop, depopFilePath,
+  anexosDb, setupAnexos, anexosFilePath
+};

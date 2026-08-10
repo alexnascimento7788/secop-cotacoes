@@ -161,6 +161,14 @@
     .cmn-ct .meta { font-size: 12px; color: var(--text-muted); }
     .cmn-ct .grow { flex: 1; min-width: 180px; }
 
+    /* Lista de comprovantes de entrega (modal) */
+    .dpc-compr-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--cinza-b); border-radius: 8px; background: var(--surface-2); }
+    .dpc-compr-item .ic { font-size: 18px; }
+    .dpc-compr-item .grow { flex: 1; min-width: 0; }
+    .dpc-compr-item a { font-weight: 600; color: var(--azul); text-decoration: none; word-break: break-all; }
+    .dpc-compr-item a:hover { text-decoration: underline; }
+    .dpc-compr-item .meta { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+
     /* Container de impressão (individual e em massa) */
     #dp-print { display: none; }
 
@@ -421,6 +429,23 @@
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
       <button class="btn btn-secondary btn-sm" onclick="fecharModal('dpc-modal-param')">Cancelar</button>
       <button class="btn btn-primary btn-sm" onclick="salvarParametros()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: comprovantes de entrega (anexos) -->
+<div id="dpc-modal-compr" class="modal-overlay">
+  <div class="modal-box" style="max-width:560px;">
+    <h3 id="dpc-compr-titulo">Comprovantes</h3>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">Anexe a <strong>cópia assinada</strong> do comunicado (ou o protocolo de entrega) como prova. Aceita imagem (JPG/PNG) ou PDF — imagens são compactadas automaticamente.</p>
+    <div id="dpc-compr-lista" style="display:flex;flex-direction:column;gap:8px;max-height:46vh;overflow:auto;"></div>
+    <div id="dpc-compr-upload" style="margin-top:14px;display:flex;align-items:center;gap:10px;">
+      <input type="file" id="dpc-compr-file" accept="image/*,application/pdf" style="display:none;" onchange="enviarComprovante(this)" />
+      <button class="btn btn-primary btn-sm" onclick="escolherComprovante()">📎 Anexar comprovante</button>
+      <span id="dpc-compr-status" style="font-size:12.5px;color:var(--text-muted);"></span>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="fecharModal('dpc-modal-compr')">Fechar</button>
     </div>
   </div>
 </div>
