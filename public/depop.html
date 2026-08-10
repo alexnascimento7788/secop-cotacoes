@@ -393,6 +393,21 @@
   </div>
 </div>
 
+<!-- Modal: cancelar assinatura (só supervisor) -->
+<div id="dp-modal-cancelar" class="modal-overlay">
+  <div class="modal-box">
+    <h3>Cancelar assinatura</h3>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">Isto <strong>desfaz a validação</strong> e devolve o contrato para conferência. Descreva o <strong>motivo</strong> e confirme com a sua <strong>senha de login</strong>.</p>
+    <textarea id="dp-cancel-motivo" class="filter-input" style="width:100%;min-height:80px;resize:vertical;" placeholder="Ex.: Assinado por engano / valor precisa ser corrigido..."></textarea>
+    <input type="password" id="dp-cancel-senha" class="filter-input" style="width:100%;margin-top:8px;" placeholder="Sua senha de login" autocomplete="current-password" />
+    <div id="dp-cancel-msg" style="font-size:12.5px;font-weight:600;color:var(--vermelho);min-height:16px;margin-top:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="fecharModal('dp-modal-cancelar')">Voltar</button>
+      <button class="btn btn-danger btn-sm" id="dp-btn-cancelar-assin" onclick="confirmarCancelamento()">Cancelar assinatura</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: parâmetros do comunicado (só master) -->
 <div id="dpc-modal-param" class="modal-overlay">
   <div class="modal-box">

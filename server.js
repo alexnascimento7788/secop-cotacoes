@@ -1536,6 +1536,39 @@ app.post('/api/depop/contratos/:id/errado', requireCap('valida'), (req, res) => 
   res.json({ ok: true });
 });
 
+// Cancelar assinatura (só supervisor/master): desfaz uma validação já assinada e
+// devolve o contrato para 'pendente', permitindo nova conferência/assinatura. É
+// uma ação sensível sobre um registro assinado — exige a senha de login do master
+// e um motivo, e fica registrada no log. Se já havia comunicado gerado, avisa.
+app.post('/api/depop/contratos/:id/cancelar-validacao', requireCap('valida'), (req, res) => {
+  if (perfilFerramenta(req) !== 'master') return res.status(403).json({ error: 'Apenas o supervisor pode cancelar uma assinatura.' });
+  const id = parseInt(req.params.id, 10);
+  const { senha, motivo } = req.body || {};
+  const just = String(motivo || '').trim();
+  if (!senha) return res.status(400).json({ error: 'Informe sua senha para cancelar a assinatura.' });
+  if (!just) return res.status(400).json({ error: 'Descreva o motivo do cancelamento.' });
+
+  const v = db.prepare(`SELECT status FROM validacao_contrato WHERE id_avaliacao = ?`).get(id);
+  if (!v || v.status !== 'validado') return res.status(409).json({ error: 'Este contrato não está assinado.' });
+
+  // Confirma com a senha de LOGIN do próprio master (mesma regra da assinatura).
+  const u = db.prepare(`SELECT senha_hash, salt FROM users WHERE id = ?`).get(req.user.user_id);
+  const h = crypto.pbkdf2Sync(String(senha), u.salt, 100000, 64, 'sha512').toString('hex');
+  if (h !== u.senha_hash) return res.status(401).json({ error: 'Senha incorreta.' });
+
+  const det = montarDetalhe(id);
+  const com = db.prepare(`SELECT geracoes FROM comunicado_gerado WHERE id_avaliacao = ?`).get(id);
+  const alerta = !!(com && com.geracoes > 0);
+
+  // Remove a validação → volta para 'pendente'; solta qualquer trava pendente.
+  db.prepare(`DELETE FROM validacao_contrato WHERE id_avaliacao = ?`).run(id);
+  db.prepare(`DELETE FROM validacao_lock WHERE id_avaliacao = ?`).run(id);
+
+  const ref = det ? (det.numero_ccu || det.id_contrato) : id;
+  registrarLog(req, 'DEPOP', 'CANCELOU_VALIDACAO', `Cancelou assinatura do contrato CCU ${ref}: ${just.slice(0, 160)}${alerta ? ' [ATENÇÃO: comunicado já havia sido gerado]' : ''}`);
+  res.json({ ok: true, comunicado_alerta: alerta });
+});
+
 // Exportação em massa (supervisor): devolve os detalhes de todos os contratos do
 // filtro para o front montar um PDF único (impressão do navegador).
 app.get('/api/depop/exportar', (req, res) => {

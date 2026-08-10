@@ -406,7 +406,10 @@ function renderPreviewActions() {
     // Consulta (só leitura): vê o documento e pode imprimir, sem ações.
     box.innerHTML = chip + `<button class="btn btn-secondary btn-sm" onclick="imprimirIndividual()">🖨️ Exportar PDF</button>`;
   } else if (estado.perfil === 'master') {
-    box.innerHTML = chip + `<button class="btn btn-secondary btn-sm" onclick="imprimirIndividual()">🖨️ Exportar PDF</button>`;
+    let acoes = `<button class="btn btn-secondary btn-sm" onclick="imprimirIndividual()">🖨️ Exportar PDF</button>`;
+    // Supervisor pode desfazer uma assinatura já feita (volta para conferência).
+    if (st === 'validado') acoes += `<button class="btn btn-danger btn-sm" onclick="abrirModalCancelar()">Cancelar assinatura</button>`;
+    box.innerHTML = chip + acoes;
   } else if (st === 'validado') {
     // Contrato assinado é final: não reabre pra assinar de novo nem marcar erro.
     box.innerHTML = chip + `<span style="align-self:center;font-size:12px;color:var(--text-muted);">🔒 Assinado — não pode ser alterado.</span>`;
@@ -504,6 +507,42 @@ function abrirModalErro() {
   setTimeout(() => document.getElementById('dp-erro-obs').focus(), 50);
 }
 function fecharModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// Cancelar assinatura (só supervisor): desfaz uma validação já feita.
+function abrirModalCancelar() {
+  document.getElementById('dp-cancel-motivo').value = '';
+  document.getElementById('dp-cancel-senha').value = '';
+  document.getElementById('dp-cancel-msg').textContent = '';
+  document.getElementById('dp-modal-cancelar').classList.add('open');
+  setTimeout(() => document.getElementById('dp-cancel-motivo').focus(), 50);
+}
+
+async function confirmarCancelamento() {
+  const motivo = document.getElementById('dp-cancel-motivo').value.trim();
+  const senha = document.getElementById('dp-cancel-senha').value;
+  const msg = document.getElementById('dp-cancel-msg');
+  const btn = document.getElementById('dp-btn-cancelar-assin');
+  if (!motivo) { msg.textContent = 'Descreva o motivo do cancelamento.'; return; }
+  if (!senha) { msg.textContent = 'Informe a sua senha de login.'; return; }
+  btn.disabled = true; btn.textContent = 'Cancelando...';
+  try {
+    const res = await fetch(`/api/depop/contratos/${_det.id}/cancelar-validacao`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motivo, senha })
+    });
+    const data = await res.json();
+    if (!res.ok) { msg.textContent = data.error || 'Erro ao cancelar a assinatura.'; return; }
+    fecharModal('dp-modal-cancelar');
+    toast(data.comunicado_alerta
+      ? 'Assinatura cancelada. Atenção: este contrato já tinha comunicado gerado.'
+      : 'Assinatura cancelada. Contrato voltou para conferência.', 'success');
+    await fecharPreview();
+  } catch (e) {
+    msg.textContent = 'Falha de conexão.';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Cancelar assinatura';
+  }
+}
 
 async function confirmarAssinatura() {
   const senha = document.getElementById('dp-senha-assinatura').value;
