@@ -28,6 +28,7 @@ window.getCurrentUser = () => window._userPromise || (window._userPromise = (asy
   if (!podeConfig) {
     document.querySelectorAll('a.sidebar-gear[href="admin.html"]').forEach(a => a.remove());
   }
+  if (user.role === 'consulta') _aplicarModoLeitura();
   _injetarToggleDark();
   _injetarVersao();
   _initInatividade();
@@ -84,6 +85,50 @@ async function logout() {
   try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
   localStorage.removeItem(LS_ULTIMA_ATIVIDADE);
   window.location.replace('/login.html');
+}
+
+/* ── Modo somente leitura (perfil "consulta") ──────────────────────────────────
+   Intercepta chamadas de ESCRITA à API no cliente e mostra um aviso amigável,
+   sem ir ao servidor (que também barra, na guarda global). Passam os poucos
+   POSTs de VISUALIZAÇÃO (abrir/ping/fechar o preview de contrato no Depop) e
+   tudo em /api/auth (login, trocar módulo, logout). É transversal: cobre todos
+   os módulos sem precisar mexer em cada botão. */
+function _aplicarModoLeitura() {
+  document.documentElement.setAttribute('data-readonly', '1');
+  const permit = [/\/api\/auth\//, /\/api\/depop\/contratos\/\d+\/(abrir|ping|fechar)\b/];
+  const _fetch = window.fetch.bind(window);
+  window.fetch = (input, init = {}) => {
+    const method = (init.method || (typeof input !== 'string' && input && input.method) || 'GET').toUpperCase();
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    if (url.includes('/api/') && !['GET', 'HEAD', 'OPTIONS'].includes(method) && !permit.some(re => re.test(url))) {
+      _avisoLeitura();
+      return Promise.resolve(new Response('{"error":"Usuário de consulta: acesso somente leitura."}',
+        { status: 403, headers: { 'Content-Type': 'application/json' } }));
+    }
+    return _fetch(input, init);
+  };
+  const nav = document.querySelector('.sidebar nav') || document.querySelector('.sidebar');
+  if (nav) {
+    const selo = document.createElement('div');
+    selo.textContent = '👁 Somente leitura';
+    selo.style.cssText = 'margin:10px 16px 0;padding:5px 10px;background:rgba(128,128,128,.15);border-radius:6px;font-size:11px;font-weight:700;color:var(--text-muted);text-align:center;';
+    nav.appendChild(selo);
+  }
+}
+
+let _avisoLeituraT;
+function _avisoLeitura() {
+  let el = document.getElementById('readonly-aviso');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'readonly-aviso';
+    el.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#334155;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;box-shadow:0 6px 24px rgba(0,0,0,.3);z-index:9999;opacity:0;transition:opacity .2s;';
+    document.body.appendChild(el);
+  }
+  el.textContent = '👁 Usuário de consulta — somente leitura.';
+  el.style.opacity = '1';
+  clearTimeout(_avisoLeituraT);
+  _avisoLeituraT = setTimeout(() => { el.style.opacity = '0'; }, 2600);
 }
 
 /* ── Timeout por inatividade ──────────────────────────────

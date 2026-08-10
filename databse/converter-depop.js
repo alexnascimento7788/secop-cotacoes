@@ -14,7 +14,13 @@ const fs = require('fs');
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 
-const SRC = path.join(__dirname, 'Base.sql');
+// Fontes do dump (todas UTF-16 do SSMS). Base.sql = 5 tabelas de referência;
+// Table.sql = concessionario_acess (credenciais de acesso à plataforma de adesão,
+// usadas na aba Comunicados). Table.sql é opcional — se faltar, só é pulado.
+const SRCS = [
+  path.join(__dirname, 'Base.sql'),
+  path.join(__dirname, 'Table.sql'),
+];
 const OUT = path.join(__dirname, '..', 'data', 'depop.db');
 
 // ── Schema SQLite (escrito à mão a partir do dump) ────────────────────────────
@@ -83,11 +89,23 @@ CREATE TABLE TarifaContrato20Anos (
   data_vencimento  TEXT,
   id_contrato      INTEGER
 );
+
+-- Credenciais de acesso à plataforma de adesão (uma linha por concessionário).
+-- codigo → ClienteConcessionario.codigo; login (CNPJ formatado) e codeaccess
+-- (senha provisória) vêm prontos do SQL Server — a plataforma nunca os gera.
+DROP TABLE IF EXISTS concessionario_acess;
+CREATE TABLE concessionario_acess (
+  codigo     INTEGER,
+  login      TEXT,
+  name       TEXT,
+  codeaccess TEXT
+);
+CREATE INDEX idx_acess_codigo ON concessionario_acess(codigo);
 `;
 
 // ── Leitura do dump (UTF-16 LE com BOM) ───────────────────────────────────────
-function lerDump() {
-  const buf = fs.readFileSync(SRC);
+function lerDump(src) {
+  const buf = fs.readFileSync(src);
   if (buf[0] === 0xFF && buf[1] === 0xFE) return buf.toString('utf16le').slice(1);
   return buf.toString('utf8');
 }
@@ -135,30 +153,32 @@ function main() {
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(SCHEMA);
 
-  const linhas = lerDump().split(/\r?\n/);
   const reInsert = /^INSERT \[dbo\]\.\[(\w+)\] \(([^)]*)\) VALUES \(([\s\S]*)\)\s*$/;
   const stmtCache = new Map();
   const contagem = {};
 
   db.exec('BEGIN');
-  for (const linha of linhas) {
-    const m = linha.match(reInsert);
-    if (!m) continue;
-    const tabela = m[1];
-    const cols = m[2].split(',').map(c => c.trim().replace(/^\[|\]$/g, ''));
-    const valores = tokenizeValues(m[3]).map(mapToken);
-    if (valores.length !== cols.length) {
-      throw new Error(`Colunas x valores divergem em ${tabela}: ${cols.length} vs ${valores.length}\n${linha.slice(0, 200)}`);
+  for (const src of SRCS) {
+    if (!fs.existsSync(src)) { console.warn('  (pulado, não encontrado):', path.basename(src)); continue; }
+    for (const linha of lerDump(src).split(/\r?\n/)) {
+      const m = linha.match(reInsert);
+      if (!m) continue;
+      const tabela = m[1];
+      const cols = m[2].split(',').map(c => c.trim().replace(/^\[|\]$/g, ''));
+      const valores = tokenizeValues(m[3]).map(mapToken);
+      if (valores.length !== cols.length) {
+        throw new Error(`Colunas x valores divergem em ${tabela}: ${cols.length} vs ${valores.length}\n${linha.slice(0, 200)}`);
+      }
+      const chave = tabela + '|' + cols.join(',');
+      let stmt = stmtCache.get(chave);
+      if (!stmt) {
+        const sql = `INSERT INTO ${tabela} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`;
+        stmt = db.prepare(sql);
+        stmtCache.set(chave, stmt);
+      }
+      stmt.run(...valores);
+      contagem[tabela] = (contagem[tabela] || 0) + 1;
     }
-    const chave = tabela + '|' + cols.join(',');
-    let stmt = stmtCache.get(chave);
-    if (!stmt) {
-      const sql = `INSERT INTO ${tabela} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`;
-      stmt = db.prepare(sql);
-      stmtCache.set(chave, stmt);
-    }
-    stmt.run(...valores);
-    contagem[tabela] = (contagem[tabela] || 0) + 1;
   }
   db.exec('COMMIT');
 

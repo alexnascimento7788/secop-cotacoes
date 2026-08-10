@@ -73,7 +73,8 @@ function requireAuth(req, res, next) {
 // módulos ativos; os demais, só os que têm em user_modulos. Sempre filtra ativo=1
 // para que desligar um módulo o esconda de todos de uma vez.
 function modulosDoUsuario(user) {
-  if (user.username === 'master') {
+  // master e usuário de consulta (somente leitura) enxergam todos os módulos ativos.
+  if (user.username === 'master' || user.role === 'consulta') {
     return db.prepare(`SELECT id, slug, nome, cor, home, ordem FROM modulos WHERE ativo = 1 ORDER BY ordem`).all();
   }
   return db.prepare(`
@@ -99,6 +100,20 @@ function registrarLog(req, tipo, acao, descricao, _username, _userId) {
 app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/auth/')) return next();
   requireAuth(req, res, next);
+});
+
+// Somente leitura para o perfil "consulta": nega qualquer método que não seja
+// leitura. É a garantia real (o cliente também avisa, mas isto é o que protege).
+// Poucos POSTs de VISUALIZAÇÃO passam: abrir/ping/fechar o preview de um contrato
+// no Depop apenas montam a tela e mexem numa trava efêmera — nunca alteram dado.
+const CONSULTA_POST_OK = [
+  /^\/depop\/contratos\/\d+\/(abrir|ping|fechar)$/,
+];
+app.use('/api', (req, res, next) => {
+  if (!req.user || req.user.role !== 'consulta') return next();
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  if (CONSULTA_POST_OK.some(re => re.test(req.path))) return next();
+  return res.status(403).json({ error: 'Usuário de consulta: acesso somente leitura.' });
 });
 
 function requireAdmin(req, res, next) {
@@ -849,7 +864,13 @@ app.get('/api/setores', (req, res) => {
 // ── Admin: usuários ───────────────────────────────────────────────────────────
 
 app.get('/api/admin/users', (req, res) => {
-  res.json(db.prepare("SELECT id, username, email, role, ativo, acesso_avancado, senha_provisoria, criado_em FROM users WHERE username != 'master' ORDER BY id").all());
+  // Capacidades do Depop (valida / comunicados) vêm por LEFT JOIN: sem linha em
+  // depop_acesso = padrão (valida=1, comunicados=0).
+  res.json(db.prepare(`
+    SELECT u.id, u.username, u.email, u.role, u.ativo, u.acesso_avancado, u.senha_provisoria, u.criado_em,
+           COALESCE(da.valida, 1) AS depop_valida, COALESCE(da.comunicados, 0) AS depop_comunicados
+    FROM users u LEFT JOIN depop_acesso da ON da.user_id = u.id
+    WHERE u.username != 'master' ORDER BY u.id`).all());
 });
 
 app.post('/api/admin/users', (req, res) => {
@@ -911,6 +932,18 @@ app.patch('/api/admin/users/:id', (req, res) => {
     if (user.username === 'master') return res.status(400).json({ error: 'O master já tem acesso completo' });
     db.prepare("UPDATE users SET acesso_avancado = ? WHERE id = ?").run(acesso_avancado ? 1 : 0, req.params.id);
     registrarLog(req, 'USUARIO', 'ACESSO_AVANCADO', `${acesso_avancado ? 'Concedeu' : 'Revogou'} acesso avançado (Configurações/Lixeira) a "${user.username}"`);
+  }
+  // Capacidades dentro do módulo Depop: validar contratos e/ou gerar comunicados.
+  // Só grava o flag enviado; mantém o outro. O acesso ao MÓDULO em si é na aba Módulos.
+  if (req.body.depop_valida !== undefined || req.body.depop_comunicados !== undefined) {
+    if (user.username === 'master') return res.status(400).json({ error: 'O master já usa todo o Depop' });
+    const cur = db.prepare("SELECT valida, comunicados FROM depop_acesso WHERE user_id = ?").get(req.params.id) || { valida: 1, comunicados: 0 };
+    const valida      = req.body.depop_valida      !== undefined ? (req.body.depop_valida ? 1 : 0)      : cur.valida;
+    const comunicados = req.body.depop_comunicados !== undefined ? (req.body.depop_comunicados ? 1 : 0) : cur.comunicados;
+    db.prepare(`INSERT INTO depop_acesso (user_id, valida, comunicados) VALUES (?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET valida = excluded.valida, comunicados = excluded.comunicados`)
+      .run(req.params.id, valida, comunicados);
+    registrarLog(req, 'USUARIO', 'DEPOP_ACESSO', `Depop de "${user.username}": validação=${valida ? 'sim' : 'não'}, comunicados=${comunicados ? 'sim' : 'não'}`);
   }
   res.json({ ok: true });
 });
@@ -1158,13 +1191,14 @@ app.post('/api/depop/consultar-cpf', async (req, res) => {
 // 1º acesso ou o conteúdo). Nunca devolve chave privada; CPF vem mascarado.
 app.get('/api/depop/perfil', (req, res) => {
   const ferramenta = perfilFerramenta(req); // 'master' | 'validador'
+  const caps = depopCaps(req);
   const perfil = db.prepare(`SELECT cpf, nome, criado_em FROM depop_perfil WHERE user_id = ?`).get(req.user.user_id);
   const cadastrado = !!perfil;
-  // O supervisor (master) só lê e exporta — nunca assina —, então não passa pelo
-  // cadastro de 1º acesso (CPF + senha de assinatura). O validador precisa.
-  const precisa_setup = ferramenta !== 'master' && !cadastrado;
+  // Só passa pelo cadastro de 1º acesso (CPF) quem vai VALIDAR: master (supervisor),
+  // usuário só-comunicados e consulta (só leitura) não assinam, então não precisam.
+  const precisa_setup = !caps.is_master && !caps.is_consulta && caps.pode_validar && !cadastrado;
   const cpfMasc = perfil ? perfil.cpf.replace(/^(\d{3})\d{6}(\d{2})$/, '$1.***.**-$2') : null;
-  res.json({ cadastrado, precisa_setup, perfil: ferramenta, nome: req.user.username,
+  res.json({ cadastrado, precisa_setup, perfil: ferramenta, caps, nome: req.user.username,
              nome_titular: perfil ? perfil.nome : null,
              cpf_mascarado: cpfMasc, criado_em: perfil ? perfil.criado_em : null });
 });
@@ -1207,6 +1241,30 @@ const LOCK_TTL_SEG = 120; // trava sem ping por mais que isso = abandonada (libe
 // assina nem marca erro. Todos os demais usuários do Depop são validadores.
 function perfilFerramenta(req) {
   return req.user.username === 'master' ? 'master' : 'validador';
+}
+
+// Capacidades do usuário DENTRO do módulo Depop (o acesso ao módulo em si é por
+// user_modulos). master = tudo. Sem linha em depop_acesso = padrão histórico
+// (valida contratos, sem comunicados) — não quebra quem já usava a validação.
+function depopCaps(req) {
+  if (req.user.username === 'master') return { is_master: true, is_consulta: false, pode_validar: true, pode_comunicados: true };
+  // Consulta (somente leitura) enxerga as duas seções, mas as ações são barradas
+  // pela guarda global de leitura — aqui só liberamos a VISUALIZAÇÃO.
+  if (req.user.role === 'consulta') return { is_master: false, is_consulta: true, pode_validar: true, pode_comunicados: true };
+  const row = db.prepare(`SELECT valida, comunicados FROM depop_acesso WHERE user_id = ?`).get(req.user.user_id);
+  return { is_master: false, is_consulta: false, pode_validar: row ? !!row.valida : true, pode_comunicados: row ? !!row.comunicados : false };
+}
+
+// Guarda de rota por capacidade ('valida' | 'comunicados'). O master e o consulta
+// passam sempre (consulta só lê; as escritas caem na guarda global de leitura).
+function requireCap(cap) {
+  const chave = cap === 'valida' ? 'pode_validar' : 'pode_comunicados';
+  return (req, res, next) => {
+    if (req.user.role === 'consulta') return next();
+    const c = depopCaps(req);
+    if (c.is_master || c[chave]) return next();
+    return res.status(403).json({ error: 'Você não tem essa permissão no Depop.' });
+  };
 }
 
 // Trava ativa (com ping recente) de um contrato, ou null se livre/abandonada.
@@ -1356,7 +1414,7 @@ app.get('/api/depop/contratos', (req, res) => {
 
 // Abre o preview de um contrato. Validador toma a trava (ou 409 se estiver com
 // outro); supervisor só visualiza, sem travar e sem ser travado.
-app.post('/api/depop/contratos/:id/abrir', (req, res) => {
+app.post('/api/depop/contratos/:id/abrir', requireCap('valida'), (req, res) => {
   const id = parseInt(req.params.id, 10);
   const det = montarDetalhe(id);
   if (!det) return res.status(404).json({ error: 'Contrato não encontrado' });
@@ -1365,6 +1423,10 @@ app.post('/api/depop/contratos/:id/abrir', (req, res) => {
   // for validador) — não dá mais pra assinar nem marcar erro.
   if (det.validacao && det.validacao.status === 'validado') {
     return res.json({ perfil: perfilFerramenta(req), detalhe: det, lock: null });
+  }
+  // Consulta (só leitura) e supervisor (master): abrem em leitura, sem travar.
+  if (req.user.role === 'consulta') {
+    return res.json({ perfil: 'consulta', detalhe: det, lock: null });
   }
   if (perfilFerramenta(req) === 'master') {
     return res.json({ perfil: 'master', detalhe: det, lock: null });
@@ -1399,7 +1461,7 @@ app.post('/api/depop/contratos/:id/fechar', (req, res) => {
 
 // Confirmar e assinar: assina o payload canônico com a chave do validador
 // (destravada pela senha de assinatura) e grava status 'validado' + timbre.
-app.post('/api/depop/contratos/:id/validar', (req, res) => {
+app.post('/api/depop/contratos/:id/validar', requireCap('valida'), (req, res) => {
   if (perfilFerramenta(req) === 'master') return res.status(403).json({ error: 'O supervisor não assina validações.' });
   const id = parseInt(req.params.id, 10);
   const { senha } = req.body || {};
@@ -1445,7 +1507,7 @@ app.post('/api/depop/contratos/:id/validar', (req, res) => {
 });
 
 // Marcar como errado: grava o motivo (observação) e status 'errado'.
-app.post('/api/depop/contratos/:id/errado', (req, res) => {
+app.post('/api/depop/contratos/:id/errado', requireCap('valida'), (req, res) => {
   if (perfilFerramenta(req) === 'master') return res.status(403).json({ error: 'O supervisor não marca erros.' });
   const id = parseInt(req.params.id, 10);
   const obs = String((req.body && req.body.observacao) || '').trim();
@@ -1491,6 +1553,184 @@ app.get('/api/depop/exportar', (req, res) => {
   const detalhes = ids.map(id => montarDetalhe(id)).filter(Boolean);
   registrarLog(req, 'DEPOP', 'EXPORTOU', `Exportou ${detalhes.length} contrato(s) em PDF`);
   res.json({ detalhes });
+});
+
+// ── Comunicados oficiais (Setor de Cadastro / Depto de Operações) ─────────────
+// Notifica cada concessionário elegível da prorrogação antecipada, com as
+// credenciais de acesso à plataforma de adesão. Um comunicado por CONTRATO
+// (login/senha se repetem entre contratos do mesmo concessionário; CCU, área e
+// vencimento são de cada contrato). Perfil por capacidade: requireCap('comunicados').
+
+// Prazo final de adesão pela regra do TCC/edital, pelo ano de vencimento. Fora do
+// intervalo previsto (2027–2032) → não gera (retorna null; o chamador bloqueia).
+function prazoFinalAdesao(ano) {
+  if (ano === 2027) return '30/10/2026';
+  if (ano >= 2028 && ano <= 2032) return '18/12/2026';
+  return null;
+}
+const DATA_INICIO_ADESAO = '17/08/2026'; // fixa pra todos (consta no próprio modelo)
+
+function paramSistema(chave, padrao) {
+  const r = db.prepare(`SELECT valor FROM parametro_sistema WHERE chave = ?`).get(chave);
+  return r && r.valor != null ? r.valor : padrao;
+}
+
+// Monta os dados de UM comunicado (um contrato). {ok:false, motivo} quando não
+// pode gerar (ano fora do intervalo, ou sem credencial) — nunca gera carta sem
+// login/senha. A URL vem SEMPRE do parametro_sistema (nunca fixa no código).
+function montarComunicado(idAvaliacao) {
+  const a = depopDb.prepare(`
+    SELECT a.id, a.codigo, a.numero_ccu, a.data_vencimento, a.endereco AS area,
+           cli.cliente, cli.endereco AS endereco,
+           x.login, x.name AS acess_name, x.codeaccess
+    FROM AvaliacaoAreaRenovacao a
+    LEFT JOIN ClienteConcessionario cli ON cli.codigo = a.codigo
+    LEFT JOIN concessionario_acess x ON x.codigo = a.codigo
+    WHERE a.id = ?`).get(idAvaliacao);
+  if (!a) return { ok: false, id: idAvaliacao, motivo: 'nao_encontrado', label: 'Contrato não encontrado' };
+  const ano = parseInt(String(a.data_vencimento || '').slice(0, 4), 10);
+  const prazo = prazoFinalAdesao(ano);
+  const base = { id: a.id, ccu: a.numero_ccu, concessionario: a.cliente };
+  if (!prazo) return { ...base, ok: false, motivo: 'ano_fora',
+                       label: `Ano de vencimento ${ano || '?'} fora do intervalo previsto (2027–2032) — verificar dado antes de gerar` };
+  if (!a.login || !a.codeaccess) return { ...base, ok: false, motivo: 'sem_credencial',
+                       label: 'Concessionário sem credencial de acesso — não é possível gerar' };
+  // Só gera comunicado de contrato JÁ VALIDADO (assinado na ferramenta de
+  // validação). O comunicado carrega credenciais oficiais — não sai antes de a
+  // conferência estar concluída.
+  const v = db.prepare(`SELECT status FROM validacao_contrato WHERE id_avaliacao = ?`).get(idAvaliacao);
+  if (!v || v.status !== 'validado') return { ...base, ok: false, motivo: 'nao_validado',
+                       label: 'Contrato ainda não foi validado — valide antes de gerar o comunicado' };
+  return { ok: true, comunicado: {
+    id: a.id, codigo: a.codigo,
+    numero_comunicado: paramSistema('numero_comunicado', '01/2026'),
+    empresa: a.cliente || a.acess_name || '—',
+    cnpj: a.login,
+    endereco: a.endereco || '—',
+    numero_ccu: a.numero_ccu || '—',
+    area: a.area || '—',
+    ano_vencimento: ano,
+    data_inicio: DATA_INICIO_ADESAO,
+    prazo_final: prazo,
+    url_acesso: paramSistema('url_plataforma_acesso', 'A DEFINIR'),
+    login: a.login,
+    senha: a.codeaccess
+  } };
+}
+
+// Lista para a tela: todos os contratos com elegibilidade + contador de gerações
+// e status de entrega. O front agrupa por cidade → concessionário.
+app.get('/api/depop/comunicados/lista', requireCap('comunicados'), (req, res) => {
+  const avals = depopDb.prepare(`
+    SELECT a.id, a.codigo, a.numero_ccu, a.data_vencimento, a.endereco AS area,
+           cli.cliente, c.descricao AS cidade,
+           CASE WHEN x.codigo IS NULL THEN 0 ELSE 1 END AS tem_credencial
+    FROM AvaliacaoAreaRenovacao a
+    LEFT JOIN ClienteConcessionario cli ON cli.codigo = a.codigo
+    LEFT JOIN Cidade c ON c.id = a.id_cidade
+    LEFT JOIN concessionario_acess x ON x.codigo = a.codigo
+    ORDER BY c.descricao, cli.cliente, a.numero_ccu`).all();
+  const gmap = new Map(db.prepare(`SELECT id_avaliacao, geracoes, ultima_geracao, enviado, dt_envio FROM comunicado_gerado`)
+    .all().map(r => [r.id_avaliacao, r]));
+  const vmap = new Map(db.prepare(`SELECT id_avaliacao, status FROM validacao_contrato`)
+    .all().map(r => [r.id_avaliacao, r.status]));
+  const contratos = avals.map(a => {
+    const ano = parseInt(String(a.data_vencimento || '').slice(0, 4), 10);
+    const prazo = prazoFinalAdesao(ano);
+    const g = gmap.get(a.id) || {};
+    const validado = vmap.get(a.id) === 'validado';
+    // Gerável só quando: ano no intervalo E tem credencial E já validado. O motivo
+    // segue essa prioridade (dado errado > falta credencial > falta validar).
+    let elegivel = true, motivo = null;
+    if (!prazo) { elegivel = false; motivo = 'ano_fora'; }
+    else if (!a.tem_credencial) { elegivel = false; motivo = 'sem_credencial'; }
+    else if (!validado) { elegivel = false; motivo = 'nao_validado'; }
+    return {
+      id: a.id, codigo: a.codigo, concessionario: a.cliente || '—', cidade: a.cidade || '—',
+      numero_ccu: a.numero_ccu || '—', area: a.area || '—', ano_vencimento: ano || null,
+      prazo_final: prazo, no_intervalo: !!prazo, tem_credencial: !!a.tem_credencial,
+      validado, elegivel, motivo,
+      geracoes: g.geracoes || 0, ultima_geracao: g.ultima_geracao || null,
+      enviado: !!g.enviado, dt_envio: g.dt_envio || null
+    };
+  });
+  const cidades = [...new Set(contratos.map(c => c.cidade))].sort();
+  res.json({ caps: depopCaps(req), url_definida: paramSistema('url_plataforma_acesso', 'A DEFINIR') !== 'A DEFINIR',
+             contratos, cidades });
+});
+
+// Geração: resolve o conjunto de contratos (por cidade, por concessionário, ou
+// seleção múltipla), monta os comunicados elegíveis e registra a geração
+// (incrementa o contador). Contratos fora do intervalo/sem credencial voltam em
+// `pulados` (nunca falha em silêncio).
+app.post('/api/depop/comunicados/gerar', requireCap('comunicados'), (req, res) => {
+  const { cidade, codigo, codigos } = req.query;
+  let rows;
+  if (codigo) {
+    rows = depopDb.prepare(`SELECT id FROM AvaliacaoAreaRenovacao WHERE codigo = ? ORDER BY numero_ccu`).all(parseInt(codigo, 10));
+  } else if (codigos) {
+    const lista = String(codigos).split(',').map(s => parseInt(s.trim(), 10)).filter(Boolean);
+    if (!lista.length) return res.status(400).json({ error: 'Nenhum concessionário selecionado.' });
+    const ph = lista.map(() => '?').join(',');
+    rows = depopDb.prepare(`SELECT id FROM AvaliacaoAreaRenovacao WHERE codigo IN (${ph}) ORDER BY codigo, numero_ccu`).all(...lista);
+  } else if (cidade) {
+    rows = depopDb.prepare(`SELECT a.id FROM AvaliacaoAreaRenovacao a LEFT JOIN Cidade c ON c.id = a.id_cidade
+                            WHERE c.descricao = ? ORDER BY a.numero_ccu`).all(String(cidade));
+  } else {
+    return res.status(400).json({ error: 'Informe cidade, concessionário ou seleção.' });
+  }
+
+  const comunicados = [], pulados = [];
+  for (const r of rows) {
+    const m = montarComunicado(r.id);
+    if (m.ok) comunicados.push(m.comunicado);
+    else pulados.push({ id: m.id, ccu: m.ccu, concessionario: m.concessionario, motivo: m.motivo, label: m.label });
+  }
+
+  // Contador de gerações + timestamps, por contrato efetivamente gerado.
+  const iso = new Date().toISOString();
+  const up = db.prepare(`
+    INSERT INTO comunicado_gerado (id_avaliacao, geracoes, primeira_geracao, ultima_geracao, gerado_por)
+    VALUES (?, 1, ?, ?, ?)
+    ON CONFLICT(id_avaliacao) DO UPDATE SET
+      geracoes = geracoes + 1, ultima_geracao = excluded.ultima_geracao, gerado_por = excluded.gerado_por`);
+  for (const c of comunicados) up.run(c.id, iso, iso, req.user.user_id);
+
+  if (comunicados.length) {
+    registrarLog(req, 'DEPOP', 'COMUNICADO_GEROU',
+      `Gerou ${comunicados.length} comunicado(s)${pulados.length ? ` — ${pulados.length} pulado(s)` : ''}`);
+  }
+  res.json({ comunicados, pulados });
+});
+
+// Controle de entrega (manual, separado da geração). Só marca quem já foi gerado.
+app.post('/api/depop/comunicados/:id/enviado', requireCap('comunicados'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const enviado = !!(req.body && req.body.enviado);
+  const row = db.prepare(`SELECT geracoes FROM comunicado_gerado WHERE id_avaliacao = ?`).get(id);
+  if (!row || !row.geracoes) return res.status(400).json({ error: 'Gere o comunicado antes de marcar a entrega.' });
+  const iso = enviado ? new Date().toISOString() : null;
+  db.prepare(`UPDATE comunicado_gerado SET enviado = ?, dt_envio = ? WHERE id_avaliacao = ?`).run(enviado ? 1 : 0, iso, id);
+  registrarLog(req, 'DEPOP', 'COMUNICADO_ENTREGA', `Comunicado ${id} marcado como ${enviado ? 'enviado' : 'não enviado'}`);
+  res.json({ ok: true, enviado, dt_envio: iso });
+});
+
+// Parâmetros do sistema (parametro_sistema) — leitura/edição só do master.
+app.get('/api/depop/parametros', (req, res) => {
+  if (req.user.username !== 'master') return res.status(403).json({ error: 'Restrito ao master.' });
+  const p = {};
+  db.prepare(`SELECT chave, valor FROM parametro_sistema`).all().forEach(r => { p[r.chave] = r.valor; });
+  res.json(p);
+});
+app.put('/api/depop/parametros', (req, res) => {
+  if (req.user.username !== 'master') return res.status(403).json({ error: 'Restrito ao master.' });
+  const entries = Object.entries(req.body || {});
+  if (!entries.length) return res.status(400).json({ error: 'Nada para salvar.' });
+  const up = db.prepare(`INSERT INTO parametro_sistema (chave, valor) VALUES (?, ?)
+    ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor`);
+  entries.forEach(([k, v]) => up.run(k, String(v)));
+  registrarLog(req, 'CONFIG', 'PARAM_SISTEMA', `Parâmetros do sistema: ${entries.map(([k, v]) => `${k}=${v}`).join(', ')}`);
+  res.json({ ok: true });
 });
 
 // ── Versão ───────────────────────────────────────────────────────────────────
