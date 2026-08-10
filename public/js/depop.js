@@ -700,7 +700,7 @@ async function carregarComunicados() {
 function renderAvisosCom() {
   const ehMaster = estado.caps && estado.caps.is_master;
   const html = comEstado.urlDefinida ? '' :
-    `<div style="padding:8px 12px;background:var(--surface-2);border:1px solid #FFCC80;border-left:3px solid #E65100;border-radius:8px;color:#E65100;font-size:12.5px;font-weight:600;">⚠️ A URL da plataforma de adesão está como "A DEFINIR" — os comunicados sairão com esse texto até ${ehMaster ? 'você configurar em ⚙️ Parâmetros.' : 'o master configurá-la.'}</div>`;
+    `<div style="padding:8px 12px;background:var(--surface-2);border:1px solid #FFCC80;border-left:3px solid #E65100;border-radius:8px;color:var(--text);font-size:12.5px;font-weight:600;">⚠️ A URL da plataforma de adesão está como "A DEFINIR" — os comunicados sairão com esse texto até ${ehMaster ? 'você configurar em ⚙️ Parâmetros.' : 'o master configurá-la.'}</div>`;
   document.getElementById('dpc-avisos').innerHTML = html;
   document.getElementById('dpc-avisos-painel').innerHTML = html;
 }
@@ -851,13 +851,13 @@ function gerarSelecionados() {
 function mostrarAvisos(pulados, gerados) {
   let html = '';
   if (gerados) {
-    html += `<div style="padding:10px 12px;background:var(--surface-2);border:1px solid #90CAF9;border-left:3px solid #1565C0;border-radius:8px;color:#0d3d6e;font-size:12.5px;margin-bottom:8px;">
+    html += `<div style="padding:10px 12px;background:var(--surface-2);border:1px solid #90CAF9;border-left:3px solid #1565C0;border-radius:8px;color:var(--text);font-size:12.5px;margin-bottom:8px;">
       📎 <strong>Comprovante de entrega:</strong> o <strong>protocolo de entrega</strong> já foi impresso junto com cada comunicado. Após a entrega, <strong>anexe a cópia assinada</strong> como comprovante na plataforma (aba <em>Contratos › Ver › Comprovantes</em>).</div>`;
   }
   if (pulados && pulados.length) {
     const itens = pulados.slice(0, 50).map(p =>
       `<li>${esc(p.concessionario || '')} — CCU ${esc(p.ccu || '—')}: ${esc(p.label || p.motivo)}</li>`).join('');
-    html += `<div style="padding:10px 12px;background:var(--surface-2);border:1px solid #FFCC80;border-left:3px solid #E65100;border-radius:8px;color:#9a3412;font-size:12.5px;">
+    html += `<div style="padding:10px 12px;background:var(--surface-2);border:1px solid #FFCC80;border-left:3px solid #E65100;border-radius:8px;color:var(--text);font-size:12.5px;">
       <strong>${pulados.length} contrato(s) não gerado(s):</strong><ul style="margin:6px 0 0 18px;">${itens}</ul></div>`;
   }
   document.getElementById('dpc-avisos').innerHTML = html;
@@ -1085,7 +1085,7 @@ function abrirDrillComunicado(codigo) {
   document.getElementById('dp-contratos-titulo').innerHTML =
     `<div class="dp-ct-nome">${esc(cts[0].concessionario)}</div><div class="dp-ct-sub">${cts.length} contrato(s) · comunicados</div>`;
   document.getElementById('dp-contratos-body').innerHTML =
-    `<div class="dp-paper dp-ct-card">${cts.map(drillLinhaComunicado).join('')}</div>`;
+    `<div class="card dp-ct-card">${cts.map(drillLinhaComunicado).join('')}</div>`;
   document.getElementById('dp-contratos').style.display = 'flex';
 }
 
