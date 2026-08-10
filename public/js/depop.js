@@ -843,6 +843,7 @@ function comunicadoPaper(c) {
       </li>
       <li>Condições financeiras, prazos, cronograma, exigências e demais informações estão descritas no Edital de Chamamento de Interessados nº 001/2026, disponível no site www.ceasaminas.com.br.</li>
       <li>A não adesão no prazo estabelecido implica na renúncia ao direito subjetivo à renovação do contrato proposta no Termo de Compromisso de Conduta (TCC) firmado com o MPMG.</li>
+      <li>Em caso de dúvidas: para suporte técnico e recuperação de senha, contate <strong>dpo@ceasaminas.com.br</strong>; para esclarecimentos sobre documentos ou regras do Edital, contate <strong>cpl@ceasaminas.com.br</strong>.</li>
     </ol>
     <div class="cmn-foot"><div>Diretoria Executiva</div><div>CEASAMINAS</div></div>
   </div>`;
