@@ -406,7 +406,10 @@ function renderPreviewActions() {
     // Consulta (só leitura): vê o documento e pode imprimir, sem ações.
     box.innerHTML = chip + `<button class="btn btn-secondary btn-sm" onclick="imprimirIndividual()">🖨️ Exportar PDF</button>`;
   } else if (estado.perfil === 'master') {
-    box.innerHTML = chip + `<button class="btn btn-secondary btn-sm" onclick="imprimirIndividual()">🖨️ Exportar PDF</button>`;
+    let acoes = `<button class="btn btn-secondary btn-sm" onclick="imprimirIndividual()">🖨️ Exportar PDF</button>`;
+    // Supervisor pode desfazer uma assinatura já feita (volta para conferência).
+    if (st === 'validado') acoes += `<button class="btn btn-danger btn-sm" onclick="abrirModalCancelar()">Cancelar assinatura</button>`;
+    box.innerHTML = chip + acoes;
   } else if (st === 'validado') {
     // Contrato assinado é final: não reabre pra assinar de novo nem marcar erro.
     box.innerHTML = chip + `<span style="align-self:center;font-size:12px;color:var(--text-muted);">🔒 Assinado — não pode ser alterado.</span>`;
@@ -504,6 +507,42 @@ function abrirModalErro() {
   setTimeout(() => document.getElementById('dp-erro-obs').focus(), 50);
 }
 function fecharModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// Cancelar assinatura (só supervisor): desfaz uma validação já feita.
+function abrirModalCancelar() {
+  document.getElementById('dp-cancel-motivo').value = '';
+  document.getElementById('dp-cancel-senha').value = '';
+  document.getElementById('dp-cancel-msg').textContent = '';
+  document.getElementById('dp-modal-cancelar').classList.add('open');
+  setTimeout(() => document.getElementById('dp-cancel-motivo').focus(), 50);
+}
+
+async function confirmarCancelamento() {
+  const motivo = document.getElementById('dp-cancel-motivo').value.trim();
+  const senha = document.getElementById('dp-cancel-senha').value;
+  const msg = document.getElementById('dp-cancel-msg');
+  const btn = document.getElementById('dp-btn-cancelar-assin');
+  if (!motivo) { msg.textContent = 'Descreva o motivo do cancelamento.'; return; }
+  if (!senha) { msg.textContent = 'Informe a sua senha de login.'; return; }
+  btn.disabled = true; btn.textContent = 'Cancelando...';
+  try {
+    const res = await fetch(`/api/depop/contratos/${_det.id}/cancelar-validacao`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motivo, senha })
+    });
+    const data = await res.json();
+    if (!res.ok) { msg.textContent = data.error || 'Erro ao cancelar a assinatura.'; return; }
+    fecharModal('dp-modal-cancelar');
+    toast(data.comunicado_alerta
+      ? 'Assinatura cancelada. Atenção: este contrato já tinha comunicado gerado.'
+      : 'Assinatura cancelada. Contrato voltou para conferência.', 'success');
+    await fecharPreview();
+  } catch (e) {
+    msg.textContent = 'Falha de conexão.';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Cancelar assinatura';
+  }
+}
 
 async function confirmarAssinatura() {
   const senha = document.getElementById('dp-senha-assinatura').value;
@@ -772,39 +811,63 @@ function atualizarSelBar() {
 }
 
 // Geração (3 modos) → imprime os elegíveis e recarrega a lista (atualiza contador).
-async function gerarComunicados(qs, rotulo) {
+// `alvo` = contratos do grupo (para avisar de REGERAÇÃO / 2ª via antes de gerar).
+async function gerarComunicados(qs, rotulo, alvo) {
+  // Confirma antes de regerar quem já foi gerado (2ª via em diante).
+  const reger = (alvo || []).filter(c => c.elegivel && c.geracoes > 0);
+  if (reger.length) {
+    const ok = confirm(
+      `${reger.length} comunicado(s) deste grupo já foram gerados antes.\n` +
+      `Gerar novamente conta como 2ª via (fica registrado no histórico).\n\nDeseja gerar mesmo assim?`);
+    if (!ok) return;
+  }
   try {
     const data = await (await fetch('/api/depop/comunicados/gerar?' + qs, { method: 'POST' })).json();
     if (data.error) { toast(data.error, 'error'); return; }
     const coms = data.comunicados || [], pulados = data.pulados || [];
     if (!coms.length) {
       toast(`Nada elegível em ${rotulo}${pulados.length ? ` (${pulados.length} pulado(s))` : ''}.`, 'error');
-      mostrarPulados(pulados); await carregarComunicados(); return;
+      mostrarAvisos(pulados, 0); await carregarComunicados(); return;
     }
     imprimirComunicados(coms);
-    toast(`${coms.length} comunicado(s) gerado(s)${pulados.length ? ` — ${pulados.length} pulado(s)` : ''}.`, 'success');
+    const reMsg = data.regerados ? ` (${data.regerados} em 2ª via)` : '';
+    toast(`${coms.length} comunicado(s) gerado(s)${reMsg}${pulados.length ? ` — ${pulados.length} pulado(s)` : ''}.`, 'success');
     await carregarComunicados();
-    mostrarPulados(pulados);
+    mostrarAvisos(pulados, coms.length);
   } catch { toast('Falha ao gerar.', 'error'); }
 }
-function gerarPorCidade(cidade) { gerarComunicados('cidade=' + encodeURIComponent(cidade), cidade); }
-function gerarPorConcessionario(codigo) { gerarComunicados('codigo=' + codigo, 'concessionário'); }
+function alvoCidade(cidade) { return comEstado.contratos.filter(c => c.cidade === cidade); }
+function alvoConcess(codigo) { return comEstado.contratos.filter(c => c.codigo === codigo); }
+function gerarPorCidade(cidade) { gerarComunicados('cidade=' + encodeURIComponent(cidade), cidade, alvoCidade(cidade)); }
+function gerarPorConcessionario(codigo) { gerarComunicados('codigo=' + codigo, 'concessionário', alvoConcess(codigo)); }
 function gerarSelecionados() {
   if (!comEstado.sel.size) { toast('Selecione ao menos um concessionário.', 'error'); return; }
-  gerarComunicados('codigos=' + [...comEstado.sel].join(','), 'seleção');
+  const alvo = comEstado.contratos.filter(c => comEstado.sel.has(c.codigo));
+  gerarComunicados('codigos=' + [...comEstado.sel].join(','), 'seleção', alvo);
 }
 
-function mostrarPulados(pulados) {
-  if (!pulados || !pulados.length) return;
-  const itens = pulados.slice(0, 50).map(p =>
-    `<li>${esc(p.concessionario || '')} — CCU ${esc(p.ccu || '—')}: ${esc(p.label || p.motivo)}</li>`).join('');
-  document.getElementById('dpc-avisos').innerHTML =
-    `<div style="padding:10px 12px;background:var(--surface-2);border:1px solid #FFCC80;border-left:3px solid #E65100;border-radius:8px;color:#9a3412;font-size:12.5px;">
+// Avisos pós-geração: lembrete de anexar a cópia assinada (quando algo foi gerado)
+// + lista de pulados (quando houver). Um bloco só, no #dpc-avisos.
+function mostrarAvisos(pulados, gerados) {
+  let html = '';
+  if (gerados) {
+    html += `<div style="padding:10px 12px;background:var(--surface-2);border:1px solid #90CAF9;border-left:3px solid #1565C0;border-radius:8px;color:#0d3d6e;font-size:12.5px;margin-bottom:8px;">
+      📎 <strong>Comprovante de entrega:</strong> o <strong>protocolo de entrega</strong> já foi impresso junto com cada comunicado. Após a entrega, <strong>anexe a cópia assinada</strong> como comprovante na plataforma (aba <em>Contratos › Ver › Comprovantes</em>).</div>`;
+  }
+  if (pulados && pulados.length) {
+    const itens = pulados.slice(0, 50).map(p =>
+      `<li>${esc(p.concessionario || '')} — CCU ${esc(p.ccu || '—')}: ${esc(p.label || p.motivo)}</li>`).join('');
+    html += `<div style="padding:10px 12px;background:var(--surface-2);border:1px solid #FFCC80;border-left:3px solid #E65100;border-radius:8px;color:#9a3412;font-size:12.5px;">
       <strong>${pulados.length} contrato(s) não gerado(s):</strong><ul style="margin:6px 0 0 18px;">${itens}</ul></div>`;
+  }
+  document.getElementById('dpc-avisos').innerHTML = html;
 }
 
+// Cada comunicado sai já seguido do seu protocolo de entrega (2 páginas por
+// contrato): a carta pro concessionário + o documento que ele assina no ato.
 function imprimirComunicados(coms) {
-  document.getElementById('dp-print').innerHTML = coms.map(comunicadoPaper).join('');
+  const paginas = coms.flatMap(c => [comunicadoPaper(c), protocoloPaper(c)]);
+  document.getElementById('dp-print').innerHTML = paginas.join('');
   const limpar = () => { document.getElementById('dp-print').innerHTML = ''; window.removeEventListener('afterprint', limpar); };
   window.addEventListener('afterprint', limpar);
   window.print();
@@ -849,6 +912,170 @@ function comunicadoPaper(c) {
   </div>`;
 }
 
+// Protocolo de entrega: documento que confirma a entrega do comunicado, para o
+// concessionário assinar no ato. Mesmo padrão P&B serifado. Depois de assinado,
+// vira o comprovante que se anexa na plataforma.
+function protocoloPaper(c) {
+  const hoje = new Date();
+  const dataBr = `${String(hoje.getDate()).padStart(2, '0')}/${String(hoje.getMonth() + 1).padStart(2, '0')}/${hoje.getFullYear()}`;
+  return `<div class="dp-paper comunicado">
+    <div class="cmn-head">
+      <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" onerror="this.style.display='none'"/>
+      <div class="cmn-org">Centrais de Abastecimento de Minas Gerais S.A — CEASAMINAS</div>
+    </div>
+    <div class="cmn-title">PROTOCOLO DE ENTREGA — COMUNICADO OFICIAL Nº ${esc(c.numero_comunicado)}</div>
+    <div class="cmn-dest">
+      <div><span class="lbl">À empresa:</span> ${esc(c.empresa)}</div>
+      <div><span class="lbl">CNPJ nº:</span> ${esc(c.cnpj)}</div>
+      <div><span class="lbl">Contrato de concessão de uso nº:</span> ${esc(c.numero_ccu)}</div>
+      <div><span class="lbl">Área/espaço concedido:</span> ${esc(c.area)}</div>
+    </div>
+    <p class="cmn-p">Declaro ter recebido da CEASAMINAS o <strong>Comunicado Oficial nº ${esc(c.numero_comunicado)}</strong>, referente à notificação de elegibilidade e instruções para a prorrogação antecipada do contrato de concessão de uso acima identificado, incluindo as credenciais individuais de acesso à plataforma de adesão.</p>
+    <p class="cmn-p">Declaro estar ciente de que o prazo para adesão vai de <strong>${esc(c.data_inicio)}</strong> a <strong>${esc(c.prazo_final)}</strong>, e que a não adesão no prazo implica renúncia ao direito de renovação nos termos do Edital de Chamamento de Interessados nº 001/2026.</p>
+    <div class="cmn-cred" style="margin-top:18px;">
+      <div><span class="cmn-cred-lbl">Recebido por (nome legível):</span> _______________________________________________</div>
+      <div style="margin-top:14px;"><span class="cmn-cred-lbl">CPF / RG:</span> ________________________________</div>
+      <div style="margin-top:14px;"><span class="cmn-cred-lbl">Data do recebimento:</span> ______/______/__________</div>
+      <div style="margin-top:26px;"><span class="cmn-cred-lbl">Assinatura:</span> _______________________________________________</div>
+    </div>
+    <div class="cmn-foot"><div>Emitido em ${esc(dataBr)}</div><div>CEASAMINAS</div></div>
+  </div>`;
+}
+
+async function _dadosComunicado(id) {
+  const data = await (await fetch(`/api/depop/comunicados/${id}/dados`)).json();
+  if (!data.ok) { toast(data.label || 'Não foi possível gerar este documento.', 'error'); return null; }
+  return data.comunicado;
+}
+async function imprimirProtocolo(id) {
+  const c = await _dadosComunicado(id); if (!c) return;
+  imprimirPapeis([protocoloPaper(c)]);
+}
+async function reimprimirComunicado(id) {
+  const c = await _dadosComunicado(id); if (!c) return;
+  imprimirPapeis([comunicadoPaper(c)]);
+}
+// Visualização na TELA (read-only): mostra o comunicado sem gerar, sem contar e
+// sem imprimir. É o caminho do consulta/master (supervisão) pra conferir a carta.
+async function visualizarComunicado(id) {
+  const c = await _dadosComunicado(id); if (!c) return;
+  document.getElementById('dpc-visu-body').innerHTML = comunicadoPaper(c);
+  document.getElementById('dpc-visu').style.display = 'flex';
+  const wrap = document.querySelector('#dpc-visu .dp-paper-wrap');
+  if (wrap) wrap.scrollTop = 0;
+}
+function fecharVisuComunicado() { document.getElementById('dpc-visu').style.display = 'none'; }
+function imprimirPapeis(paginas) {
+  document.getElementById('dp-print').innerHTML = paginas.join('');
+  const limpar = () => { document.getElementById('dp-print').innerHTML = ''; window.removeEventListener('afterprint', limpar); };
+  window.addEventListener('afterprint', limpar);
+  window.print();
+}
+
+// ── Comprovantes de entrega (anexos) ─────────────────────────────────────────
+// Comprime imagem no navegador (Canvas → JPEG) para não subir foto de celular de
+// vários MB; PDF sobe como veio. Assim o anexos.db fica enxuto.
+function comprimirImagem(file, maxDim = 1600, quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        const r = Math.min(maxDim / width, maxDim / height);
+        width = Math.round(width * r); height = Math.round(height * r);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      canvas.toBlob(b => b ? resolve(b) : reject(new Error('canvas')), 'image/jpeg', quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('img')); };
+    img.src = url;
+  });
+}
+
+let _comprId = null; // contrato aberto no modal de comprovantes
+function abrirComprovantes(id) {
+  _comprId = id;
+  const c = comEstado.contratos.find(x => x.id === id);
+  document.getElementById('dpc-compr-titulo').textContent =
+    c ? `Comprovantes — CCU ${c.numero_ccu}` : 'Comprovantes';
+  const ro = !!(estado.caps && estado.caps.is_consulta);
+  // Some com o "anexar" pra consulta e quando a entrega já está finalizada
+  // (nesse caso só o master reabre pela ação Cancelar entrega).
+  const podeAnexar = !ro && !(c && c.enviado);
+  document.getElementById('dpc-compr-upload').style.display = podeAnexar ? '' : 'none';
+  document.getElementById('dpc-modal-compr').classList.add('open');
+  carregarComprovantes(id);
+}
+async function carregarComprovantes(id) {
+  const box = document.getElementById('dpc-compr-lista');
+  box.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">Carregando...</div>';
+  try {
+    const data = await (await fetch(`/api/depop/comunicados/${id}/comprovantes`)).json();
+    const rows = data.comprovantes || [];
+    const c = comEstado.contratos.find(x => x.id === id);
+    const isMaster = !!(estado.caps && estado.caps.is_master);
+    // Remover: pro comum, só enquanto a entrega NÃO estiver finalizada; depois de
+    // entregue, só o master (via Cancelar entrega, mas o botão avulso também vale).
+    const podeRemover = isMaster || !(c && c.enviado);
+    if (!rows.length) { box.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">Nenhum comprovante anexado ainda.</div>'; return; }
+    box.innerHTML = rows.map(r => `<div class="dpc-compr-item">
+      <span class="ic">${r.mime === 'application/pdf' ? '📄' : '🖼️'}</span>
+      <div class="grow">
+        <a href="/api/depop/comprovante/${r.id}" target="_blank" rel="noopener">${esc(r.nome_arquivo || 'comprovante')}</a>
+        <div class="meta">${(r.tamanho / 1024).toFixed(0)} KB · ${esc(r.enviado_por_nome || '')} · ${fmtData(r.criado_em)}</div>
+      </div>
+      ${podeRemover ? `<button class="btn btn-danger btn-sm" onclick="removerComprovante(${r.id})">Remover</button>` : ''}
+    </div>`).join('');
+  } catch { box.innerHTML = '<div style="color:var(--vermelho);font-size:13px;">Falha ao carregar.</div>'; }
+}
+function escolherComprovante() { document.getElementById('dpc-compr-file').click(); }
+async function enviarComprovante(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file || _comprId == null) return;
+  let blob = file, nome = file.name || 'comprovante';
+  const status = document.getElementById('dpc-compr-status');
+  try {
+    if ((file.type || '').startsWith('image/')) {
+      status.textContent = 'Comprimindo imagem...';
+      blob = await comprimirImagem(file);
+      nome = nome.replace(/\.[^.]+$/, '') + '.jpg';
+    } else if (file.type !== 'application/pdf') {
+      toast('Envie imagem (JPG/PNG) ou PDF.', 'error'); status.textContent = ''; return;
+    }
+    if (blob.size > 10 * 1024 * 1024) { toast('Arquivo muito grande (máx. 10 MB).', 'error'); status.textContent = ''; return; }
+    status.textContent = 'Enviando...';
+    const res = await fetch(`/api/depop/comunicados/${_comprId}/comprovante?nome=${encodeURIComponent(nome)}`, {
+      method: 'POST', headers: { 'Content-Type': blob.type || 'application/octet-stream' }, body: blob
+    });
+    const data = await res.json();
+    status.textContent = '';
+    if (!res.ok) { toast(data.error || 'Erro ao anexar.', 'error'); return; }
+    toast('Comprovante anexado. Contrato marcado como entregue.', 'success');
+    await carregarComprovantes(_comprId);
+    await carregarComunicados();
+    const c = comEstado.contratos.find(x => x.id === _comprId);
+    if (c) abrirDrillComunicado(c.codigo);
+  } catch { status.textContent = ''; toast('Falha ao processar o arquivo.', 'error'); }
+}
+async function removerComprovante(cid) {
+  if (!confirm('Remover este comprovante?')) return;
+  try {
+    const res = await fetch(`/api/depop/comprovante/${cid}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) { toast(data.error || 'Erro ao remover.', 'error'); return; }
+    toast('Comprovante removido.', 'success');
+    await carregarComprovantes(_comprId);
+    await carregarComunicados();
+    const c = comEstado.contratos.find(x => x.id === _comprId);
+    if (c) abrirDrillComunicado(c.codigo);
+  } catch { toast('Falha de conexão.', 'error'); }
+}
+
 // Drill de um concessionário: status por contrato + contador + toggle de entrega.
 function abrirDrillComunicado(codigo) {
   const cts = comEstado.contratos.filter(c => c.codigo === codigo);
@@ -863,22 +1090,37 @@ function abrirDrillComunicado(codigo) {
 function drillLinhaComunicado(c) {
   let statusPill;
   if (c.elegivel) statusPill = `<span class="cmn-tag eleg">Pronto · prazo ${esc(c.prazo_final)}</span>`;
+  else if (c.motivo === 'entregue') statusPill = `<span class="cmn-tag entregue">✓ Entrega finalizada</span>`;
   else if (c.motivo === 'nao_validado') statusPill = `<span class="cmn-tag aguard">Aguardando validação</span>`;
   else if (c.motivo === 'sem_credencial') statusPill = `<span class="cmn-tag fora">Sem credencial</span>`;
   else statusPill = `<span class="cmn-tag fora">Fora do intervalo (${esc(c.ano_vencimento || '?')})</span>`;
   const ger = c.geracoes
     ? `<span class="cmn-tag gerado">✓ ${c.geracoes}× · ${fmtData(c.ultima_geracao)}</span>`
     : '<span class="meta">nunca gerado</span>';
-  const ro = !!(estado.caps && estado.caps.is_consulta);
-  const btnEntrega = (c.geracoes && !ro)
-    ? `<button class="btn ${c.enviado ? 'btn-secondary' : 'btn-primary'} btn-sm" onclick="marcarEntrega(${c.id},${c.enviado ? 0 : 1})">${c.enviado ? '✓ Entregue — desmarcar' : 'Marcar entregue'}</button>`
-    : (c.enviado ? '<span class="cmn-tag entregue">entregue</span>' : '');
+  const nCompr = c.comprovantes || 0;
+  const isMaster = !!(estado.caps && estado.caps.is_master);
+  let acoes = '';
+  // Visualizar na tela (sem gerar/contar/imprimir) — disponível pra todos; serve
+  // pra consulta/master conferirem a carta. Vale sempre que é um comunicado válido
+  // (validado + credencial + ano), mesmo já entregue.
+  if (c.viewable) {
+    acoes += `<button class="btn btn-secondary btn-sm" onclick="visualizarComunicado(${c.id})">👁 Visualizar</button>`;
+  }
+  // Protocolo e comprovantes: só depois que o comunicado foi gerado.
+  if (c.geracoes) {
+    acoes += `<button class="btn btn-secondary btn-sm" onclick="imprimirProtocolo(${c.id})" title="Documento de confirmação de entrega para assinatura">🖨️ Protocolo</button>`;
+    acoes += `<button class="btn ${nCompr ? 'btn-secondary' : 'btn-primary'} btn-sm" onclick="abrirComprovantes(${c.id})">📎 Comprovantes${nCompr ? ` (${nCompr})` : ''}</button>`;
+  }
+  // Entrega finalizada: só o master reabre (remove comprovantes + libera geração).
+  if (c.enviado && isMaster) {
+    acoes += `<button class="btn btn-danger btn-sm" onclick="abrirCancelarEntrega(${c.id})">Cancelar entrega</button>`;
+  }
   return `<div class="cmn-ct">
     <div class="grow">
       <div class="ccu">CCU ${esc(c.numero_ccu)}</div>
       <div class="meta">${esc(c.area)} · venc. ${esc(c.ano_vencimento || '—')}</div>
     </div>
-    ${statusPill} ${ger} ${btnEntrega}
+    ${statusPill} ${ger} ${acoes}
   </div>`;
 }
 
@@ -895,6 +1137,41 @@ async function marcarEntrega(id, enviado) {
     renderComPainel();
     toast(enviado ? 'Marcado como entregue.' : 'Entrega desmarcada.', 'success');
   } catch { toast('Falha de conexão.', 'error'); }
+}
+
+// Cancelar entrega finalizada (só master) — remove os comprovantes e libera o
+// comunicado pra gerar de novo. Exige motivo + senha, igual cancelar assinatura.
+let _cancelEntregaId = null;
+function abrirCancelarEntrega(id) {
+  _cancelEntregaId = id;
+  document.getElementById('dpc-ce-motivo').value = '';
+  document.getElementById('dpc-ce-senha').value = '';
+  document.getElementById('dpc-ce-msg').textContent = '';
+  document.getElementById('dpc-modal-cancel-entrega').classList.add('open');
+  setTimeout(() => document.getElementById('dpc-ce-motivo').focus(), 50);
+}
+async function confirmarCancelarEntrega() {
+  const motivo = document.getElementById('dpc-ce-motivo').value.trim();
+  const senha = document.getElementById('dpc-ce-senha').value;
+  const msg = document.getElementById('dpc-ce-msg');
+  const btn = document.getElementById('dpc-btn-cancel-entrega');
+  if (!motivo) { msg.textContent = 'Descreva o motivo do cancelamento.'; return; }
+  if (!senha) { msg.textContent = 'Informe a sua senha de login.'; return; }
+  btn.disabled = true; btn.textContent = 'Cancelando...';
+  try {
+    const res = await fetch(`/api/depop/comunicados/${_cancelEntregaId}/cancelar-entrega`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ motivo, senha })
+    });
+    const data = await res.json();
+    if (!res.ok) { msg.textContent = data.error || 'Erro ao cancelar a entrega.'; return; }
+    const id = _cancelEntregaId;
+    fecharModal('dpc-modal-cancel-entrega');
+    toast('Entrega cancelada. O comunicado já pode ser gerado novamente.', 'success');
+    await carregarComunicados();
+    const c = comEstado.contratos.find(x => x.id === id);
+    if (c) abrirDrillComunicado(c.codigo);
+  } catch { msg.textContent = 'Falha de conexão.'; }
+  finally { btn.disabled = false; btn.textContent = 'Cancelar entrega'; }
 }
 
 // Parâmetros do sistema (só master).

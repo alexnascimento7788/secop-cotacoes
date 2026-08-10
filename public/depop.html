@@ -161,6 +161,14 @@
     .cmn-ct .meta { font-size: 12px; color: var(--text-muted); }
     .cmn-ct .grow { flex: 1; min-width: 180px; }
 
+    /* Lista de comprovantes de entrega (modal) */
+    .dpc-compr-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--cinza-b); border-radius: 8px; background: var(--surface-2); }
+    .dpc-compr-item .ic { font-size: 18px; }
+    .dpc-compr-item .grow { flex: 1; min-width: 0; }
+    .dpc-compr-item a { font-weight: 600; color: var(--azul); text-decoration: none; word-break: break-all; }
+    .dpc-compr-item a:hover { text-decoration: underline; }
+    .dpc-compr-item .meta { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+
     /* Container de impressão (individual e em massa) */
     #dp-print { display: none; }
 
@@ -362,6 +370,17 @@
   <div class="dp-paper-wrap"><div id="dp-contratos-body"></div></div>
 </div>
 
+<!-- Visualização do comunicado na tela (read-only: não gera, não conta, não imprime) -->
+<div id="dpc-visu" class="dp-overlay" style="display:none;">
+  <div class="dp-preview-bar">
+    <button class="btn btn-secondary btn-sm" onclick="fecharVisuComunicado()">← Voltar</button>
+    <div class="dp-preview-actions">
+      <span style="align-self:center;font-size:12px;color:var(--text-muted);">👁 Somente visualização — não conta como geração</span>
+    </div>
+  </div>
+  <div class="dp-paper-wrap" id="dpc-visu-body"></div>
+</div>
+
 <!-- Container de impressão -->
 <div id="dp-print"></div>
 
@@ -393,6 +412,21 @@
   </div>
 </div>
 
+<!-- Modal: cancelar assinatura (só supervisor) -->
+<div id="dp-modal-cancelar" class="modal-overlay">
+  <div class="modal-box">
+    <h3>Cancelar assinatura</h3>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">Isto <strong>desfaz a validação</strong> e devolve o contrato para conferência. Descreva o <strong>motivo</strong> e confirme com a sua <strong>senha de login</strong>.</p>
+    <textarea id="dp-cancel-motivo" class="filter-input" style="width:100%;min-height:80px;resize:vertical;" placeholder="Ex.: Assinado por engano / valor precisa ser corrigido..."></textarea>
+    <input type="password" id="dp-cancel-senha" class="filter-input" style="width:100%;margin-top:8px;" placeholder="Sua senha de login" autocomplete="current-password" />
+    <div id="dp-cancel-msg" style="font-size:12.5px;font-weight:600;color:var(--vermelho);min-height:16px;margin-top:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="fecharModal('dp-modal-cancelar')">Voltar</button>
+      <button class="btn btn-danger btn-sm" id="dp-btn-cancelar-assin" onclick="confirmarCancelamento()">Cancelar assinatura</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: parâmetros do comunicado (só master) -->
 <div id="dpc-modal-param" class="modal-overlay">
   <div class="modal-box">
@@ -406,6 +440,38 @@
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
       <button class="btn btn-secondary btn-sm" onclick="fecharModal('dpc-modal-param')">Cancelar</button>
       <button class="btn btn-primary btn-sm" onclick="salvarParametros()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: comprovantes de entrega (anexos) -->
+<div id="dpc-modal-compr" class="modal-overlay">
+  <div class="modal-box" style="max-width:560px;">
+    <h3 id="dpc-compr-titulo">Comprovantes</h3>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">Anexe a <strong>cópia assinada</strong> do comunicado (ou o protocolo de entrega) como prova. Aceita imagem (JPG/PNG) ou PDF — imagens são compactadas automaticamente.</p>
+    <div id="dpc-compr-lista" style="display:flex;flex-direction:column;gap:8px;max-height:46vh;overflow:auto;"></div>
+    <div id="dpc-compr-upload" style="margin-top:14px;display:flex;align-items:center;gap:10px;">
+      <input type="file" id="dpc-compr-file" accept="image/*,application/pdf" style="display:none;" onchange="enviarComprovante(this)" />
+      <button class="btn btn-primary btn-sm" onclick="escolherComprovante()">📎 Anexar comprovante</button>
+      <span id="dpc-compr-status" style="font-size:12.5px;color:var(--text-muted);"></span>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="fecharModal('dpc-modal-compr')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: cancelar entrega finalizada (só supervisor) -->
+<div id="dpc-modal-cancel-entrega" class="modal-overlay">
+  <div class="modal-box">
+    <h3>Cancelar entrega</h3>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">Isto <strong>desfaz a entrega</strong>, remove os comprovantes anexados e libera o comunicado para ser gerado/impresso novamente. Descreva o <strong>motivo</strong> e confirme com a sua <strong>senha de login</strong>.</p>
+    <textarea id="dpc-ce-motivo" class="filter-input" style="width:100%;min-height:80px;resize:vertical;" placeholder="Ex.: entrega feita no contrato errado / precisa reemitir..."></textarea>
+    <input type="password" id="dpc-ce-senha" class="filter-input" style="width:100%;margin-top:8px;" placeholder="Sua senha de login" autocomplete="current-password" />
+    <div id="dpc-ce-msg" style="font-size:12.5px;font-weight:600;color:var(--vermelho);min-height:16px;margin-top:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="fecharModal('dpc-modal-cancel-entrega')">Voltar</button>
+      <button class="btn btn-danger btn-sm" id="dpc-btn-cancel-entrega" onclick="confirmarCancelarEntrega()">Cancelar entrega</button>
     </div>
   </div>
 </div>

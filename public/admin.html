@@ -422,6 +422,33 @@
           </div>
           <div id="import-status-depop"></div>
         </div>
+        <hr class="admin-divider">
+        <div class="admin-section">
+          <div class="admin-section-title">Anexos (comprovantes de entrega)</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Arquivo <strong>anexos.db</strong> — guarda os comprovantes de entrega dos comunicados
+            (cópias assinadas / protocolos). Separado do secop.db e do depop.db; não afeta os demais dados.
+          </p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+            <button class="btn btn-primary" onclick="exportarAnexos()">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;vertical-align:-2px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Baixar anexos.db
+            </button>
+          </div>
+          <div class="import-area" id="drop-area-anexos">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <div style="font-size:13px;color:#aaa;margin-top:6px;">Arraste ou</div>
+            <label class="btn btn-secondary" style="margin-top:10px;cursor:pointer;">
+              Escolher arquivo .db
+              <input type="file" id="file-input-anexos" accept=".db" style="display:none" onchange="selecionarArquivoAnexos(this)">
+            </label>
+            <div class="import-filename" id="filename-label-anexos">Nenhum arquivo selecionado</div>
+            <button class="btn btn-primary" id="btn-importar-anexos" onclick="importarAnexos()" disabled>
+              Importar anexos.db
+            </button>
+          </div>
+          <div id="import-status-anexos"></div>
+        </div>
       </div>
     </div>
 
@@ -1228,6 +1255,54 @@ dropAreaDepop.addEventListener('drop', e => {
     arquivoDepop = f;
     document.getElementById('filename-label-depop').textContent = f.name;
     document.getElementById('btn-importar-depop').disabled = false;
+  }
+});
+
+// ── Anexos (arquivo anexos.db separado) ────────────────────────────────────────
+
+function exportarAnexos() { window.location.href = '/api/admin/export-anexos-db'; }
+
+let arquivoAnexos = null;
+
+function selecionarArquivoAnexos(input) {
+  const f = input.files[0];
+  if (!f) return;
+  arquivoAnexos = f;
+  document.getElementById('filename-label-anexos').textContent = f.name;
+  document.getElementById('btn-importar-anexos').disabled = false;
+  document.getElementById('import-status-anexos').textContent = '';
+}
+
+async function importarAnexos() {
+  if (!arquivoAnexos) return;
+  const btn = document.getElementById('btn-importar-anexos');
+  const status = document.getElementById('import-status-anexos');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  status.className = ''; status.textContent = '';
+  try {
+    const buffer = await arquivoAnexos.arrayBuffer();
+    const res = await fetch('/api/admin/import-anexos-db', {
+      method:'POST', headers:{'Content-Type':'application/octet-stream'}, body:buffer
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'Erro');
+    status.className = 'ok'; status.textContent = 'Anexos importados!';
+    btn.textContent = 'Importar anexos.db'; btn.disabled = false;
+  } catch(e) {
+    status.className = 'erro'; status.textContent = 'Erro: ' + e.message;
+    btn.disabled = false; btn.textContent = 'Importar anexos.db';
+  }
+}
+
+const dropAreaAnexos = document.getElementById('drop-area-anexos');
+dropAreaAnexos.addEventListener('dragover', e => { e.preventDefault(); dropAreaAnexos.classList.add('drag-over'); });
+dropAreaAnexos.addEventListener('dragleave', () => dropAreaAnexos.classList.remove('drag-over'));
+dropAreaAnexos.addEventListener('drop', e => {
+  e.preventDefault(); dropAreaAnexos.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.name.endsWith('.db')) {
+    arquivoAnexos = f;
+    document.getElementById('filename-label-anexos').textContent = f.name;
+    document.getElementById('btn-importar-anexos').disabled = false;
   }
 });
 

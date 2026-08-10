@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { db, setupDb, gerarNumeroProcesso, depopDb, setupDepop, depopFilePath } = require('./database');
+const { db, setupDb, gerarNumeroProcesso, depopDb, setupDepop, depopFilePath, anexosDb, setupAnexos, anexosFilePath } = require('./database');
 
 // Dicionário geral de português (já vem ordenado por frequência de uso do idioma)
 // — recorte das mais comuns, serve de apoio ao autocomplete quando o histórico
@@ -1063,6 +1063,35 @@ app.post('/api/admin/import-depop-db',
   }
 );
 
+// ── Admin: export / import dos anexos (arquivo separado anexos.db) ────────────
+// Comprovantes de entrega dos comunicados (BLOBs). Mesma mecânica do depop.db.
+// O import roda setupAnexos() de novo → garante a tabela em cima do arquivo novo.
+
+app.get('/api/admin/export-anexos-db', (req, res) => {
+  if (!fs.existsSync(anexosFilePath)) return res.status(404).json({ error: 'Ainda não há anexos.' });
+  registrarLog(req, 'DEPOP', 'EXPORTOU', 'Exportou os anexos (comprovantes)');
+  try { anexosDb.exec('PRAGMA wal_checkpoint(FULL)'); } catch {}
+  res.download(anexosFilePath, 'anexos.db');
+});
+
+app.post('/api/admin/import-anexos-db',
+  express.raw({ type: 'application/octet-stream', limit: '200mb' }),
+  (req, res) => {
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0)
+      return res.status(400).json({ error: 'Arquivo inválido' });
+
+    registrarLog(req, 'DEPOP', 'IMPORTOU', 'Importou os anexos (comprovantes)');
+
+    try { anexosDb.close(); } catch {}
+    fs.writeFileSync(anexosFilePath, req.body);
+    try { fs.unlinkSync(anexosFilePath + '-shm'); } catch {}
+    try { fs.unlinkSync(anexosFilePath + '-wal'); } catch {}
+    setupAnexos();
+
+    res.json({ ok: true });
+  }
+);
+
 // ── Admin: logs ───────────────────────────────────────────────────────────────
 
 app.get('/api/admin/logs', (req, res) => {
@@ -1536,6 +1565,39 @@ app.post('/api/depop/contratos/:id/errado', requireCap('valida'), (req, res) => 
   res.json({ ok: true });
 });
 
+// Cancelar assinatura (só supervisor/master): desfaz uma validação já assinada e
+// devolve o contrato para 'pendente', permitindo nova conferência/assinatura. É
+// uma ação sensível sobre um registro assinado — exige a senha de login do master
+// e um motivo, e fica registrada no log. Se já havia comunicado gerado, avisa.
+app.post('/api/depop/contratos/:id/cancelar-validacao', requireCap('valida'), (req, res) => {
+  if (perfilFerramenta(req) !== 'master') return res.status(403).json({ error: 'Apenas o supervisor pode cancelar uma assinatura.' });
+  const id = parseInt(req.params.id, 10);
+  const { senha, motivo } = req.body || {};
+  const just = String(motivo || '').trim();
+  if (!senha) return res.status(400).json({ error: 'Informe sua senha para cancelar a assinatura.' });
+  if (!just) return res.status(400).json({ error: 'Descreva o motivo do cancelamento.' });
+
+  const v = db.prepare(`SELECT status FROM validacao_contrato WHERE id_avaliacao = ?`).get(id);
+  if (!v || v.status !== 'validado') return res.status(409).json({ error: 'Este contrato não está assinado.' });
+
+  // Confirma com a senha de LOGIN do próprio master (mesma regra da assinatura).
+  const u = db.prepare(`SELECT senha_hash, salt FROM users WHERE id = ?`).get(req.user.user_id);
+  const h = crypto.pbkdf2Sync(String(senha), u.salt, 100000, 64, 'sha512').toString('hex');
+  if (h !== u.senha_hash) return res.status(401).json({ error: 'Senha incorreta.' });
+
+  const det = montarDetalhe(id);
+  const com = db.prepare(`SELECT geracoes FROM comunicado_gerado WHERE id_avaliacao = ?`).get(id);
+  const alerta = !!(com && com.geracoes > 0);
+
+  // Remove a validação → volta para 'pendente'; solta qualquer trava pendente.
+  db.prepare(`DELETE FROM validacao_contrato WHERE id_avaliacao = ?`).run(id);
+  db.prepare(`DELETE FROM validacao_lock WHERE id_avaliacao = ?`).run(id);
+
+  const ref = det ? (det.numero_ccu || det.id_contrato) : id;
+  registrarLog(req, 'DEPOP', 'CANCELOU_VALIDACAO', `Cancelou assinatura do contrato CCU ${ref}: ${just.slice(0, 160)}${alerta ? ' [ATENÇÃO: comunicado já havia sido gerado]' : ''}`);
+  res.json({ ok: true, comunicado_alerta: alerta });
+});
+
 // Exportação em massa (supervisor): devolve os detalhes de todos os contratos do
 // filtro para o front montar um PDF único (impressão do navegador).
 app.get('/api/depop/exportar', (req, res) => {
@@ -1634,24 +1696,32 @@ app.get('/api/depop/comunicados/lista', requireCap('comunicados'), (req, res) =>
     .all().map(r => [r.id_avaliacao, r]));
   const vmap = new Map(db.prepare(`SELECT id_avaliacao, status FROM validacao_contrato`)
     .all().map(r => [r.id_avaliacao, r.status]));
+  const cmap = new Map(anexosDb.prepare(`SELECT id_avaliacao, COUNT(*) n FROM comprovante_entrega GROUP BY id_avaliacao`)
+    .all().map(r => [r.id_avaliacao, r.n]));
   const contratos = avals.map(a => {
     const ano = parseInt(String(a.data_vencimento || '').slice(0, 4), 10);
     const prazo = prazoFinalAdesao(ano);
     const g = gmap.get(a.id) || {};
     const validado = vmap.get(a.id) === 'validado';
-    // Gerável só quando: ano no intervalo E tem credencial E já validado. O motivo
-    // segue essa prioridade (dado errado > falta credencial > falta validar).
+    const entregue = !!g.enviado;
+    // Gerável só quando: ano no intervalo E tem credencial E já validado E ainda
+    // NÃO entregue. Motivo por prioridade: dado errado > falta credencial > falta
+    // validar > já entregue (entrega finaliza; só o master reabre).
+    // `viewable` = é um comunicado válido (dá pra ver na tela), mesmo se entregue.
+    const viewable = !!prazo && !!a.tem_credencial && validado;
     let elegivel = true, motivo = null;
     if (!prazo) { elegivel = false; motivo = 'ano_fora'; }
     else if (!a.tem_credencial) { elegivel = false; motivo = 'sem_credencial'; }
     else if (!validado) { elegivel = false; motivo = 'nao_validado'; }
+    else if (entregue) { elegivel = false; motivo = 'entregue'; }
     return {
       id: a.id, codigo: a.codigo, concessionario: a.cliente || '—', cidade: a.cidade || '—',
       numero_ccu: a.numero_ccu || '—', area: a.area || '—', ano_vencimento: ano || null,
       prazo_final: prazo, no_intervalo: !!prazo, tem_credencial: !!a.tem_credencial,
-      validado, elegivel, motivo,
+      validado, elegivel, viewable, motivo,
       geracoes: g.geracoes || 0, ultima_geracao: g.ultima_geracao || null,
-      enviado: !!g.enviado, dt_envio: g.dt_envio || null
+      enviado: !!g.enviado, dt_envio: g.dt_envio || null,
+      comprovantes: cmap.get(a.id) || 0
     };
   });
   const cidades = [...new Set(contratos.map(c => c.cidade))].sort();
@@ -1680,12 +1750,30 @@ app.post('/api/depop/comunicados/gerar', requireCap('comunicados'), (req, res) =
     return res.status(400).json({ error: 'Informe cidade, concessionário ou seleção.' });
   }
 
+  // Entrega finalizada trava a geração: comunicado entregue não sai de novo.
+  // Só o master libera (cancelar-entrega). Fica em `pulados` com motivo 'entregue'.
+  const entregues = new Set(
+    db.prepare(`SELECT id_avaliacao FROM comunicado_gerado WHERE enviado = 1`).all().map(r => r.id_avaliacao)
+  );
   const comunicados = [], pulados = [];
   for (const r of rows) {
     const m = montarComunicado(r.id);
-    if (m.ok) comunicados.push(m.comunicado);
-    else pulados.push({ id: m.id, ccu: m.ccu, concessionario: m.concessionario, motivo: m.motivo, label: m.label });
+    if (!m.ok) { pulados.push({ id: m.id, ccu: m.ccu, concessionario: m.concessionario, motivo: m.motivo, label: m.label }); continue; }
+    if (entregues.has(m.comunicado.id)) {
+      pulados.push({ id: m.comunicado.id, ccu: m.comunicado.numero_ccu, concessionario: m.comunicado.empresa,
+        motivo: 'entregue', label: 'Entrega já finalizada — cancele a entrega (supervisor) para gerar novamente' });
+      continue;
+    }
+    comunicados.push(m.comunicado);
   }
+
+  // Separa 1ª geração de REGERAÇÃO (2ª via em diante): quem já tinha geracoes>0
+  // antes deste POST é regeração. Serve pra mensagem no front e pro log distinto.
+  const jaGerados = new Set(
+    db.prepare(`SELECT id_avaliacao FROM comunicado_gerado WHERE geracoes > 0`).all().map(r => r.id_avaliacao)
+  );
+  const novos = comunicados.filter(c => !jaGerados.has(c.id));
+  const regerados = comunicados.filter(c => jaGerados.has(c.id));
 
   // Contador de gerações + timestamps, por contrato efetivamente gerado.
   const iso = new Date().toISOString();
@@ -1696,11 +1784,15 @@ app.post('/api/depop/comunicados/gerar', requireCap('comunicados'), (req, res) =
       geracoes = geracoes + 1, ultima_geracao = excluded.ultima_geracao, gerado_por = excluded.gerado_por`);
   for (const c of comunicados) up.run(c.id, iso, iso, req.user.user_id);
 
-  if (comunicados.length) {
+  if (novos.length) {
     registrarLog(req, 'DEPOP', 'COMUNICADO_GEROU',
-      `Gerou ${comunicados.length} comunicado(s)${pulados.length ? ` — ${pulados.length} pulado(s)` : ''}`);
+      `Gerou ${novos.length} comunicado(s) (1ª via)${pulados.length ? ` — ${pulados.length} pulado(s)` : ''}`);
   }
-  res.json({ comunicados, pulados });
+  if (regerados.length) {
+    registrarLog(req, 'DEPOP', 'COMUNICADO_REGEROU',
+      `Regerou ${regerados.length} comunicado(s) (2ª via+): CCU ${regerados.map(c => c.numero_ccu).filter(Boolean).join(', ').slice(0, 200)}`);
+  }
+  res.json({ comunicados, pulados, novos: novos.length, regerados: regerados.length });
 });
 
 // Controle de entrega (manual, separado da geração). Só marca quem já foi gerado.
@@ -1713,6 +1805,116 @@ app.post('/api/depop/comunicados/:id/enviado', requireCap('comunicados'), (req, 
   db.prepare(`UPDATE comunicado_gerado SET enviado = ?, dt_envio = ? WHERE id_avaliacao = ?`).run(enviado ? 1 : 0, iso, id);
   registrarLog(req, 'DEPOP', 'COMUNICADO_ENTREGA', `Comunicado ${id} marcado como ${enviado ? 'enviado' : 'não enviado'}`);
   res.json({ ok: true, enviado, dt_envio: iso });
+});
+
+// Cancelar a entrega (só supervisor/master): desfaz a entrega finalizada,
+// removendo os comprovantes e liberando o comunicado para gerar/imprimir de novo.
+// Igual ao cancelar assinatura — exige a senha de login do master e um motivo.
+app.post('/api/depop/comunicados/:id/cancelar-entrega', requireCap('comunicados'), (req, res) => {
+  if (perfilFerramenta(req) !== 'master') return res.status(403).json({ error: 'Apenas o supervisor pode cancelar a entrega.' });
+  const id = parseInt(req.params.id, 10);
+  const { senha, motivo } = req.body || {};
+  const just = String(motivo || '').trim();
+  if (!senha) return res.status(400).json({ error: 'Informe sua senha para cancelar a entrega.' });
+  if (!just) return res.status(400).json({ error: 'Descreva o motivo do cancelamento.' });
+
+  const row = db.prepare(`SELECT enviado FROM comunicado_gerado WHERE id_avaliacao = ?`).get(id);
+  if (!row || !row.enviado) return res.status(409).json({ error: 'Este comunicado não está com a entrega finalizada.' });
+
+  // Confirma com a senha de LOGIN do próprio master (mesma regra da assinatura).
+  const u = db.prepare(`SELECT senha_hash, salt FROM users WHERE id = ?`).get(req.user.user_id);
+  const h = crypto.pbkdf2Sync(String(senha), u.salt, 100000, 64, 'sha512').toString('hex');
+  if (h !== u.senha_hash) return res.status(401).json({ error: 'Senha incorreta.' });
+
+  const nCompr = anexosDb.prepare(`SELECT COUNT(*) c FROM comprovante_entrega WHERE id_avaliacao = ?`).get(id).c;
+  anexosDb.prepare(`DELETE FROM comprovante_entrega WHERE id_avaliacao = ?`).run(id);
+  db.prepare(`UPDATE comunicado_gerado SET enviado = 0, dt_envio = NULL WHERE id_avaliacao = ?`).run(id);
+  registrarLog(req, 'DEPOP', 'ENTREGA_CANCELOU', `Cancelou a entrega do comunicado do contrato ${id} (removeu ${nCompr} comprovante(s)): ${just.slice(0, 160)}`);
+  res.json({ ok: true });
+});
+
+// Dados de UM comunicado (para reimprimir o comunicado ou o protocolo de entrega
+// de um contrato específico, fora do fluxo de geração em massa). Devolve o mesmo
+// objeto de montarComunicado (ok:false + motivo quando não é gerável).
+app.get('/api/depop/comunicados/:id/dados', requireCap('comunicados'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  res.json(montarComunicado(id));
+});
+
+// ── Comprovantes de entrega (anexos.db) ──────────────────────────────────────
+// A cópia assinada do comunicado que volta como prova de entrega. Guardada como
+// BLOB no anexos.db. Imagens já chegam comprimidas do navegador; PDFs entram com
+// teto de tamanho. Anexar marca o comunicado como entregue (enviado=1).
+const COMPROVANTE_MIMES = ['image/jpeg', 'image/png', 'application/pdf'];
+const COMPROVANTE_MAX = 10 * 1024 * 1024; // 10 MB por anexo (pós-compressão no cliente)
+
+app.post('/api/depop/comunicados/:id/comprovante',
+  requireCap('comunicados'),
+  express.raw({ type: '*/*', limit: '12mb' }),
+  (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const mime = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    const nome = String(req.query.nome || req.headers['x-file-name'] || 'comprovante').slice(0, 180);
+
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0)
+      return res.status(400).json({ error: 'Arquivo vazio.' });
+    if (!COMPROVANTE_MIMES.includes(mime))
+      return res.status(415).json({ error: 'Formato não aceito. Envie imagem (JPG/PNG) ou PDF.' });
+    if (req.body.length > COMPROVANTE_MAX)
+      return res.status(413).json({ error: 'Arquivo muito grande (máx. 10 MB).' });
+
+    const row = db.prepare(`SELECT geracoes FROM comunicado_gerado WHERE id_avaliacao = ?`).get(id);
+    if (!row || !row.geracoes)
+      return res.status(400).json({ error: 'Gere o comunicado antes de anexar o comprovante.' });
+
+    const perfil = db.prepare(`SELECT nome FROM depop_perfil WHERE user_id = ?`).get(req.user.user_id);
+    const nomeUsuario = (perfil && perfil.nome) || req.user.username;
+    anexosDb.prepare(`
+      INSERT INTO comprovante_entrega (id_avaliacao, nome_arquivo, mime, tamanho, conteudo, enviado_por, enviado_por_nome)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, nome, mime, req.body.length, req.body, req.user.user_id, nomeUsuario);
+
+    // Anexar prova = entregue.
+    const iso = new Date().toISOString();
+    db.prepare(`UPDATE comunicado_gerado SET enviado = 1, dt_envio = ? WHERE id_avaliacao = ?`).run(iso, id);
+    registrarLog(req, 'DEPOP', 'COMPROVANTE_ANEXOU', `Anexou comprovante de entrega ao comunicado do contrato ${id} (${nome})`);
+    res.json({ ok: true });
+  }
+);
+
+// Lista os comprovantes de um contrato (metadados, sem o BLOB).
+app.get('/api/depop/comunicados/:id/comprovantes', requireCap('comunicados'), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const rows = anexosDb.prepare(`
+    SELECT id, nome_arquivo, mime, tamanho, enviado_por_nome, criado_em
+    FROM comprovante_entrega WHERE id_avaliacao = ? ORDER BY criado_em DESC, id DESC`).all(id);
+  res.json({ comprovantes: rows });
+});
+
+// Baixa/visualiza um comprovante (o BLOB). GET → consulta também pode ver.
+app.get('/api/depop/comprovante/:cid', requireCap('comunicados'), (req, res) => {
+  const cid = parseInt(req.params.cid, 10);
+  const row = anexosDb.prepare(`SELECT nome_arquivo, mime, conteudo FROM comprovante_entrega WHERE id = ?`).get(cid);
+  if (!row) return res.status(404).json({ error: 'Comprovante não encontrado.' });
+  res.setHeader('Content-Type', row.mime || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(row.nome_arquivo || 'comprovante')}"`);
+  res.send(Buffer.from(row.conteudo));
+});
+
+// Remove um comprovante. Se sobrar nenhum no contrato, desmarca a entrega.
+// Entrega finalizada (enviado=1) só o master mexe — o comum usa o supervisor.
+app.delete('/api/depop/comprovante/:cid', requireCap('comunicados'), (req, res) => {
+  const cid = parseInt(req.params.cid, 10);
+  const row = anexosDb.prepare(`SELECT id_avaliacao, nome_arquivo FROM comprovante_entrega WHERE id = ?`).get(cid);
+  if (!row) return res.status(404).json({ error: 'Comprovante não encontrado.' });
+  const g = db.prepare(`SELECT enviado FROM comunicado_gerado WHERE id_avaliacao = ?`).get(row.id_avaliacao);
+  if (g && g.enviado && perfilFerramenta(req) !== 'master')
+    return res.status(403).json({ error: 'Entrega finalizada — só o supervisor pode cancelar a entrega.' });
+  anexosDb.prepare(`DELETE FROM comprovante_entrega WHERE id = ?`).run(cid);
+  const restantes = anexosDb.prepare(`SELECT COUNT(*) c FROM comprovante_entrega WHERE id_avaliacao = ?`).get(row.id_avaliacao).c;
+  if (restantes === 0) db.prepare(`UPDATE comunicado_gerado SET enviado = 0, dt_envio = NULL WHERE id_avaliacao = ?`).run(row.id_avaliacao);
+  registrarLog(req, 'DEPOP', 'COMPROVANTE_REMOVEU', `Removeu comprovante do contrato ${row.id_avaliacao} (${row.nome_arquivo || ''})`);
+  res.json({ ok: true, entregue: restantes > 0 });
 });
 
 // Parâmetros do sistema (parametro_sistema) — leitura/edição só do master.
