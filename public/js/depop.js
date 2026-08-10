@@ -1003,7 +1003,10 @@ function abrirComprovantes(id) {
   document.getElementById('dpc-compr-titulo').textContent =
     c ? `Comprovantes — CCU ${c.numero_ccu}` : 'Comprovantes';
   const ro = !!(estado.caps && estado.caps.is_consulta);
-  document.getElementById('dpc-compr-upload').style.display = ro ? 'none' : '';
+  // Some com o "anexar" pra consulta e quando a entrega já está finalizada
+  // (nesse caso só o master reabre pela ação Cancelar entrega).
+  const podeAnexar = !ro && !(c && c.enviado);
+  document.getElementById('dpc-compr-upload').style.display = podeAnexar ? '' : 'none';
   document.getElementById('dpc-modal-compr').classList.add('open');
   carregarComprovantes(id);
 }
@@ -1013,7 +1016,11 @@ async function carregarComprovantes(id) {
   try {
     const data = await (await fetch(`/api/depop/comunicados/${id}/comprovantes`)).json();
     const rows = data.comprovantes || [];
-    const ro = !!(estado.caps && estado.caps.is_consulta);
+    const c = comEstado.contratos.find(x => x.id === id);
+    const isMaster = !!(estado.caps && estado.caps.is_master);
+    // Remover: pro comum, só enquanto a entrega NÃO estiver finalizada; depois de
+    // entregue, só o master (via Cancelar entrega, mas o botão avulso também vale).
+    const podeRemover = isMaster || !(c && c.enviado);
     if (!rows.length) { box.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">Nenhum comprovante anexado ainda.</div>'; return; }
     box.innerHTML = rows.map(r => `<div class="dpc-compr-item">
       <span class="ic">${r.mime === 'application/pdf' ? '📄' : '🖼️'}</span>
@@ -1021,7 +1028,7 @@ async function carregarComprovantes(id) {
         <a href="/api/depop/comprovante/${r.id}" target="_blank" rel="noopener">${esc(r.nome_arquivo || 'comprovante')}</a>
         <div class="meta">${(r.tamanho / 1024).toFixed(0)} KB · ${esc(r.enviado_por_nome || '')} · ${fmtData(r.criado_em)}</div>
       </div>
-      ${ro ? '' : `<button class="btn btn-danger btn-sm" onclick="removerComprovante(${r.id})">Remover</button>`}
+      ${podeRemover ? `<button class="btn btn-danger btn-sm" onclick="removerComprovante(${r.id})">Remover</button>` : ''}
     </div>`).join('');
   } catch { box.innerHTML = '<div style="color:var(--vermelho);font-size:13px;">Falha ao carregar.</div>'; }
 }
@@ -1083,19 +1090,20 @@ function abrirDrillComunicado(codigo) {
 function drillLinhaComunicado(c) {
   let statusPill;
   if (c.elegivel) statusPill = `<span class="cmn-tag eleg">Pronto · prazo ${esc(c.prazo_final)}</span>`;
+  else if (c.motivo === 'entregue') statusPill = `<span class="cmn-tag entregue">✓ Entrega finalizada</span>`;
   else if (c.motivo === 'nao_validado') statusPill = `<span class="cmn-tag aguard">Aguardando validação</span>`;
   else if (c.motivo === 'sem_credencial') statusPill = `<span class="cmn-tag fora">Sem credencial</span>`;
   else statusPill = `<span class="cmn-tag fora">Fora do intervalo (${esc(c.ano_vencimento || '?')})</span>`;
   const ger = c.geracoes
     ? `<span class="cmn-tag gerado">✓ ${c.geracoes}× · ${fmtData(c.ultima_geracao)}</span>`
     : '<span class="meta">nunca gerado</span>';
-  const entregue = c.enviado ? '<span class="cmn-tag entregue">entregue</span>' : '';
   const nCompr = c.comprovantes || 0;
-  const ro = !!(estado.caps && estado.caps.is_consulta);
+  const isMaster = !!(estado.caps && estado.caps.is_master);
   let acoes = '';
-  // Visualizar na tela (sem gerar/contar/imprimir) — disponível pra todos, é como
-  // consulta/master conferem a carta. Só faz sentido quando é gerável (elegível).
-  if (c.elegivel) {
+  // Visualizar na tela (sem gerar/contar/imprimir) — disponível pra todos; serve
+  // pra consulta/master conferirem a carta. Vale sempre que é um comunicado válido
+  // (validado + credencial + ano), mesmo já entregue.
+  if (c.viewable) {
     acoes += `<button class="btn btn-secondary btn-sm" onclick="visualizarComunicado(${c.id})">👁 Visualizar</button>`;
   }
   // Protocolo e comprovantes: só depois que o comunicado foi gerado.
@@ -1103,12 +1111,16 @@ function drillLinhaComunicado(c) {
     acoes += `<button class="btn btn-secondary btn-sm" onclick="imprimirProtocolo(${c.id})" title="Documento de confirmação de entrega para assinatura">🖨️ Protocolo</button>`;
     acoes += `<button class="btn ${nCompr ? 'btn-secondary' : 'btn-primary'} btn-sm" onclick="abrirComprovantes(${c.id})">📎 Comprovantes${nCompr ? ` (${nCompr})` : ''}</button>`;
   }
+  // Entrega finalizada: só o master reabre (remove comprovantes + libera geração).
+  if (c.enviado && isMaster) {
+    acoes += `<button class="btn btn-danger btn-sm" onclick="abrirCancelarEntrega(${c.id})">Cancelar entrega</button>`;
+  }
   return `<div class="cmn-ct">
     <div class="grow">
       <div class="ccu">CCU ${esc(c.numero_ccu)}</div>
       <div class="meta">${esc(c.area)} · venc. ${esc(c.ano_vencimento || '—')}</div>
     </div>
-    ${statusPill} ${ger} ${entregue} ${acoes}
+    ${statusPill} ${ger} ${acoes}
   </div>`;
 }
 
@@ -1125,6 +1137,41 @@ async function marcarEntrega(id, enviado) {
     renderComPainel();
     toast(enviado ? 'Marcado como entregue.' : 'Entrega desmarcada.', 'success');
   } catch { toast('Falha de conexão.', 'error'); }
+}
+
+// Cancelar entrega finalizada (só master) — remove os comprovantes e libera o
+// comunicado pra gerar de novo. Exige motivo + senha, igual cancelar assinatura.
+let _cancelEntregaId = null;
+function abrirCancelarEntrega(id) {
+  _cancelEntregaId = id;
+  document.getElementById('dpc-ce-motivo').value = '';
+  document.getElementById('dpc-ce-senha').value = '';
+  document.getElementById('dpc-ce-msg').textContent = '';
+  document.getElementById('dpc-modal-cancel-entrega').classList.add('open');
+  setTimeout(() => document.getElementById('dpc-ce-motivo').focus(), 50);
+}
+async function confirmarCancelarEntrega() {
+  const motivo = document.getElementById('dpc-ce-motivo').value.trim();
+  const senha = document.getElementById('dpc-ce-senha').value;
+  const msg = document.getElementById('dpc-ce-msg');
+  const btn = document.getElementById('dpc-btn-cancel-entrega');
+  if (!motivo) { msg.textContent = 'Descreva o motivo do cancelamento.'; return; }
+  if (!senha) { msg.textContent = 'Informe a sua senha de login.'; return; }
+  btn.disabled = true; btn.textContent = 'Cancelando...';
+  try {
+    const res = await fetch(`/api/depop/comunicados/${_cancelEntregaId}/cancelar-entrega`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ motivo, senha })
+    });
+    const data = await res.json();
+    if (!res.ok) { msg.textContent = data.error || 'Erro ao cancelar a entrega.'; return; }
+    const id = _cancelEntregaId;
+    fecharModal('dpc-modal-cancel-entrega');
+    toast('Entrega cancelada. O comunicado já pode ser gerado novamente.', 'success');
+    await carregarComunicados();
+    const c = comEstado.contratos.find(x => x.id === id);
+    if (c) abrirDrillComunicado(c.codigo);
+  } catch { msg.textContent = 'Falha de conexão.'; }
+  finally { btn.disabled = false; btn.textContent = 'Cancelar entrega'; }
 }
 
 // Parâmetros do sistema (só master).

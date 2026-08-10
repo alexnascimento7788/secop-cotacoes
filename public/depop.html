@@ -461,6 +461,21 @@
   </div>
 </div>
 
+<!-- Modal: cancelar entrega finalizada (só supervisor) -->
+<div id="dpc-modal-cancel-entrega" class="modal-overlay">
+  <div class="modal-box">
+    <h3>Cancelar entrega</h3>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">Isto <strong>desfaz a entrega</strong>, remove os comprovantes anexados e libera o comunicado para ser gerado/impresso novamente. Descreva o <strong>motivo</strong> e confirme com a sua <strong>senha de login</strong>.</p>
+    <textarea id="dpc-ce-motivo" class="filter-input" style="width:100%;min-height:80px;resize:vertical;" placeholder="Ex.: entrega feita no contrato errado / precisa reemitir..."></textarea>
+    <input type="password" id="dpc-ce-senha" class="filter-input" style="width:100%;margin-top:8px;" placeholder="Sua senha de login" autocomplete="current-password" />
+    <div id="dpc-ce-msg" style="font-size:12.5px;font-weight:600;color:var(--vermelho);min-height:16px;margin-top:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="fecharModal('dpc-modal-cancel-entrega')">Voltar</button>
+      <button class="btn btn-danger btn-sm" id="dpc-btn-cancel-entrega" onclick="confirmarCancelarEntrega()">Cancelar entrega</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 <script src="js/pwa.js"></script>
 <script src="js/auth.js"></script>
