@@ -952,6 +952,16 @@ async function reimprimirComunicado(id) {
   const c = await _dadosComunicado(id); if (!c) return;
   imprimirPapeis([comunicadoPaper(c)]);
 }
+// Visualização na TELA (read-only): mostra o comunicado sem gerar, sem contar e
+// sem imprimir. É o caminho do consulta/master (supervisão) pra conferir a carta.
+async function visualizarComunicado(id) {
+  const c = await _dadosComunicado(id); if (!c) return;
+  document.getElementById('dpc-visu-body').innerHTML = comunicadoPaper(c);
+  document.getElementById('dpc-visu').style.display = 'flex';
+  const wrap = document.querySelector('#dpc-visu .dp-paper-wrap');
+  if (wrap) wrap.scrollTop = 0;
+}
+function fecharVisuComunicado() { document.getElementById('dpc-visu').style.display = 'none'; }
 function imprimirPapeis(paginas) {
   document.getElementById('dp-print').innerHTML = paginas.join('');
   const limpar = () => { document.getElementById('dp-print').innerHTML = ''; window.removeEventListener('afterprint', limpar); };
@@ -1079,8 +1089,13 @@ function drillLinhaComunicado(c) {
   const entregue = c.enviado ? '<span class="cmn-tag entregue">entregue</span>' : '';
   const nCompr = c.comprovantes || 0;
   const ro = !!(estado.caps && estado.caps.is_consulta);
-  // Ações disponíveis quando o comunicado já foi gerado.
   let acoes = '';
+  // Visualizar na tela (sem gerar/contar/imprimir) — disponível pra todos, é como
+  // consulta/master conferem a carta. Só faz sentido quando é gerável (elegível).
+  if (c.elegivel) {
+    acoes += `<button class="btn btn-secondary btn-sm" onclick="visualizarComunicado(${c.id})">👁 Visualizar</button>`;
+  }
+  // Protocolo e comprovantes: só depois que o comunicado foi gerado.
   if (c.geracoes) {
     acoes += `<button class="btn btn-secondary btn-sm" onclick="imprimirProtocolo(${c.id})" title="Documento de confirmação de entrega para assinatura">🖨️ Protocolo</button>`;
     acoes += `<button class="btn ${nCompr ? 'btn-secondary' : 'btn-primary'} btn-sm" onclick="abrirComprovantes(${c.id})">📎 Comprovantes${nCompr ? ` (${nCompr})` : ''}</button>`;

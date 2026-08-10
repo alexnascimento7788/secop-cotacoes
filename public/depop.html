@@ -370,6 +370,17 @@
   <div class="dp-paper-wrap"><div id="dp-contratos-body"></div></div>
 </div>
 
+<!-- Visualização do comunicado na tela (read-only: não gera, não conta, não imprime) -->
+<div id="dpc-visu" class="dp-overlay" style="display:none;">
+  <div class="dp-preview-bar">
+    <button class="btn btn-secondary btn-sm" onclick="fecharVisuComunicado()">← Voltar</button>
+    <div class="dp-preview-actions">
+      <span style="align-self:center;font-size:12px;color:var(--text-muted);">👁 Somente visualização — não conta como geração</span>
+    </div>
+  </div>
+  <div class="dp-paper-wrap" id="dpc-visu-body"></div>
+</div>
+
 <!-- Container de impressão -->
 <div id="dp-print"></div>
 
