@@ -1327,7 +1327,7 @@ function montarDetalhe(idAvaliacao) {
     WHERE a.id = ?`).get(idAvaliacao);
   if (!a) return null;
   const linhas = depopDb.prepare(`
-    SELECT sequencial, concessionario, endereco, area_m2, atual_tarifa_uso, nova_tarifa_uso
+    SELECT id, sequencial, concessionario, endereco, area_m2, atual_tarifa_uso, nova_tarifa_uso
     FROM TarifaContrato20Anos WHERE id_contrato = ? ORDER BY sequencial`).all(a.id_contrato);
   const v = db.prepare(`
     SELECT vc.status, vc.observacao, vc.dt_validacao, vc.hash_assinatura,
@@ -1569,6 +1569,20 @@ app.post('/api/depop/contratos/:id/errado', requireCap('valida'), (req, res) => 
     .run(id, obs, req.user.user_id, iso);
   db.prepare(`DELETE FROM validacao_lock WHERE id_avaliacao = ?`).run(id);
   registrarLog(req, 'DEPOP', 'ERRO', `Marcou erro no contrato CCU ${det.numero_ccu || det.id_contrato}: ${obs.slice(0, 120)}`);
+  res.json({ ok: true });
+});
+
+// Voltar um contrato marcado como ERRADO para "A Validar" (só supervisor/master).
+// Remove a marcação de erro → volta a 'pendente' pra um validador reconferir.
+app.post('/api/depop/contratos/:id/reabrir', requireCap('valida'), (req, res) => {
+  if (perfilFerramenta(req) !== 'master') return res.status(403).json({ error: 'Apenas o supervisor pode reabrir um contrato.' });
+  const id = parseInt(req.params.id, 10);
+  const v = db.prepare(`SELECT status FROM validacao_contrato WHERE id_avaliacao = ?`).get(id);
+  if (!v || v.status !== 'errado') return res.status(409).json({ error: 'Só contratos marcados como errado voltam para A Validar por aqui.' });
+  const det = montarDetalhe(id);
+  db.prepare(`DELETE FROM validacao_contrato WHERE id_avaliacao = ?`).run(id);
+  db.prepare(`DELETE FROM validacao_lock WHERE id_avaliacao = ?`).run(id);
+  registrarLog(req, 'DEPOP', 'REABRIU', `Voltou p/ A Validar o contrato CCU ${det ? (det.numero_ccu || det.id_contrato) : id} (estava errado)`);
   res.json({ ok: true });
 });
 
