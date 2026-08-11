@@ -449,12 +449,12 @@ function docPaper(det) { return `<div class="dp-paper">${docInner(det)}</div>`; 
 
 function docInner(det) {
   const linhas = det.linhas || [];
-  const mostrarId = linhas.length > 1; // com várias linhas, o ID ajuda a distingui-las
+  const mostrarId = linhas.length > 1; // com várias linhas, o sequencial ajuda a distingui-las
   const linhasHtml = linhas.length
     ? `<table class="dp-linhas">
-        <thead><tr>${mostrarId ? '<th class="num">ID</th>' : ''}<th>Nome / Endereço</th><th class="num">Metragem (m²)</th><th class="num">Tarifa de uso atual</th><th class="num">Nova tarifa de uso</th></tr></thead>
+        <thead><tr>${mostrarId ? '<th class="num">Seq.</th>' : ''}<th>Nome / Endereço</th><th class="num">Metragem (m²)</th><th class="num">Tarifa de uso atual</th><th class="num">Nova tarifa de uso</th></tr></thead>
         <tbody>${linhas.map(l => `<tr>
-          ${mostrarId ? `<td class="num">${esc(l.id)}</td>` : ''}
+          ${mostrarId ? `<td class="num">${esc(l.sequencial)}</td>` : ''}
           <td>${esc([l.concessionario, l.endereco].filter(Boolean).join(' — '))}</td>
           <td class="num">${fmtNum(l.area_m2)}</td>
           <td class="num">${fmtMoeda(l.atual_tarifa_uso)}</td>

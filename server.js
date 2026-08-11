@@ -1327,7 +1327,7 @@ function montarDetalhe(idAvaliacao) {
     WHERE a.id = ?`).get(idAvaliacao);
   if (!a) return null;
   const linhas = depopDb.prepare(`
-    SELECT id, sequencial, concessionario, endereco, area_m2, atual_tarifa_uso, nova_tarifa_uso
+    SELECT sequencial, concessionario, endereco, area_m2, atual_tarifa_uso, nova_tarifa_uso
     FROM TarifaContrato20Anos WHERE id_contrato = ? ORDER BY sequencial`).all(a.id_contrato);
   const v = db.prepare(`
     SELECT vc.status, vc.observacao, vc.dt_validacao, vc.hash_assinatura,
