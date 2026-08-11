@@ -1504,6 +1504,7 @@ function fecharModal() {
 
 function escHtml(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
+let _migsHomolog = [];
 async function carregarMigracoes() {
   const box = document.getElementById('homolog-lista');
   box.innerHTML = '<div style="color:#888;font-size:13px;">Carregando...</div>';
@@ -1513,6 +1514,7 @@ async function carregarMigracoes() {
     if (!res.ok) { box.innerHTML = '<div style="color:var(--vermelho);font-size:13px;">Indisponível (só no homolog).</div>'; return; }
     migs = (await res.json()).migracoes || [];
   } catch { box.innerHTML = '<div style="color:var(--vermelho);font-size:13px;">Falha ao carregar.</div>'; return; }
+  _migsHomolog = migs;
   if (!migs.length) { box.innerHTML = '<div style="color:#888;font-size:13px;">Nenhuma migração registrada ainda.</div>'; return; }
 
   box.innerHTML = migs.map(m => {
@@ -1530,7 +1532,7 @@ async function carregarMigracoes() {
       ${m.descricao ? `<p style="font-size:12.5px;color:#666;margin-bottom:8px;">${escHtml(m.descricao)}</p>` : ''}
       <pre style="background:var(--surface-2);border:1px solid var(--cinza-b);border-radius:8px;padding:12px;overflow:auto;font-size:12.5px;white-space:pre;margin:0;">${comandos}</pre>
       <div style="margin-top:8px;">
-        <button class="btn btn-secondary" onclick='copiarMigracao(${JSON.stringify((m.comandos || []).join("\n"))})'>📋 Copiar comandos</button>
+        <button class="btn btn-secondary" onclick="copiarMigracao('${escHtml(m.id)}')">📋 Copiar comandos</button>
       </div>
     </div>`;
   }).join('');
@@ -1542,11 +1544,28 @@ function marcarMigracao(id, feito) {
   carregarMigracoes();
 }
 
-function copiarMigracao(texto) {
-  navigator.clipboard.writeText(texto).then(
-    () => toast('Comandos copiados!', 'success'),
-    () => toast('Não foi possível copiar.', 'error')
-  );
+function copiarMigracao(id) {
+  const m = _migsHomolog.find(x => x.id === id);
+  if (!m) { toast('Migração não encontrada.', 'error'); return; }
+  const texto = (m.comandos || []).join('\n');
+  const ok = () => toast('Comandos copiados!', 'success');
+  const falhou = () => copiarFallback(texto);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(texto).then(ok, falhou);
+  } else { copiarFallback(texto); }
+}
+// Fallback p/ quando a Clipboard API não está disponível (ex.: acesso por http
+// fora de localhost, que não é "secure context").
+function copiarFallback(texto) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = texto;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    toast(ok ? 'Comandos copiados!' : 'Selecione e copie manualmente (Ctrl+C).', ok ? 'success' : 'error');
+  } catch { toast('Selecione e copie manualmente (Ctrl+C).', 'error'); }
 }
 
 // ── Logs ───────────────────────────────────────────────────────────────────────
