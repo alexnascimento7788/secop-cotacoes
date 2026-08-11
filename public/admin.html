@@ -155,6 +155,7 @@
       <button class="admin-tab" onclick="mudarAba('banco')">Banco de Dados</button>
       <button class="admin-tab" onclick="mudarAba('lixeira')">Lixeira</button>
       <button class="admin-tab" onclick="mudarAba('logs')">Logs</button>
+      <button class="admin-tab" id="tab-homolog" style="display:none;" onclick="mudarAba('homolog')">🛠️ Atualização na base</button>
     </div>
 
     <!-- Aba Tipos de Contratação -->
@@ -584,6 +585,20 @@
       </div>
     </div>
 
+    <!-- Aba Atualização na base (só master, só homolog) -->
+    <div class="admin-pane" id="pane-homolog">
+      <div class="admin-section">
+        <div class="admin-section-title">Atualização na base de produção</div>
+        <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+          Comandos SQL já aplicados <strong>aqui no homolog</strong> e convertidos para SQLite.
+          Para replicar em <strong>produção</strong>, rode cada bloco <strong>manualmente pelo DBeaver</strong>,
+          na conexão do banco indicado. Os <strong>IDs são explícitos e devem ser mantidos idênticos</strong>.
+          O "✓ executado" é só um controle visual seu (fica salvo neste navegador).
+        </p>
+        <div id="homolog-lista"></div>
+      </div>
+    </div>
+
     <!-- Aba Módulos -->
     <div class="admin-pane" id="pane-modulos">
       <div class="admin-card">
@@ -711,7 +726,7 @@ function toast(msg, type='') {
   setTimeout(() => { el.className = ''; }, 3000);
 }
 
-const _abas = ['usuarios', 'modulos', 'tipos', 'extras', 'parametros', 'banco', 'lixeira', 'logs'];
+const _abas = ['usuarios', 'modulos', 'tipos', 'extras', 'parametros', 'banco', 'lixeira', 'logs', 'homolog'];
 function mudarAba(aba) {
   document.querySelectorAll('.admin-tab').forEach((t, i) => t.classList.toggle('active', _abas[i] === aba));
   _abas.forEach(a => document.getElementById(`pane-${a}`).classList.toggle('active', a === aba));
@@ -722,6 +737,7 @@ function mudarAba(aba) {
   if (aba === 'parametros') carregarParametros();
   if (aba === 'lixeira') carregarLixeira();
   if (aba === 'logs') { carregarUsuariosLog(); carregarLogs(); }
+  if (aba === 'homolog') carregarMigracoes();
 }
 
 // ── Gate de reautenticação ───────────────────────────────────────────────────
@@ -865,6 +881,14 @@ async function salvarParametros() {
   const user = await getCurrentUser();
   const podeConfig = user && (user.username === 'master' || (user.role === 'admin' && user.acesso_avancado));
   if (!podeConfig) { window.location.replace('/index.html'); return; }
+  // Aba "Atualização na base": só master E só em homolog (o marcador .homolog
+  // existe no servidor). Em produção o /api/version devolve homolog:false → some.
+  if (user.username === 'master') {
+    try {
+      const v = await fetch('/api/version').then(r => r.json());
+      if (v && v.homolog) document.getElementById('tab-homolog').style.display = '';
+    } catch {}
+  }
   // Conteúdo real (tabs, tabelas) só carrega depois do gate de senha —
   // ver confirmarGateSenha()
   setTimeout(() => document.getElementById('gate-senha-input').focus(), 50);
@@ -1474,6 +1498,55 @@ function alterarSenha(id) {
 
 function fecharModal() {
   document.getElementById('modal-senha').classList.remove('open');
+}
+
+// ── Atualização na base (homolog) ────────────────────────────────────────────
+
+function escHtml(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+async function carregarMigracoes() {
+  const box = document.getElementById('homolog-lista');
+  box.innerHTML = '<div style="color:#888;font-size:13px;">Carregando...</div>';
+  let migs = [];
+  try {
+    const res = await fetch('/api/admin/migracoes-homolog');
+    if (!res.ok) { box.innerHTML = '<div style="color:var(--vermelho);font-size:13px;">Indisponível (só no homolog).</div>'; return; }
+    migs = (await res.json()).migracoes || [];
+  } catch { box.innerHTML = '<div style="color:var(--vermelho);font-size:13px;">Falha ao carregar.</div>'; return; }
+  if (!migs.length) { box.innerHTML = '<div style="color:#888;font-size:13px;">Nenhuma migração registrada ainda.</div>'; return; }
+
+  box.innerHTML = migs.map(m => {
+    const feito = localStorage.getItem('mig_exec_' + m.id) === '1';
+    const comandos = (m.comandos || []).map(c => escHtml(c)).join('\n');
+    return `<div class="admin-card" style="margin-bottom:14px;${feito ? 'opacity:.6;' : ''}">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+        <strong>${escHtml(m.titulo || m.id)}</strong>
+        <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--surface-2);color:var(--text-muted);">${escHtml(m.banco || '')}</span>
+        <span style="font-size:11px;color:#888;">${escHtml(m.data || '')} · ${escHtml(m.id)}</span>
+        <label style="margin-left:auto;font-size:12.5px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;">
+          <input type="checkbox" ${feito ? 'checked' : ''} onchange="marcarMigracao('${escHtml(m.id)}', this.checked)"> ✓ executado em produção
+        </label>
+      </div>
+      ${m.descricao ? `<p style="font-size:12.5px;color:#666;margin-bottom:8px;">${escHtml(m.descricao)}</p>` : ''}
+      <pre style="background:var(--surface-2);border:1px solid var(--cinza-b);border-radius:8px;padding:12px;overflow:auto;font-size:12.5px;white-space:pre;margin:0;">${comandos}</pre>
+      <div style="margin-top:8px;">
+        <button class="btn btn-secondary" onclick='copiarMigracao(${JSON.stringify((m.comandos || []).join("\n"))})'>📋 Copiar comandos</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function marcarMigracao(id, feito) {
+  if (feito) localStorage.setItem('mig_exec_' + id, '1');
+  else localStorage.removeItem('mig_exec_' + id);
+  carregarMigracoes();
+}
+
+function copiarMigracao(texto) {
+  navigator.clipboard.writeText(texto).then(
+    () => toast('Comandos copiados!', 'success'),
+    () => toast('Não foi possível copiar.', 'error')
+  );
 }
 
 // ── Logs ───────────────────────────────────────────────────────────────────────
