@@ -260,7 +260,8 @@ function renderLista() {
   if (estado.cidade) base = base.filter(c => c.cidade === estado.cidade);
   if (estado.busca) base = base.filter(c =>
     (c.concessionario || '').toLowerCase().includes(estado.busca) ||
-    (c.numero_ccu || '').toLowerCase().includes(estado.busca));
+    (c.numero_ccu || '').toLowerCase().includes(estado.busca) ||
+    String(c.codigo || '').includes(estado.busca));
 
   // Agrupa por cidade → concessionário (codigo)
   const cidades = new Map();
@@ -748,7 +749,7 @@ function agruparComunicados() {
   const porCidade = new Map();
   for (const c of comEstado.contratos) {
     if (cid && c.cidade !== cid) continue;
-    if (q && !(`${c.concessionario} ${c.numero_ccu}`.toLowerCase().includes(q))) continue;
+    if (q && !(`${c.concessionario} ${c.numero_ccu} ${c.codigo}`.toLowerCase().includes(q))) continue;
     if (!porCidade.has(c.cidade)) porCidade.set(c.cidade, new Map());
     const g = porCidade.get(c.cidade);
     if (!g.has(c.codigo)) g.set(c.codigo, { codigo: c.codigo, nome: c.concessionario, contratos: [] });
