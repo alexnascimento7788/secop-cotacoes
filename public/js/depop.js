@@ -410,6 +410,8 @@ function renderPreviewActions() {
     let acoes = `<button class="btn btn-secondary btn-sm" onclick="imprimirIndividual()">🖨️ Exportar PDF</button>`;
     // Supervisor pode desfazer uma assinatura já feita (volta para conferência).
     if (st === 'validado') acoes += `<button class="btn btn-danger btn-sm" onclick="abrirModalCancelar()">Cancelar assinatura</button>`;
+    // ...e devolver um contrato marcado como errado para a aba "A Validar".
+    if (st === 'errado') acoes += `<button class="btn btn-primary btn-sm" onclick="reabrirContrato()">↩️ Voltar para A Validar</button>`;
     box.innerHTML = chip + acoes;
   } else if (st === 'validado') {
     // Contrato assinado é final: não reabre pra assinar de novo nem marcar erro.
@@ -429,15 +431,30 @@ async function fecharPreview() {
   await recarregar();
 }
 
+// Supervisor devolve um contrato "errado" para a aba "A Validar".
+async function reabrirContrato() {
+  if (!_det) return;
+  if (!confirm('Voltar este contrato para "A Validar"? A marcação de erro será removida.')) return;
+  try {
+    const res = await fetch(`/api/depop/contratos/${_det.id}/reabrir`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) { toast(data.error || 'Erro ao reabrir.', 'error'); return; }
+    toast('Contrato voltou para A Validar.', 'success');
+    await fecharPreview();
+  } catch { toast('Falha de conexão.', 'error'); }
+}
+
 // Invólucro "papel" (usado na impressão; no preview o próprio #dp-doc já é .dp-paper).
 function docPaper(det) { return `<div class="dp-paper">${docInner(det)}</div>`; }
 
 function docInner(det) {
   const linhas = det.linhas || [];
+  const mostrarId = linhas.length > 1; // com várias linhas, o ID ajuda a distingui-las
   const linhasHtml = linhas.length
     ? `<table class="dp-linhas">
-        <thead><tr><th>Nome / Endereço</th><th class="num">Metragem (m²)</th><th class="num">Tarifa de uso atual</th><th class="num">Nova tarifa de uso</th></tr></thead>
+        <thead><tr>${mostrarId ? '<th class="num">ID</th>' : ''}<th>Nome / Endereço</th><th class="num">Metragem (m²)</th><th class="num">Tarifa de uso atual</th><th class="num">Nova tarifa de uso</th></tr></thead>
         <tbody>${linhas.map(l => `<tr>
+          ${mostrarId ? `<td class="num">${esc(l.id)}</td>` : ''}
           <td>${esc([l.concessionario, l.endereco].filter(Boolean).join(' — '))}</td>
           <td class="num">${fmtNum(l.area_m2)}</td>
           <td class="num">${fmtMoeda(l.atual_tarifa_uso)}</td>
