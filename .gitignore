@@ -40,3 +40,7 @@ dist/
 build/
 coverage/
 .nyc_output/
+
+# Marcador de ambiente homolog (nunca em producao)
+.homolog
+migracoes-homolog.json

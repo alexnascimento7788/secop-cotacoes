@@ -15,6 +15,13 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Ambiente HOMOLOG: existe só onde há o arquivo-marcador `.homolog` (gitignored).
+// Gateia a aba "Atualização na base de produção" (ferramenta interna do master p/
+// acumular os comandos SQL a rodar manualmente na produção). Em produção o arquivo
+// não existe → a aba nunca aparece, mesmo que o código chegue lá pelo git.
+const IS_HOMOLOG = fs.existsSync(path.join(__dirname, '.homolog'));
+const MIGRACOES_FILE = path.join(__dirname, 'migracoes-homolog.json');
+
 // node:sqlite rejects undefined — coerce to null
 const n = v => (v === undefined ? null : v);
 
@@ -1946,7 +1953,21 @@ app.put('/api/depop/parametros', (req, res) => {
 // aparecer: o fetch('/api/version') do front nunca resolvia).
 app.get('/api/version', (_req, res) => {
   const { version } = require('./package.json');
-  res.json({ version });
+  res.json({ version, homolog: IS_HOMOLOG });
+});
+
+// ── Homolog: migrações a rodar manualmente na produção (DBeaver) ──────────────
+// Ferramenta interna do master, SÓ em homolog. Lê a lista local de comandos SQL
+// (migracoes-homolog.json, gitignored — mora só aqui). Em produção o marcador
+// .homolog não existe → 404, a aba nunca aparece.
+app.get('/api/admin/migracoes-homolog', (req, res) => {
+  if (!IS_HOMOLOG) return res.status(404).json({ error: 'Indisponível fora do homolog.' });
+  if (req.user.username !== 'master') return res.status(403).json({ error: 'Restrito ao master.' });
+  let dados = { migracoes: [] };
+  try { if (fs.existsSync(MIGRACOES_FILE)) dados = JSON.parse(fs.readFileSync(MIGRACOES_FILE, 'utf8')); } catch (e) {
+    return res.status(500).json({ error: 'Falha ao ler a lista de migrações: ' + e.message });
+  }
+  res.json({ migracoes: dados.migracoes || [] });
 });
 
 // ── Serve SPA ─────────────────────────────────────────────────────────────────
