@@ -403,6 +403,18 @@ function renderPreviewActions() {
   const box = document.getElementById('dp-preview-actions');
   const st = _det.validacao.status;
   const chip = `<span class="badge badge-${st}" style="align-self:center">${({ pendente: 'A validar', validado: 'Assinado', errado: 'Errado' })[st]}</span>`;
+
+  // Janela do motivo do erro: visível pra qualquer papel (usuário, admin, master)
+  // que abrir o contrato, não só pra quem tem permissão de reabrir.
+  const infoBox = document.getElementById('dp-preview-erro-info');
+  infoBox.innerHTML = st === 'errado'
+    ? `<div class="dp-erro-banner">
+        <div class="dp-erro-titulo">⚠️ Motivo do erro</div>
+        <div><strong>O que está errado:</strong> ${esc(_det.validacao.observacao || '—')}</div>
+        <div style="margin-top:4px;"><strong>Solução:</strong> ${esc(_det.validacao.solucao || '—')}</div>
+      </div>`
+    : '';
+
   if (estado.caps && estado.caps.is_consulta) {
     // Consulta (só leitura): vê o documento e pode imprimir, sem ações.
     box.innerHTML = chip + `<button class="btn btn-secondary btn-sm" onclick="imprimirIndividual()">🖨️ Exportar PDF</button>`;
@@ -520,6 +532,7 @@ function abrirModalSenha() {
 }
 function abrirModalErro() {
   document.getElementById('dp-erro-obs').value = '';
+  document.getElementById('dp-erro-solucao').value = '';
   document.getElementById('dp-erro-msg').textContent = '';
   document.getElementById('dp-modal-erro').classList.add('open');
   setTimeout(() => document.getElementById('dp-erro-obs').focus(), 50);
@@ -586,14 +599,16 @@ async function confirmarAssinatura() {
 
 async function confirmarErro() {
   const obs = document.getElementById('dp-erro-obs').value.trim();
+  const solucao = document.getElementById('dp-erro-solucao').value.trim();
   const msg = document.getElementById('dp-erro-msg');
   const btn = document.getElementById('dp-btn-erro');
-  if (!obs) { msg.textContent = 'Descreva o motivo do erro.'; return; }
+  if (!obs) { msg.textContent = 'Descreva o que está errado.'; return; }
+  if (!solucao) { msg.textContent = 'Descreva a solução.'; return; }
   btn.disabled = true; btn.textContent = 'Salvando...';
   try {
     const res = await fetch(`/api/depop/contratos/${_det.id}/errado`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ observacao: obs })
+      body: JSON.stringify({ observacao: obs, solucao })
     });
     const data = await res.json();
     if (!res.ok) { msg.textContent = data.error || 'Erro ao salvar.'; return; }

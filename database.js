@@ -309,7 +309,13 @@ function setupDb() {
       assinatura_b64       TEXT,
       FOREIGN KEY (id_usuario_validador) REFERENCES users(id)
     );
+  `);
+  // Ao marcar erro, além do problema (observacao) o validador agora também
+  // descreve a solução — visível pra todo mundo que abrir o contrato (não só
+  // pra quem vai reabrir).
+  try { _db.exec(`ALTER TABLE validacao_contrato ADD COLUMN solucao TEXT`); } catch {}
 
+  _db.exec(`
     CREATE TABLE IF NOT EXISTS validacao_lock (
       id_avaliacao INTEGER PRIMARY KEY,
       user_id      INTEGER NOT NULL,

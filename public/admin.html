@@ -1545,12 +1545,18 @@ function aplicarColapso(id, colapsada) {
   const body = document.getElementById('mig-body-' + id);
   const chevron = document.getElementById('mig-chevron-' + id);
   const card = document.getElementById('mig-card-' + id);
+  const banner = document.getElementById('mig-banner-' + id);
+  const pre = document.getElementById('mig-pre-' + id);
   if (!body || !chevron) return;
   body.style.maxHeight = colapsada ? '0' : '2000px';
   body.style.opacity = colapsada ? '0' : '1';
   body.style.marginTop = colapsada ? '0' : '8px';
   chevron.style.transform = colapsada ? 'rotate(-90deg)' : 'rotate(0deg)';
-  if (card) card.style.opacity = migExecutado(id) ? '.7' : '1';
+  const feito = migExecutado(id);
+  const cor = feito ? '#2e7d32' : '#c62828'; // verde = executado, vermelho = pendente
+  if (card) { card.style.opacity = feito ? '.7' : '1'; card.style.borderLeftColor = cor; }
+  if (banner) banner.style.background = cor;
+  if (pre) pre.style.borderColor = cor;
 }
 
 function toggleColapsoMigracao(id) {
@@ -1591,7 +1597,7 @@ async function carregarMigracoes() {
     const feito = migExecutado(m.id);
     const colapsada = migColapsada(m.id);
     const comandos = lista.map(c => escHtml(c)).join('\n');
-    const cor = corBanco(m.banco);
+    const cor = feito ? '#2e7d32' : '#c62828'; // verde = executado, vermelho = pendente
     const banco = (m.banco || '?').toUpperCase();
     return `<div class="admin-card mig-card" id="mig-card-${idEsc}" style="margin-bottom:14px;border-left:5px solid ${cor};${feito ? 'opacity:.7;' : ''}">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;cursor:pointer;" onclick="toggleColapsoMigracao('${idEsc}')">
@@ -1604,11 +1610,11 @@ async function carregarMigracoes() {
       </div>
       <div id="mig-body-${idEsc}" style="overflow:hidden;transition:max-height .25s ease, opacity .2s ease, margin-top .25s ease;max-height:${colapsada ? '0' : '2000px'};opacity:${colapsada ? '0' : '1'};margin-top:${colapsada ? '0' : '8px'};">
         ${m.descricao ? `<p style="font-size:12.5px;color:#666;margin-bottom:8px;">${escHtml(m.descricao)}</p>` : ''}
-        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px 8px 0 0;background:${cor};color:#fff;font-weight:700;font-size:13px;">
+        <div id="mig-banner-${idEsc}" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px 8px 0 0;background:${cor};color:#fff;font-weight:700;font-size:13px;transition:background .2s ease;">
           ${iconeDestino} Rodar no banco: <span style="letter-spacing:.5px;">${escHtml(banco)}</span>
           <span style="margin-left:auto;font-weight:600;font-size:11.5px;opacity:.9;">${escHtml(rotuloDestino)}</span>
         </div>
-        <pre style="background:var(--surface-2);border:1px solid ${cor};border-top:none;border-radius:0 0 8px 8px;padding:12px;overflow:auto;font-size:12.5px;white-space:pre;margin:0;">${comandos}</pre>
+        <pre id="mig-pre-${idEsc}" style="background:var(--surface-2);border:1px solid ${cor};border-top:none;border-radius:0 0 8px 8px;padding:12px;overflow:auto;font-size:12.5px;white-space:pre;margin:0;transition:border-color .2s ease;">${comandos}</pre>
         <div style="margin-top:8px;">
           <button class="btn btn-secondary" onclick="event.stopPropagation();copiarMigracao('${idEsc}')">📋 Copiar comandos</button>
         </div>
