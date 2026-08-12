@@ -1326,9 +1326,13 @@ function montarDetalhe(idAvaliacao) {
     LEFT JOIN Cidade c ON c.id = a.id_cidade
     WHERE a.id = ?`).get(idAvaliacao);
   if (!a) return null;
+  // id_contrato identifica o CCU/box, não o inquilino — a mesma vaga pode ter
+  // linhas de tarifa de concessionários diferentes ao longo dos anos (troca de
+  // inquilino). Filtra também por codigo pra pegar só as linhas do inquilino
+  // atual, não misturar com histórico de quem ocupou o box antes.
   const linhas = depopDb.prepare(`
     SELECT sequencial, concessionario, endereco, area_m2, atual_tarifa_uso, nova_tarifa_uso
-    FROM TarifaContrato20Anos WHERE id_contrato = ? ORDER BY sequencial`).all(a.id_contrato);
+    FROM TarifaContrato20Anos WHERE id_contrato = ? AND codigo = ? ORDER BY sequencial`).all(a.id_contrato, a.codigo);
   const v = db.prepare(`
     SELECT vc.status, vc.observacao, vc.solucao, vc.dt_validacao, vc.hash_assinatura,
            COALESCE(dp.nome, u.username) AS validador
