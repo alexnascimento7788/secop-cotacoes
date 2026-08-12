@@ -589,12 +589,15 @@
     <div class="admin-pane" id="pane-homolog">
       <div class="admin-section">
         <div class="admin-section-title">Atualização na base de produção</div>
-        <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
-          Comandos SQL já aplicados <strong>aqui no homolog</strong> e convertidos para SQLite.
-          Para replicar em <strong>produção</strong>, rode cada bloco <strong>manualmente pelo DBeaver</strong>,
-          na conexão do banco indicado. Os <strong>IDs são explícitos e devem ser mantidos idênticos</strong>.
-          O "✓ executado" é só um controle visual seu (fica salvo neste navegador).
+        <p style="font-size:13px;color:#666;margin-bottom:12px;line-height:1.5;">
+          Comandos SQL já aplicados <strong>aqui no homolog</strong>. Os <strong>IDs são explícitos e devem
+          ser mantidos idênticos</strong>. O "✓ executado" é só um controle visual seu (fica salvo neste navegador,
+          separado por destino).
         </p>
+        <div style="display:flex;gap:8px;margin-bottom:16px;">
+          <button class="btn btn-secondary" id="homolog-sub-sqlite" onclick="mudarDestinoHomolog('sqlite')">🗄️ SQLite (DBeaver)</button>
+          <button class="btn btn-secondary" id="homolog-sub-sqlserver" onclick="mudarDestinoHomolog('sqlserver')">🧱 SQL Server (produção)</button>
+        </div>
         <div id="homolog-lista"></div>
       </div>
     </div>
@@ -1514,8 +1517,59 @@ function corBanco(banco) {
 }
 
 let _migsHomolog = [];
+let _homologDestino = localStorage.getItem('homolog_destino') || 'sqlite';
+// Colapso é estado só de sessão (não persiste): chave = destino_id -> true/false.
+// Sem entrada aqui => usa o padrão (colapsado se já marcado como executado).
+let _migColapsadas = {};
+
+function mudarDestinoHomolog(destino) {
+  _homologDestino = destino;
+  localStorage.setItem('homolog_destino', destino);
+  carregarMigracoes();
+}
+
+function chaveMig(id) { return _homologDestino + '_' + id; }
+
+function migExecutado(id) {
+  return localStorage.getItem('mig_exec_' + chaveMig(id)) === '1';
+}
+
+function migColapsada(id) {
+  const k = chaveMig(id);
+  return Object.prototype.hasOwnProperty.call(_migColapsadas, k) ? _migColapsadas[k] : migExecutado(id);
+}
+
+// Só mexe no DOM do card em questão — nunca redesenha a lista inteira, então
+// a página não pula/rola pro topo ao marcar "executado" ou abrir/fechar.
+function aplicarColapso(id, colapsada) {
+  const body = document.getElementById('mig-body-' + id);
+  const chevron = document.getElementById('mig-chevron-' + id);
+  const card = document.getElementById('mig-card-' + id);
+  const banner = document.getElementById('mig-banner-' + id);
+  const pre = document.getElementById('mig-pre-' + id);
+  if (!body || !chevron) return;
+  body.style.maxHeight = colapsada ? '0' : '2000px';
+  body.style.opacity = colapsada ? '0' : '1';
+  body.style.marginTop = colapsada ? '0' : '8px';
+  chevron.style.transform = colapsada ? 'rotate(-90deg)' : 'rotate(0deg)';
+  const feito = migExecutado(id);
+  const cor = feito ? '#2e7d32' : '#c62828'; // verde = executado, vermelho = pendente
+  if (card) { card.style.opacity = feito ? '.7' : '1'; card.style.borderLeftColor = cor; }
+  if (banner) banner.style.background = cor;
+  if (pre) pre.style.borderColor = cor;
+}
+
+function toggleColapsoMigracao(id) {
+  const k = chaveMig(id);
+  const novo = !migColapsada(id);
+  _migColapsadas[k] = novo;
+  aplicarColapso(id, novo);
+}
+
 async function carregarMigracoes() {
   const box = document.getElementById('homolog-lista');
+  document.getElementById('homolog-sub-sqlite').className = 'btn ' + (_homologDestino === 'sqlite' ? 'btn-primary' : 'btn-secondary');
+  document.getElementById('homolog-sub-sqlserver').className = 'btn ' + (_homologDestino === 'sqlserver' ? 'btn-primary' : 'btn-secondary');
   box.innerHTML = '<div style="color:#888;font-size:13px;">Carregando...</div>';
   let migs = [];
   try {
@@ -1526,42 +1580,64 @@ async function carregarMigracoes() {
   _migsHomolog = migs;
   if (!migs.length) { box.innerHTML = '<div style="color:#888;font-size:13px;">Nenhuma migração registrada ainda.</div>'; return; }
 
+  const campoComandos = _homologDestino === 'sqlserver' ? 'comandos_sqlserver' : 'comandos';
+  const rotuloDestino = _homologDestino === 'sqlserver' ? 'SQL Server (produção)' : 'DBeaver — SQLite';
+  const iconeDestino = _homologDestino === 'sqlserver' ? '🧱' : '🗄️';
+
   box.innerHTML = migs.map(m => {
-    const feito = localStorage.getItem('mig_exec_' + m.id) === '1';
-    const comandos = (m.comandos || []).map(c => escHtml(c)).join('\n');
-    const cor = corBanco(m.banco);
+    const lista = m[campoComandos] || [];
+    if (!lista.length) {
+      return `<div class="admin-card" style="margin-bottom:14px;opacity:.6;">
+        <strong>${escHtml(m.titulo || m.id)}</strong>
+        <span style="font-size:11px;color:#888;"> · ${escHtml(m.id)}</span>
+        <p style="font-size:12.5px;color:#888;margin-top:6px;">Sem comandos ${escHtml(rotuloDestino)} registrados.</p>
+      </div>`;
+    }
+    const idEsc = escHtml(m.id);
+    const feito = migExecutado(m.id);
+    const colapsada = migColapsada(m.id);
+    const comandos = lista.map(c => escHtml(c)).join('\n');
+    const cor = feito ? '#2e7d32' : '#c62828'; // verde = executado, vermelho = pendente
     const banco = (m.banco || '?').toUpperCase();
-    return `<div class="admin-card" style="margin-bottom:14px;border-left:5px solid ${cor};${feito ? 'opacity:.6;' : ''}">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+    return `<div class="admin-card mig-card" id="mig-card-${idEsc}" style="margin-bottom:14px;border-left:5px solid ${cor};${feito ? 'opacity:.7;' : ''}">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;cursor:pointer;" onclick="toggleColapsoMigracao('${idEsc}')">
+        <span id="mig-chevron-${idEsc}" style="display:inline-block;transition:transform .2s ease;transform:rotate(${colapsada ? '-90deg' : '0deg'});">▾</span>
         <strong>${escHtml(m.titulo || m.id)}</strong>
         <span style="font-size:11px;color:#888;">${escHtml(m.data || '')} · ${escHtml(m.id)}</span>
-        <label style="margin-left:auto;font-size:12.5px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;">
-          <input type="checkbox" ${feito ? 'checked' : ''} onchange="marcarMigracao('${escHtml(m.id)}', this.checked)"> ✓ executado em produção
+        <label style="margin-left:auto;font-size:12.5px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;" onclick="event.stopPropagation()">
+          <input type="checkbox" ${feito ? 'checked' : ''} onchange="marcarMigracao('${idEsc}', this.checked)"> ✓ executado em ${escHtml(rotuloDestino)}
         </label>
       </div>
-      ${m.descricao ? `<p style="font-size:12.5px;color:#666;margin-bottom:8px;">${escHtml(m.descricao)}</p>` : ''}
-      <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px 8px 0 0;background:${cor};color:#fff;font-weight:700;font-size:13px;">
-        🗄️ Rodar no banco: <span style="letter-spacing:.5px;">${escHtml(banco)}</span>
-        <span style="margin-left:auto;font-weight:600;font-size:11.5px;opacity:.9;">conexão do DBeaver correspondente</span>
-      </div>
-      <pre style="background:var(--surface-2);border:1px solid ${cor};border-top:none;border-radius:0 0 8px 8px;padding:12px;overflow:auto;font-size:12.5px;white-space:pre;margin:0;">${comandos}</pre>
-      <div style="margin-top:8px;">
-        <button class="btn btn-secondary" onclick="copiarMigracao('${escHtml(m.id)}')">📋 Copiar comandos</button>
+      <div id="mig-body-${idEsc}" style="overflow:hidden;transition:max-height .25s ease, opacity .2s ease, margin-top .25s ease;max-height:${colapsada ? '0' : '2000px'};opacity:${colapsada ? '0' : '1'};margin-top:${colapsada ? '0' : '8px'};">
+        ${m.descricao ? `<p style="font-size:12.5px;color:#666;margin-bottom:8px;">${escHtml(m.descricao)}</p>` : ''}
+        <div id="mig-banner-${idEsc}" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px 8px 0 0;background:${cor};color:#fff;font-weight:700;font-size:13px;transition:background .2s ease;">
+          ${iconeDestino} Rodar no banco: <span style="letter-spacing:.5px;">${escHtml(banco)}</span>
+          <span style="margin-left:auto;font-weight:600;font-size:11.5px;opacity:.9;">${escHtml(rotuloDestino)}</span>
+        </div>
+        <pre id="mig-pre-${idEsc}" style="background:var(--surface-2);border:1px solid ${cor};border-top:none;border-radius:0 0 8px 8px;padding:12px;overflow:auto;font-size:12.5px;white-space:pre;margin:0;transition:border-color .2s ease;">${comandos}</pre>
+        <div style="margin-top:8px;">
+          <button class="btn btn-secondary" onclick="event.stopPropagation();copiarMigracao('${idEsc}')">📋 Copiar comandos</button>
+        </div>
       </div>
     </div>`;
   }).join('');
 }
 
 function marcarMigracao(id, feito) {
-  if (feito) localStorage.setItem('mig_exec_' + id, '1');
-  else localStorage.removeItem('mig_exec_' + id);
-  carregarMigracoes();
+  const chave = 'mig_exec_' + chaveMig(id);
+  if (feito) localStorage.setItem(chave, '1');
+  else localStorage.removeItem(chave);
+  // Marcar executado fecha a sanfona; desmarcar reabre. Só mexe no card, sem
+  // recarregar a lista inteira (evita pular a página pro topo).
+  _migColapsadas[chaveMig(id)] = feito;
+  aplicarColapso(id, feito);
 }
 
 function copiarMigracao(id) {
   const m = _migsHomolog.find(x => x.id === id);
   if (!m) { toast('Migração não encontrada.', 'error'); return; }
-  const texto = (m.comandos || []).join('\n');
+  const campoComandos = _homologDestino === 'sqlserver' ? 'comandos_sqlserver' : 'comandos';
+  const texto = (m[campoComandos] || []).join('\n');
   const ok = () => toast('Comandos copiados!', 'success');
   const falhou = () => copiarFallback(texto);
   if (navigator.clipboard && navigator.clipboard.writeText) {

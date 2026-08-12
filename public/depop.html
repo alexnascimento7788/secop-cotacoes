@@ -51,6 +51,12 @@
     [data-theme="dark"] .badge-pendente { background: rgba(220,38,38,.18); color: #fca5a5; }
     [data-theme="dark"] .badge-validado { background: rgba(21,128,61,.22); color: #86efac; }
     [data-theme="dark"] .badge-errado   { background: rgba(180,83,9,.24); color: #fcd34d; }
+    /* Janela do motivo do erro no preview — mesma paleta âmbar do badge-errado */
+    .dp-erro-banner { margin: 0 20px 12px; padding: 12px 14px; background: #fef3c7; border: 1px solid #f5c34d; border-radius: 8px; font-size: 12.5px; line-height: 1.6; color: #78350f; }
+    .dp-erro-banner strong { color: inherit; }
+    .dp-erro-banner .dp-erro-titulo { font-weight: 700; color: #b45309; margin-bottom: 6px; }
+    [data-theme="dark"] .dp-erro-banner { background: rgba(180,83,9,.18); border-color: rgba(252,211,77,.35); color: #fde68a; }
+    [data-theme="dark"] .dp-erro-banner .dp-erro-titulo { color: #fcd34d; }
 
     /* Linha de grupo (concessionário com vários contratos) — clica e abre a tela dele */
     .dp-group-row { cursor: pointer; }
@@ -358,6 +364,7 @@
     <button class="btn btn-secondary btn-sm" onclick="fecharPreview()">← Voltar</button>
     <div class="dp-preview-actions" id="dp-preview-actions"></div>
   </div>
+  <div id="dp-preview-erro-info"></div>
   <div class="dp-paper-wrap"><div class="dp-paper" id="dp-doc"></div></div>
 </div>
 
@@ -402,8 +409,11 @@
 <div id="dp-modal-erro" class="modal-overlay">
   <div class="modal-box">
     <h3>Marcar como errado</h3>
-    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">Descreva o <strong>motivo</strong> — o que está divergente na planilha.</p>
-    <textarea id="dp-erro-obs" class="filter-input" style="width:100%;min-height:90px;resize:vertical;" placeholder="Ex.: Valor do ponto diferente do contrato físico..."></textarea>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">Descreva o <strong>que está errado</strong> e a <strong>solução</strong> — as duas ficam visíveis pra qualquer um que abrir este contrato.</p>
+    <label style="display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;">O que está errado</label>
+    <textarea id="dp-erro-obs" class="filter-input" style="width:100%;min-height:70px;resize:vertical;" placeholder="Ex.: Valor do ponto diferente do contrato físico..."></textarea>
+    <label style="display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin:12px 0 6px;">Qual é a solução</label>
+    <textarea id="dp-erro-solucao" class="filter-input" style="width:100%;min-height:70px;resize:vertical;" placeholder="Ex.: Corrigir o valor na planilha de origem e resubir..."></textarea>
     <div id="dp-erro-msg" style="font-size:12.5px;font-weight:600;color:var(--vermelho);min-height:16px;margin-top:8px;"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
       <button class="btn btn-secondary btn-sm" onclick="fecharModal('dp-modal-erro')">Cancelar</button>

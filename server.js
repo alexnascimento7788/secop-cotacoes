@@ -1330,7 +1330,7 @@ function montarDetalhe(idAvaliacao) {
     SELECT sequencial, concessionario, endereco, area_m2, atual_tarifa_uso, nova_tarifa_uso
     FROM TarifaContrato20Anos WHERE id_contrato = ? ORDER BY sequencial`).all(a.id_contrato);
   const v = db.prepare(`
-    SELECT vc.status, vc.observacao, vc.dt_validacao, vc.hash_assinatura,
+    SELECT vc.status, vc.observacao, vc.solucao, vc.dt_validacao, vc.hash_assinatura,
            COALESCE(dp.nome, u.username) AS validador
     FROM validacao_contrato vc
     LEFT JOIN users u ON u.id = vc.id_usuario_validador
@@ -1542,12 +1542,15 @@ app.post('/api/depop/contratos/:id/validar', requireCap('valida'), (req, res) =>
   res.json({ ok: true, timbre: timbre.slice(0, 12), dt_validacao: iso, validador: nome });
 });
 
-// Marcar como errado: grava o motivo (observação) e status 'errado'.
+// Marcar como errado: grava o problema (observação) E a solução — as duas são
+// obrigatórias, pra quem for reabrir (ou só olhar) já saber o que corrigir.
 app.post('/api/depop/contratos/:id/errado', requireCap('valida'), (req, res) => {
   if (perfilFerramenta(req) === 'master') return res.status(403).json({ error: 'O supervisor não marca erros.' });
   const id = parseInt(req.params.id, 10);
   const obs = String((req.body && req.body.observacao) || '').trim();
-  if (!obs) return res.status(400).json({ error: 'Descreva o motivo do erro.' });
+  const solucao = String((req.body && req.body.solucao) || '').trim();
+  if (!obs) return res.status(400).json({ error: 'Descreva o que está errado.' });
+  if (!solucao) return res.status(400).json({ error: 'Descreva a solução.' });
 
   const trava = travaAtiva(id);
   if (trava && trava.user_id !== req.user.user_id) {
@@ -1561,14 +1564,15 @@ app.post('/api/depop/contratos/:id/errado', requireCap('valida'), (req, res) => 
 
   const iso = new Date().toISOString();
   db.prepare(`
-    INSERT INTO validacao_contrato (id_avaliacao, status, observacao, id_usuario_validador, dt_validacao, hash_assinatura, assinatura_b64)
-    VALUES (?, 'errado', ?, ?, ?, NULL, NULL)
+    INSERT INTO validacao_contrato (id_avaliacao, status, observacao, solucao, id_usuario_validador, dt_validacao, hash_assinatura, assinatura_b64)
+    VALUES (?, 'errado', ?, ?, ?, ?, NULL, NULL)
     ON CONFLICT(id_avaliacao) DO UPDATE SET
-      status = 'errado', observacao = excluded.observacao, id_usuario_validador = excluded.id_usuario_validador,
+      status = 'errado', observacao = excluded.observacao, solucao = excluded.solucao,
+      id_usuario_validador = excluded.id_usuario_validador,
       dt_validacao = excluded.dt_validacao, hash_assinatura = NULL, assinatura_b64 = NULL`)
-    .run(id, obs, req.user.user_id, iso);
+    .run(id, obs, solucao, req.user.user_id, iso);
   db.prepare(`DELETE FROM validacao_lock WHERE id_avaliacao = ?`).run(id);
-  registrarLog(req, 'DEPOP', 'ERRO', `Marcou erro no contrato CCU ${det.numero_ccu || det.id_contrato}: ${obs.slice(0, 120)}`);
+  registrarLog(req, 'DEPOP', 'ERRO', `Marcou erro no contrato CCU ${det.numero_ccu || det.id_contrato}: ${obs.slice(0, 120)} | Solução: ${solucao.slice(0, 120)}`);
   res.json({ ok: true });
 });
 
