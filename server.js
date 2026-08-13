@@ -1985,6 +1985,7 @@ app.get('/api/version', (_req, res) => {
 app.get('/api/admin/migracoes-homolog', (req, res) => {
   if (!IS_HOMOLOG) return res.status(404).json({ error: 'Indisponível fora do homolog.' });
   if (req.user.username !== 'master') return res.status(403).json({ error: 'Restrito ao master.' });
+  res.set('Cache-Control', 'no-store');
   let dados = { migracoes: [] };
   try { if (fs.existsSync(MIGRACOES_FILE)) dados = JSON.parse(fs.readFileSync(MIGRACOES_FILE, 'utf8')); } catch (e) {
     return res.status(500).json({ error: 'Falha ao ler a lista de migrações: ' + e.message });
