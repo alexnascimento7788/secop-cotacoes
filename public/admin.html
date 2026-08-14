@@ -154,6 +154,7 @@
       <button class="admin-tab" onclick="mudarAba('parametros')">Parâmetros</button>
       <button class="admin-tab" onclick="mudarAba('banco')">Banco de Dados</button>
       <button class="admin-tab" onclick="mudarAba('lixeira')">Lixeira</button>
+      <button class="admin-tab" onclick="mudarAba('concessionarios-removidos')">Concessionários Removidos</button>
       <button class="admin-tab" onclick="mudarAba('logs')">Logs</button>
       <button class="admin-tab" id="tab-homolog" style="display:none;" onclick="mudarAba('homolog')">🛠️ Atualização na base</button>
     </div>
@@ -585,6 +586,52 @@
       </div>
     </div>
 
+    <!-- Aba Concessionários Removidos (Depop) -->
+    <div class="admin-pane" id="pane-concessionarios-removidos">
+      <div class="admin-card">
+        <div class="admin-section">
+          <div class="admin-section-title">Remover concessionário da listagem (Depop)</div>
+          <p style="font-size:13px;color:#666;margin-bottom:12px;line-height:1.5;">
+            Não apaga nada do banco — só esconde o código da listagem de contratos, do
+            dashboard e da geração de comunicados. O histórico continua intacto e pode
+            ser restaurado a qualquer momento.
+          </p>
+          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:8px;">
+            <div class="form-group" style="margin:0;">
+              <label>Código</label>
+              <input type="number" id="cr-codigo" placeholder="ex.: 3927" style="width:140px;">
+            </div>
+            <div class="form-group" style="margin:0;flex:1;min-width:200px;">
+              <label>Motivo (opcional)</label>
+              <input type="text" id="cr-motivo" placeholder="ex.: encerrou contrato / duplicado">
+            </div>
+            <button class="btn btn-primary" onclick="removerConcessionario()">Remover</button>
+          </div>
+          <div id="cr-msg" style="font-size:13px;font-weight:600;min-height:18px;margin-bottom:12px;"></div>
+        </div>
+      </div>
+      <div class="admin-card">
+        <div class="admin-section">
+          <div class="admin-section-title">Removidos atualmente</div>
+          <table class="users-table">
+            <thead>
+              <tr>
+                <th>Código</th>
+                <th>Cliente</th>
+                <th>Motivo</th>
+                <th>Removido em</th>
+                <th>Removido por</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="cr-tbody">
+              <tr><td colspan="6" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <!-- Aba Atualização na base (só master, só homolog) -->
     <div class="admin-pane" id="pane-homolog">
       <div class="admin-section">
@@ -733,7 +780,7 @@ function toast(msg, type='') {
   setTimeout(() => { el.className = ''; }, 3000);
 }
 
-const _abas = ['usuarios', 'modulos', 'tipos', 'extras', 'parametros', 'banco', 'lixeira', 'logs', 'homolog'];
+const _abas = ['usuarios', 'modulos', 'tipos', 'extras', 'parametros', 'banco', 'lixeira', 'concessionarios-removidos', 'logs', 'homolog'];
 function mudarAba(aba) {
   document.querySelectorAll('.admin-tab').forEach((t, i) => t.classList.toggle('active', _abas[i] === aba));
   _abas.forEach(a => document.getElementById(`pane-${a}`).classList.toggle('active', a === aba));
@@ -743,6 +790,7 @@ function mudarAba(aba) {
   if (aba === 'extras') carregarExtras();
   if (aba === 'parametros') carregarParametros();
   if (aba === 'lixeira') carregarLixeira();
+  if (aba === 'concessionarios-removidos') carregarConcessionariosRemovidos();
   if (aba === 'logs') { carregarUsuariosLog(); carregarLogs(); }
   if (aba === 'homolog') carregarMigracoes();
 }
@@ -803,6 +851,60 @@ async function restaurarProcesso(id) {
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error); }
     toast('Processo restaurado', 'success');
     carregarLixeira();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+  }
+}
+
+// ── Concessionários removidos (Depop) ───────────────────────────────────────
+
+async function carregarConcessionariosRemovidos() {
+  try {
+    const res = await fetch('/api/admin/concessionarios-removidos');
+    const rows = res.ok ? await res.json() : [];
+    document.getElementById('cr-tbody').innerHTML = rows.length ? rows.map(r => `
+      <tr>
+        <td><strong>${r.codigo}</strong></td>
+        <td>${r.cliente || '—'}</td>
+        <td>${r.motivo || '—'}</td>
+        <td>${fmtDataHora(r.removido_em)}</td>
+        <td>${r.removido_por_username || '—'}</td>
+        <td style="text-align:right;"><button class="btn btn-primary btn-sm" onclick="restaurarConcessionario(${r.codigo})">Restaurar</button></td>
+      </tr>
+    `).join('') : '<tr><td colspan="6" style="padding:20px;text-align:center;color:#aaa;">Nenhum concessionário removido.</td></tr>';
+  } catch {
+    toast('Erro ao carregar concessionários removidos', 'error');
+  }
+}
+
+async function removerConcessionario() {
+  const msg = document.getElementById('cr-msg');
+  const codigo = document.getElementById('cr-codigo').value;
+  const motivo = document.getElementById('cr-motivo').value.trim();
+  msg.textContent = '';
+  if (!codigo) { msg.textContent = 'Informe o código.'; msg.style.color = 'var(--vermelho)'; return; }
+  try {
+    const res = await fetch('/api/admin/concessionarios-removidos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ codigo, motivo })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Erro ao remover.');
+    document.getElementById('cr-codigo').value = '';
+    document.getElementById('cr-motivo').value = '';
+    toast(`Código ${codigo} removido da listagem`, 'success');
+    carregarConcessionariosRemovidos();
+  } catch (e) {
+    msg.textContent = e.message; msg.style.color = 'var(--vermelho)';
+  }
+}
+
+async function restaurarConcessionario(codigo) {
+  try {
+    const res = await fetch(`/api/admin/concessionarios-removidos/${codigo}/restaurar`, { method: 'POST' });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error); }
+    toast('Concessionário restaurado', 'success');
+    carregarConcessionariosRemovidos();
   } catch (e) {
     toast('Erro: ' + e.message, 'error');
   }
