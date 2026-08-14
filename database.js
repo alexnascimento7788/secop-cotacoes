@@ -374,6 +374,23 @@ function setupDb() {
     );
   `);
 
+  // ── Depop: concessionários removidos da listagem (soft-remove) ───────────────
+  // Alex não quer DELETE em ClienteConcessionario (o depop.db é recriado do zero
+  // a cada sincronização, e outras tabelas referenciam `codigo` por convenção, não
+  // por FK — apagar quebraria histórico). Em vez disso, marca aqui (no secop.db,
+  // ligado só por `codigo`, mesmo padrão de validacao_contrato/comunicado_gerado)
+  // e todo ponto que lista/conta/gera comunicado passa a ignorar esses códigos.
+  // O registro em si nunca some do depop.db — só fica invisível na plataforma.
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS concessionario_removido (
+      codigo       INTEGER PRIMARY KEY,
+      motivo       TEXT,
+      removido_em  DATETIME DEFAULT CURRENT_TIMESTAMP,
+      removido_por INTEGER,
+      FOREIGN KEY (removido_por) REFERENCES users(id)
+    );
+  `);
+
   _db.exec(`
     CREATE TABLE IF NOT EXISTS logs (
       id        INTEGER PRIMARY KEY AUTOINCREMENT,

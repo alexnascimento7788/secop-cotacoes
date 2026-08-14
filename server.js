@@ -506,6 +506,44 @@ app.post('/api/admin/lixeira/:id/restaurar', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Depop: concessionários removidos da listagem (soft-remove, sem DELETE) ────
+// O registro em ClienteConcessionario/AvaliacaoAreaRenovacao nunca é apagado —
+// só marcado aqui (secop.db, ligado por `codigo`) e ignorado por
+// dashboard/listagem/comunicados (ver codigosRemovidos() acima).
+
+app.get('/api/admin/concessionarios-removidos', (req, res) => {
+  const rows = db.prepare(`
+    SELECT r.codigo, r.motivo, r.removido_em, u.username AS removido_por_username
+    FROM concessionario_removido r
+    LEFT JOIN users u ON u.id = r.removido_por
+    ORDER BY r.removido_em DESC
+  `).all();
+  const clientes = new Map(depopDb.prepare(`SELECT codigo, cliente FROM ClienteConcessionario`).all().map(c => [c.codigo, c.cliente]));
+  res.json(rows.map(r => ({ ...r, cliente: clientes.get(r.codigo) || null })));
+});
+
+app.post('/api/admin/concessionarios-removidos', (req, res) => {
+  const codigo = parseInt(req.body.codigo, 10);
+  if (!codigo) return res.status(400).json({ error: 'Informe o código do concessionário.' });
+  const cliente = depopDb.prepare(`SELECT codigo, cliente FROM ClienteConcessionario WHERE codigo = ?`).get(codigo);
+  if (!cliente) return res.status(404).json({ error: 'Código não encontrado em ClienteConcessionario.' });
+  db.prepare(`
+    INSERT INTO concessionario_removido (codigo, motivo, removido_por) VALUES (?, ?, ?)
+    ON CONFLICT(codigo) DO UPDATE SET motivo = excluded.motivo, removido_em = datetime('now'), removido_por = excluded.removido_por
+  `).run(codigo, req.body.motivo || null, req.user.user_id);
+  registrarLog(req, 'DEPOP', 'CONCESSIONARIO_REMOVEU', `Removeu concessionário ${codigo} (${cliente.cliente}) da listagem`);
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/concessionarios-removidos/:codigo/restaurar', (req, res) => {
+  const codigo = parseInt(req.params.codigo, 10);
+  const row = db.prepare(`SELECT codigo FROM concessionario_removido WHERE codigo = ?`).get(codigo);
+  if (!row) return res.status(404).json({ error: 'Não está removido.' });
+  db.prepare(`DELETE FROM concessionario_removido WHERE codigo = ?`).run(codigo);
+  registrarLog(req, 'DEPOP', 'CONCESSIONARIO_RESTAUROU', `Restaurou concessionário ${codigo} na listagem`);
+  res.json({ ok: true });
+});
+
 // ── Fornecedores ──────────────────────────────────────────────────────────────
 
 app.get('/api/processos/:id/fornecedores', (req, res) => {
@@ -1313,6 +1351,13 @@ function travaAtiva(idAvaliacao) {
   return l;
 }
 
+// Códigos de concessionário removidos da listagem (soft-remove, ver
+// concessionario_removido no secop.db) — usado pra filtrar dashboard, listagem
+// e geração de comunicados. O registro em si nunca sai do depop.db.
+function codigosRemovidos() {
+  return db.prepare(`SELECT codigo FROM concessionario_removido`).all().map(r => r.codigo);
+}
+
 // Detalhe completo de um contrato: resumo (do concessionário) + linhas de tarifa
 // + estado de validação. Lê o depop.db (referência) e o secop.db (validação).
 function montarDetalhe(idAvaliacao) {
@@ -1370,34 +1415,51 @@ function payloadContrato(det, cpf, iso) {
 
 // Indicadores da tela inicial.
 app.get('/api/depop/dashboard', (req, res) => {
-  const totalContratos = depopDb.prepare(`SELECT COUNT(*) c FROM AvaliacaoAreaRenovacao`).get().c;
-  const totalConcess   = depopDb.prepare(`SELECT COUNT(DISTINCT codigo) c FROM AvaliacaoAreaRenovacao`).get().c;
-  const linhasAgg = depopDb.prepare(`
-    SELECT COUNT(*) total, COALESCE(SUM(area_m2),0) area,
-           COALESCE(AVG(atual_tarifa_uso),0) ma, COALESCE(AVG(nova_tarifa_uso),0) mn
-    FROM TarifaContrato20Anos`).get();
-  const semLinha = depopDb.prepare(`
-    SELECT COUNT(*) c FROM AvaliacaoAreaRenovacao a
-    WHERE NOT EXISTS (SELECT 1 FROM TarifaContrato20Anos t WHERE t.id_contrato = a.id_contrato)`).get().c;
+  const removidos = new Set(codigosRemovidos());
+  const avals = depopDb.prepare(`SELECT id, id_contrato, codigo, id_cidade FROM AvaliacaoAreaRenovacao`)
+    .all().filter(a => !removidos.has(a.codigo));
 
-  const sc = { validado: 0, errado: 0 };
-  for (const r of db.prepare(`SELECT status, COUNT(*) c FROM validacao_contrato GROUP BY status`).all()) {
-    if (r.status in sc) sc[r.status] = r.c;
+  const totalContratos = avals.length;
+  const totalConcess = new Set(avals.map(a => a.codigo)).size;
+
+  const linhas = depopDb.prepare(`SELECT codigo, id_contrato, area_m2, atual_tarifa_uso, nova_tarifa_uso FROM TarifaContrato20Anos`)
+    .all().filter(l => !removidos.has(l.codigo));
+  const linhasAgg = {
+    total: linhas.length,
+    area: linhas.reduce((s, l) => s + (l.area_m2 || 0), 0),
+    ma: linhas.length ? linhas.reduce((s, l) => s + (l.atual_tarifa_uso || 0), 0) / linhas.length : 0,
+    mn: linhas.length ? linhas.reduce((s, l) => s + (l.nova_tarifa_uso || 0), 0) / linhas.length : 0
+  };
+  const idContratosComLinha = new Set(depopDb.prepare(`SELECT DISTINCT id_contrato FROM TarifaContrato20Anos`).all().map(r => r.id_contrato));
+  const semLinha = avals.filter(a => !idContratosComLinha.has(a.id_contrato)).length;
+
+  const idsValidos = new Set(avals.map(a => a.id));
+  const vRows = db.prepare(`SELECT id_avaliacao, status FROM validacao_contrato`).all();
+  let validados = 0, errados = 0;
+  for (const r of vRows) {
+    if (!idsValidos.has(r.id_avaliacao)) continue;
+    if (r.status === 'validado') validados++;
+    else if (r.status === 'errado') errados++;
   }
-  const validados = sc.validado, errados = sc.errado;
   const emAberto = totalContratos - validados - errados;
   const pct = totalContratos ? Math.round((validados / totalContratos) * 1000) / 10 : 0;
 
-  const cidades = depopDb.prepare(`
-    SELECT c.id, c.descricao AS cidade, COUNT(*) contratos, COUNT(DISTINCT a.codigo) concessionarios
-    FROM AvaliacaoAreaRenovacao a JOIN Cidade c ON c.id = a.id_cidade
-    GROUP BY c.id, c.descricao ORDER BY contratos DESC`).all();
+  const cidadeNome = new Map(depopDb.prepare(`SELECT id, descricao FROM Cidade`).all().map(c => [c.id, c.descricao]));
+  const porCidadeMap = new Map();
+  for (const a of avals) {
+    const o = porCidadeMap.get(a.id_cidade) || { contratos: 0, codigos: new Set() };
+    o.contratos++;
+    o.codigos.add(a.codigo);
+    porCidadeMap.set(a.id_cidade, o);
+  }
+  const cidades = [...porCidadeMap.entries()]
+    .map(([id, o]) => ({ id, cidade: cidadeNome.get(id) || '—', contratos: o.contratos, concessionarios: o.codigos.size }))
+    .sort((x, y) => y.contratos - x.contratos);
 
   // % de validação por cidade (cruzando cidade do depop.db com status do secop.db)
-  const avalCidade = depopDb.prepare(`SELECT id, id_cidade FROM AvaliacaoAreaRenovacao`).all();
-  const vmap = new Map(db.prepare(`SELECT id_avaliacao, status FROM validacao_contrato`).all().map(r => [r.id_avaliacao, r.status]));
+  const vmap = new Map(vRows.map(r => [r.id_avaliacao, r.status]));
   const porCid = new Map();
-  for (const a of avalCidade) {
+  for (const a of avals) {
     const o = porCid.get(a.id_cidade) || { total: 0, val: 0 };
     o.total++;
     if (vmap.get(a.id) === 'validado') o.val++;
@@ -1421,13 +1483,14 @@ app.get('/api/depop/dashboard', (req, res) => {
 
 // Lista completa (o front filtra por aba/cidade/busca e agrupa por concessionário).
 app.get('/api/depop/contratos', (req, res) => {
+  const removidos = new Set(codigosRemovidos());
   const avals = depopDb.prepare(`
     SELECT a.id, a.id_contrato, a.codigo, a.numero_ccu, a.valor_ponto, a.valor_30_ceasa,
            a.Status AS reg_status, a.concessionaria, cli.cliente, c.descricao AS cidade
     FROM AvaliacaoAreaRenovacao a
     LEFT JOIN ClienteConcessionario cli ON cli.codigo = a.codigo
     LEFT JOIN Cidade c ON c.id = a.id_cidade
-    ORDER BY c.descricao, cli.cliente, a.id_contrato`).all();
+    ORDER BY c.descricao, cli.cliente, a.id_contrato`).all().filter(a => !removidos.has(a.codigo));
 
   const vmap = new Map(db.prepare(`SELECT id_avaliacao, status FROM validacao_contrato`).all().map(r => [r.id_avaliacao, r.status]));
   const lockMap = new Map();
@@ -1715,6 +1778,7 @@ function montarComunicado(idAvaliacao) {
 // Lista para a tela: todos os contratos com elegibilidade + contador de gerações
 // e status de entrega. O front agrupa por cidade → concessionário.
 app.get('/api/depop/comunicados/lista', requireCap('comunicados'), (req, res) => {
+  const removidos = new Set(codigosRemovidos());
   const avals = depopDb.prepare(`
     SELECT a.id, a.codigo, a.numero_ccu, a.data_vencimento, a.endereco AS area,
            cli.cliente, c.descricao AS cidade,
@@ -1723,7 +1787,7 @@ app.get('/api/depop/comunicados/lista', requireCap('comunicados'), (req, res) =>
     LEFT JOIN ClienteConcessionario cli ON cli.codigo = a.codigo
     LEFT JOIN Cidade c ON c.id = a.id_cidade
     LEFT JOIN concessionario_acess x ON x.codigo = a.codigo
-    ORDER BY c.descricao, cli.cliente, a.numero_ccu`).all();
+    ORDER BY c.descricao, cli.cliente, a.numero_ccu`).all().filter(a => !removidos.has(a.codigo));
   const gmap = new Map(db.prepare(`SELECT id_avaliacao, geracoes, ultima_geracao, enviado, dt_envio FROM comunicado_gerado`)
     .all().map(r => [r.id_avaliacao, r]));
   const vmap = new Map(db.prepare(`SELECT id_avaliacao, status FROM validacao_contrato`)
@@ -1767,20 +1831,22 @@ app.get('/api/depop/comunicados/lista', requireCap('comunicados'), (req, res) =>
 // `pulados` (nunca falha em silêncio).
 app.post('/api/depop/comunicados/gerar', requireCap('comunicados'), (req, res) => {
   const { cidade, codigo, codigos } = req.query;
+  const removidos = new Set(codigosRemovidos());
   let rows;
   if (codigo) {
-    rows = depopDb.prepare(`SELECT id FROM AvaliacaoAreaRenovacao WHERE codigo = ? ORDER BY numero_ccu`).all(parseInt(codigo, 10));
+    rows = depopDb.prepare(`SELECT id, codigo FROM AvaliacaoAreaRenovacao WHERE codigo = ? ORDER BY numero_ccu`).all(parseInt(codigo, 10));
   } else if (codigos) {
     const lista = String(codigos).split(',').map(s => parseInt(s.trim(), 10)).filter(Boolean);
     if (!lista.length) return res.status(400).json({ error: 'Nenhum concessionário selecionado.' });
     const ph = lista.map(() => '?').join(',');
-    rows = depopDb.prepare(`SELECT id FROM AvaliacaoAreaRenovacao WHERE codigo IN (${ph}) ORDER BY codigo, numero_ccu`).all(...lista);
+    rows = depopDb.prepare(`SELECT id, codigo FROM AvaliacaoAreaRenovacao WHERE codigo IN (${ph}) ORDER BY codigo, numero_ccu`).all(...lista);
   } else if (cidade) {
-    rows = depopDb.prepare(`SELECT a.id FROM AvaliacaoAreaRenovacao a LEFT JOIN Cidade c ON c.id = a.id_cidade
+    rows = depopDb.prepare(`SELECT a.id, a.codigo FROM AvaliacaoAreaRenovacao a LEFT JOIN Cidade c ON c.id = a.id_cidade
                             WHERE c.descricao = ? ORDER BY a.numero_ccu`).all(String(cidade));
   } else {
     return res.status(400).json({ error: 'Informe cidade, concessionário ou seleção.' });
   }
+  rows = rows.filter(r => !removidos.has(r.codigo));
 
   // Entrega finalizada trava a geração: comunicado entregue não sai de novo.
   // Só o master libera (cancelar-entrega). Fica em `pulados` com motivo 'entregue'.
@@ -1985,6 +2051,7 @@ app.get('/api/version', (_req, res) => {
 app.get('/api/admin/migracoes-homolog', (req, res) => {
   if (!IS_HOMOLOG) return res.status(404).json({ error: 'Indisponível fora do homolog.' });
   if (req.user.username !== 'master') return res.status(403).json({ error: 'Restrito ao master.' });
+  res.set('Cache-Control', 'no-store');
   let dados = { migracoes: [] };
   try { if (fs.existsSync(MIGRACOES_FILE)) dados = JSON.parse(fs.readFileSync(MIGRACOES_FILE, 'utf8')); } catch (e) {
     return res.status(500).json({ error: 'Falha ao ler a lista de migrações: ' + e.message });
