@@ -391,16 +391,7 @@ async function importarExcel(input) {
       return;
     }
 
-    document.getElementById('itens-container').innerHTML = '';
-    itemCount = 0;
-    itens.forEach(item => addItem(item));
-    renumerarItens();
-
-    aviso.style.display    = 'block';
-    aviso.style.background = '#E8F5E9';
-    aviso.style.borderColor = '#A5D6A7';
-    aviso.style.color      = '#1B5E20';
-    aviso.textContent      = `✓ ${itens.length} iten${itens.length>1?'s':''} importado${itens.length>1?'s':''} de "${file.name}".`;
+    abrirModalImportacao(itens, file.name);
 
   } catch(e) {
     aviso.style.display    = 'block';
@@ -409,6 +400,58 @@ async function importarExcel(input) {
     aviso.style.color      = '#C62828';
     aviso.textContent      = 'Erro ao ler o arquivo: ' + e.message;
   }
+}
+
+let _itensParaImportar = null;
+
+function abrirModalImportacao(itens, nomeArquivo) {
+  _itensParaImportar = itens;
+  document.getElementById('import-modal-arquivo').textContent = `"${nomeArquivo}"`;
+  document.getElementById('import-modal-count').textContent = itens.length;
+  const tbody = document.getElementById('import-modal-tbody');
+  tbody.innerHTML = '';
+  itens.forEach((item, i) => {
+    const tr = document.createElement('tr');
+    tr.style.borderTop = '1px solid #eee';
+    const tdNum = document.createElement('td');
+    tdNum.style.padding = '5px 10px'; tdNum.style.color = '#888';
+    tdNum.textContent = i + 1;
+    const tdQtd = document.createElement('td');
+    tdQtd.style.padding = '5px 10px';
+    tdQtd.textContent = item.quantidade;
+    const tdUnid = document.createElement('td');
+    tdUnid.style.padding = '5px 10px';
+    tdUnid.textContent = item.unidade;
+    const tdDesc = document.createElement('td');
+    tdDesc.style.padding = '5px 10px';
+    tdDesc.textContent = item.descricao;
+    tr.append(tdNum, tdQtd, tdUnid, tdDesc);
+    tbody.appendChild(tr);
+  });
+  document.getElementById('modal-import-excel').classList.add('open');
+}
+
+function cancelarImportacaoExcel() {
+  _itensParaImportar = null;
+  document.getElementById('modal-import-excel').classList.remove('open');
+}
+
+function confirmarImportacaoExcel() {
+  if (!_itensParaImportar) return;
+  const itens = _itensParaImportar;
+  document.getElementById('itens-container').innerHTML = '';
+  itemCount = 0;
+  itens.forEach(item => addItem(item));
+  renumerarItens();
+
+  const aviso = document.getElementById('import-aviso');
+  aviso.style.display    = 'block';
+  aviso.style.background = '#E8F5E9';
+  aviso.style.borderColor = '#A5D6A7';
+  aviso.style.color      = '#1B5E20';
+  aviso.textContent      = `✓ ${itens.length} iten${itens.length>1?'s':''} importado${itens.length>1?'s':''}.`;
+
+  cancelarImportacaoExcel();
 }
 
 // ── Inicialização ─────────────────────────────────────────────────────────────
