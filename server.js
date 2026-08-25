@@ -350,6 +350,28 @@ app.get('/api/auth/modulos', requireAuth, (req, res) => {
   res.json({ modulos, modulo_ativo: req.user.modulo_ativo });
 });
 
+// Rotinas do módulo ATIVO na sessão + o que o Perfil do usuário libera em cada
+// uma (ver/incluir/alterar/excluir). Usado pelo auth.js pra barrar/mostrar
+// páginas de rotina dentro de um módulo (ex.: PAC Lançamento vs Gestão), um
+// nível mais fundo que o módulo em si. Master e consulta veem tudo.
+app.get('/api/auth/rotinas', requireAuth, (req, res) => {
+  if (!req.user.modulo_ativo) return res.json({ rotinas: [] });
+  const mod = db.prepare(`SELECT id FROM modulos WHERE slug = ?`).get(req.user.modulo_ativo);
+  if (!mod) return res.json({ rotinas: [] });
+  if (req.user.username === 'master' || req.user.role === 'consulta') {
+    const rows = db.prepare(`SELECT slug, nome, ordem FROM rotinas WHERE modulo_id = ? AND ativo = 1 ORDER BY ordem`).all(mod.id);
+    return res.json({ rotinas: rows.map(r => ({ ...r, ver: true, incluir: true, alterar: true, excluir: true })) });
+  }
+  const rows = db.prepare(`
+    SELECT r.slug, r.nome, r.ordem,
+           COALESCE(pr.ver, 0) AS ver, COALESCE(pr.incluir, 0) AS incluir,
+           COALESCE(pr.alterar, 0) AS alterar, COALESCE(pr.excluir, 0) AS excluir
+    FROM rotinas r LEFT JOIN perfil_rotinas pr ON pr.rotina_id = r.id AND pr.perfil_id = ?
+    WHERE r.modulo_id = ? AND r.ativo = 1 ORDER BY r.ordem
+  `).all(req.user.perfil_id, mod.id);
+  res.json({ rotinas: rows });
+});
+
 // Registra o módulo escolhido na sessão. Valida que o usuário realmente tem
 // acesso a ele (master pode qualquer módulo ativo).
 app.post('/api/auth/selecionar-modulo', requireAuth, (req, res) => {

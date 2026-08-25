@@ -20,6 +20,12 @@ window.getCurrentUser = () => window._userPromise || (window._userPromise = (asy
   // resto nem chega a rodar.
   if (!(await _aplicarModulo(user))) return;
 
+  // Rotina da página (um nível mais fundo que módulo — ex.: dentro do PAC,
+  // "Lançamento" e "Gestão" são páginas separadas e o Perfil pode liberar só
+  // uma). Só roda se a página declarar <body data-rotina="...">; páginas que
+  // não declaram (a maioria, hoje) seguem sem essa checagem extra.
+  if (!(await _aplicarRotina(user))) return;
+
   const el = document.getElementById('sidebar-username');
   if (el) el.textContent = user.username;
   // Painel admin (Configurações/Lixeira e o resto) fica visível pros dois
@@ -60,6 +66,53 @@ async function _aplicarModulo(user) {
 
   document.documentElement.setAttribute('data-modulo', ativo.slug);
   _injetarModuloLabel(ativo, (modulos || []).length > 1, user.modulo_departamento_nome);
+  return true;
+}
+
+/* ── Rotina ativa (um nível abaixo do módulo) ──────────────────────────────────
+   Alguns módulos têm mais de uma ROTINA em páginas HTML separadas (ex.: o PAC
+   tem "Lançamento" e "Gestão", cada uma seu próprio .html) — o Perfil do
+   usuário pode liberar "ver" só numa delas. Diferente do SECAD, que resolve
+   isso mostrando/escondendo abas DENTRO de uma página só (via caps), aqui
+   precisa barrar a página inteira se a rotina dela não estiver liberada.
+   Só entra em ação se a página declarar <body data-rotina="...">. */
+const ROTINA_PAGINAS = {
+  'pac-lancamento': '/pac-lancamento.html',
+  'pac-gestao': '/pac-gestao.html',
+};
+
+async function _aplicarRotina(user) {
+  const pageRotina = document.body.dataset.rotina;
+  if (!pageRotina) return true; // página não declara rotina — sem checagem extra
+
+  let data;
+  try {
+    const r = await fetch('/api/auth/rotinas');
+    if (!r.ok) return true; // falha transitória não bloqueia a página
+    data = await r.json();
+  } catch { return true; }
+
+  const rotinas = data.rotinas || [];
+
+  // Esconde do menu lateral os links pra rotina que o Perfil não libera —
+  // senão o usuário vê "Gestão", clica, e só é devolvido pra cá.
+  const semVer = new Set(rotinas.filter(r => !r.ver).map(r => r.slug));
+  Object.entries(ROTINA_PAGINAS).forEach(([slug, href]) => {
+    if (!semVer.has(slug)) return;
+    // arquivo (sem a barra) pega tanto o href relativo usado no HTML
+    // ("pac-gestao.html") quanto uma eventual forma absoluta ("/pac-gestao.html")
+    const arquivo = href.replace(/^\//, '');
+    document.querySelectorAll(`.sidebar nav a[href$="${arquivo}"]`).forEach(a => a.remove());
+  });
+
+  const atual = rotinas.find(r => r.slug === pageRotina);
+  if (atual && atual.ver) return true; // tem "ver" nessa rotina — segue
+
+  // Sem acesso: manda pra primeira rotina do módulo que ele PODE ver e que
+  // tenha uma página conhecida. Se não achar nenhuma, não bloqueia (evita
+  // ficar preso num loop de redirecionamento sem destino nenhum).
+  const alternativa = rotinas.find(r => r.ver && ROTINA_PAGINAS[r.slug]);
+  if (alternativa) { window.location.replace(ROTINA_PAGINAS[alternativa.slug]); return false; }
   return true;
 }
 
