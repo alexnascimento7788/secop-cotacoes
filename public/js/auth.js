@@ -22,13 +22,15 @@ window.getCurrentUser = () => window._userPromise || (window._userPromise = (asy
 
   const el = document.getElementById('sidebar-username');
   if (el) el.textContent = user.username;
-  // Configurações (e a Lixeira dentro dela) só ficam visíveis pro master ou
-  // admin com acesso_avancado — role "admin" sozinho não basta mais
-  const podeConfig = user.username === 'master' || (user.role === 'admin' && user.acesso_avancado);
-  if (!podeConfig) {
+  // Painel admin (Configurações/Lixeira e o resto) fica visível pros dois
+  // níveis de admin — master, admin_sistema e admin_operacional (esse último
+  // com escopo restrito ao próprio departamento, aplicado no servidor).
+  const podeAdminAny = user.username === 'master' || user.role === 'admin_sistema' || user.role === 'admin_operacional';
+  if (!podeAdminAny) {
     document.querySelectorAll('a.sidebar-gear[href="admin.html"]').forEach(a => a.remove());
   }
   if (user.role === 'consulta') _aplicarModoLeitura();
+  if (user.tem_foto) _injetarFoto(user);
   _injetarToggleDark();
   _injetarVersao();
   _initInatividade();
@@ -57,19 +59,20 @@ async function _aplicarModulo(user) {
   if (pageModulo && pageModulo !== modulo_ativo) { window.location.replace(ativo.home); return false; }
 
   document.documentElement.setAttribute('data-modulo', ativo.slug);
-  _injetarModuloLabel(ativo, (modulos || []).length > 1);
+  _injetarModuloLabel(ativo, (modulos || []).length > 1, user.modulo_departamento_nome);
   return true;
 }
 
-function _injetarModuloLabel(modulo, podeTrocar) {
+function _injetarModuloLabel(modulo, podeTrocar, departamentoNome) {
   const brand = document.querySelector('.sidebar-brand');
   if (!brand || document.getElementById('sidebar-modulo')) return;
   const wrap = document.createElement('div');
   wrap.id = 'sidebar-modulo';
-  wrap.style.cssText = 'padding:10px 20px 0;display:flex;align-items:center;gap:8px;';
+  wrap.style.cssText = 'padding:10px 20px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
   wrap.innerHTML =
     `<span style="width:9px;height:9px;border-radius:50%;background:${modulo.cor};flex-shrink:0;"></span>` +
-    `<span style="font-size:12px;font-weight:700;color:var(--text);letter-spacing:.3px;">${modulo.nome}</span>`;
+    `<span style="font-size:12px;font-weight:700;color:var(--text);letter-spacing:.3px;">${modulo.nome}</span>` +
+    (departamentoNome ? `<span style="font-size:10px;color:var(--text-subtle);letter-spacing:.4px;">${departamentoNome}</span>` : '');
   if (podeTrocar) {
     const troca = document.createElement('a');
     troca.href = '/selecionar-modulo.html';
@@ -81,6 +84,20 @@ function _injetarModuloLabel(modulo, podeTrocar) {
   brand.insertAdjacentElement('afterend', wrap);
 }
 
+// Foto de perfil (se cadastrada) ao lado do nome de usuário na sidebar —
+// mesmo <img> simples, sem placeholder/iniciais (o nome de usuário já cobre
+// esse caso quando não há foto).
+function _injetarFoto(user) {
+  const el = document.getElementById('sidebar-username');
+  if (!el || document.getElementById('sidebar-foto')) return;
+  const img = document.createElement('img');
+  img.id = 'sidebar-foto';
+  img.src = `/api/usuarios/${user.id}/foto`;
+  img.alt = '';
+  img.style.cssText = 'width:22px;height:22px;border-radius:50%;object-fit:cover;flex-shrink:0;';
+  el.insertAdjacentElement('beforebegin', img);
+}
+
 async function logout() {
   try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
   localStorage.removeItem(LS_ULTIMA_ATIVIDADE);
@@ -90,12 +107,12 @@ async function logout() {
 /* ── Modo somente leitura (perfil "consulta") ──────────────────────────────────
    Intercepta chamadas de ESCRITA à API no cliente e mostra um aviso amigável,
    sem ir ao servidor (que também barra, na guarda global). Passam os poucos
-   POSTs de VISUALIZAÇÃO (abrir/ping/fechar o preview de contrato no Depop) e
+   POSTs de VISUALIZAÇÃO (abrir/ping/fechar o preview de contrato no SECAD) e
    tudo em /api/auth (login, trocar módulo, logout). É transversal: cobre todos
    os módulos sem precisar mexer em cada botão. */
 function _aplicarModoLeitura() {
   document.documentElement.setAttribute('data-readonly', '1');
-  const permit = [/\/api\/auth\//, /\/api\/depop\/contratos\/\d+\/(abrir|ping|fechar)\b/];
+  const permit = [/\/api\/auth\//, /\/api\/secad\/contratos\/\d+\/(abrir|ping|fechar)\b/];
   const _fetch = window.fetch.bind(window);
   window.fetch = (input, init = {}) => {
     const method = (init.method || (typeof input !== 'string' && input && input.method) || 'GET').toUpperCase();

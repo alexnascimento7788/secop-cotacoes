@@ -241,10 +241,26 @@ function setupDb() {
     );
   `);
 
-  // Semeia os módulos padrão (ignora se já existirem — idempotente)
+  // Depop - Concessionários → SECAD Concessionários: renomeia ANTES do seed
+  // abaixo rodar (senão, depois que 'depop' deixa de existir, o seed geral
+  // recriaria uma linha 'depop' do zero a cada boot — colidindo com 'secad' na
+  // vez seguinte). Só a camada de módulo muda de nome aqui: o arquivo
+  // data/depop.db, a variável depopDb/depopFilePath e as tabelas
+  // depop_acesso/depop_perfil continuam com esse nome (são sobre a fonte de
+  // dados externa do SQL Server, não sobre a marca do módulo).
+  _db.prepare(`UPDATE modulos SET slug = 'secad', nome = 'SECAD - Concessionários', home = '/secad.html' WHERE slug = 'depop'`).run();
+  // Sessão com módulo ativo em voo no momento do deploy se autocorrige, sem
+  // precisar forçar re-seleção de módulo. try/catch: numa instalação nova a
+  // coluna modulo_ativo ainda nem existe nesse ponto (o ALTER dela é mais
+  // abaixo) — não tem sessão nenhuma pra corrigir mesmo, então é seguro ignorar.
+  try { _db.prepare(`UPDATE sessions SET modulo_ativo = 'secad' WHERE modulo_ativo = 'depop'`).run(); } catch {}
+
+  // Semeia os módulos padrão (ignora se já existirem — idempotente). O 2º módulo
+  // já nasce como 'secad' (nome atual) — instalação pré-existente com 'depop'
+  // já foi migrada pelo UPDATE de rename logo acima.
   [
-    { slug: 'secop', nome: 'SECOP - Cotações',        cor: '#1A6B35', home: '/index.html', ordem: 1 },
-    { slug: 'depop', nome: 'Depop - Concessionários', cor: '#1565C0', home: '/depop.html', ordem: 2 },
+    { slug: 'secop', nome: 'SECOP - Cotações',           cor: '#1A6B35', home: '/index.html', ordem: 1 },
+    { slug: 'secad', nome: 'SECAD - Concessionários',    cor: '#1565C0', home: '/secad.html',  ordem: 2 },
   ].forEach(m => {
     try {
       _db.prepare(`INSERT INTO modulos (slug, nome, cor, home, ordem) VALUES (?, ?, ?, ?, ?)`)
@@ -339,6 +355,236 @@ function setupDb() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
+
+  // ── Departamentos, Rotinas, Perfis (CEASA CONECTA: hierarquia Departamento →
+  // Módulo → Rotina → Perfil) ──────────────────────────────────────────────────
+  // Generaliza o modelo de permissão que hoje só existe pro Depop (depop_acesso,
+  // 2 colunas fixas valida/comunicados) pra qualquer módulo: cada módulo declara
+  // suas Rotinas (telas/funcionalidades, seed fixo, não editável pelo admin) e um
+  // Perfil dá, por rotina, as flags ver/incluir/alterar/excluir. Um usuário recebe
+  // um Perfil por módulo (user_modulos.perfil_id). Departamento é só uma camada
+  // de agrupamento acima dos módulos (visual + escopo do admin_operacional).
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS departamentos (
+      id    INTEGER PRIMARY KEY AUTOINCREMENT,
+      slug  TEXT    NOT NULL UNIQUE,
+      nome  TEXT    NOT NULL,
+      ordem INTEGER NOT NULL DEFAULT 0,
+      ativo INTEGER NOT NULL DEFAULT 1
+    );
+  `);
+  [
+    { slug: 'depad', nome: 'DEPAD', ordem: 1 },
+    { slug: 'depop', nome: 'DEPOP', ordem: 2 },
+    { slug: 'depla', nome: 'DEPLA', ordem: 3 },
+  ].forEach(d => {
+    try { _db.prepare(`INSERT INTO departamentos (slug, nome, ordem) VALUES (?, ?, ?)`).run(d.slug, d.nome, d.ordem); } catch {}
+  });
+
+  try { _db.exec(`ALTER TABLE modulos ADD COLUMN departamento_id INTEGER REFERENCES departamentos(id)`); } catch {}
+
+  // Novo módulo PAC (placeholder, departamento DEPLA)
+  try {
+    _db.prepare(`INSERT INTO modulos (slug, nome, cor, home, ordem) VALUES (?, ?, ?, ?, ?)`)
+      .run('pac', 'PAC', '#F9A800', '/pac-lancamento.html', 3);
+  } catch {}
+
+  // (rename depop→secad já rodou mais acima, antes do seed de módulos)
+
+  // departamento_id por módulo (idempotente: só preenche quem ainda está NULL)
+  try {
+    const depIds = Object.fromEntries(_db.prepare(`SELECT slug, id FROM departamentos`).all().map(d => [d.slug, d.id]));
+    [['secop', 'depad'], ['secad', 'depop'], ['pac', 'depla']].forEach(([modSlug, depSlug]) => {
+      if (depIds[depSlug]) {
+        _db.prepare(`UPDATE modulos SET departamento_id = ? WHERE slug = ? AND departamento_id IS NULL`).run(depIds[depSlug], modSlug);
+      }
+    });
+  } catch {}
+
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS rotinas (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      modulo_id        INTEGER NOT NULL,
+      slug             TEXT    NOT NULL,
+      nome             TEXT    NOT NULL,
+      ordem            INTEGER NOT NULL DEFAULT 0,
+      ativo            INTEGER NOT NULL DEFAULT 1,
+      flags_aplicaveis TEXT    NOT NULL DEFAULT 'ver,incluir,alterar,excluir',
+      FOREIGN KEY (modulo_id) REFERENCES modulos(id) ON DELETE CASCADE,
+      UNIQUE (modulo_id, slug)
+    );
+  `);
+  {
+    const modIds = Object.fromEntries(_db.prepare(`SELECT slug, id FROM modulos`).all().map(m => [m.slug, m.id]));
+    const seedRotinas = [
+      ['secop', 'dashboard',      'Dashboard',    1, 'ver'],
+      ['secop', 'processos',      'Processos',    2, 'ver,incluir,alterar,excluir'],
+      ['secop', 'cotacao',        'Cotação',      3, 'ver,incluir,alterar,excluir'],
+      ['secop', 'fornecedores',   'Fornecedores', 4, 'ver,incluir,alterar,excluir'],
+      ['secad', 'validacao',      'Validação',    1, 'ver,incluir,alterar'],
+      ['secad', 'comunicados',    'Comunicados',  2, 'ver,incluir,alterar'],
+      ['pac',   'pac-lancamento', 'Lançamento',   1, 'ver,incluir,alterar,excluir'],
+      ['pac',   'pac-gestao',     'Gestão',       2, 'ver,incluir,alterar,excluir'],
+    ];
+    seedRotinas.forEach(([modSlug, slug, nome, ordem, flags]) => {
+      if (!modIds[modSlug]) return;
+      try {
+        _db.prepare(`INSERT INTO rotinas (modulo_id, slug, nome, ordem, flags_aplicaveis) VALUES (?, ?, ?, ?, ?)`)
+          .run(modIds[modSlug], slug, nome, ordem, flags);
+      } catch {}
+    });
+  }
+
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS perfis (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      modulo_id INTEGER NOT NULL,
+      nome      TEXT    NOT NULL,
+      descricao TEXT,
+      criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (modulo_id) REFERENCES modulos(id) ON DELETE CASCADE,
+      UNIQUE (modulo_id, nome)
+    );
+
+    CREATE TABLE IF NOT EXISTS perfil_rotinas (
+      perfil_id INTEGER NOT NULL,
+      rotina_id INTEGER NOT NULL,
+      ver       INTEGER NOT NULL DEFAULT 0,
+      incluir   INTEGER NOT NULL DEFAULT 0,
+      alterar   INTEGER NOT NULL DEFAULT 0,
+      excluir   INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (perfil_id, rotina_id),
+      FOREIGN KEY (perfil_id) REFERENCES perfis(id) ON DELETE CASCADE,
+      FOREIGN KEY (rotina_id) REFERENCES rotinas(id) ON DELETE CASCADE
+    );
+  `);
+
+  // Semeia um perfil (idempotente por UNIQUE(modulo_id,nome)) + suas concessões
+  // por rotina — as concessões só são inseridas na 1ª vez que o perfil nasce; se
+  // o admin editar depois, a linha já existe e o catch{} preserva a edição dele.
+  function seedPerfil(modSlug, nome, descricao, grants) {
+    const mod = _db.prepare(`SELECT id FROM modulos WHERE slug = ?`).get(modSlug);
+    if (!mod) return;
+    let perfilId;
+    try {
+      perfilId = _db.prepare(`INSERT INTO perfis (modulo_id, nome, descricao) VALUES (?, ?, ?)`).run(mod.id, nome, descricao).lastInsertRowid;
+    } catch {
+      const existente = _db.prepare(`SELECT id FROM perfis WHERE modulo_id = ? AND nome = ?`).get(mod.id, nome);
+      perfilId = existente && existente.id;
+    }
+    if (!perfilId) return;
+    grants.forEach(([rotSlug, f]) => {
+      const rot = _db.prepare(`SELECT id FROM rotinas WHERE modulo_id = ? AND slug = ?`).get(mod.id, rotSlug);
+      if (!rot) return;
+      try {
+        _db.prepare(`INSERT INTO perfil_rotinas (perfil_id, rotina_id, ver, incluir, alterar, excluir) VALUES (?, ?, ?, ?, ?, ?)`)
+          .run(perfilId, rot.id, f.ver ? 1 : 0, f.incluir ? 1 : 0, f.alterar ? 1 : 0, f.excluir ? 1 : 0);
+      } catch {}
+    });
+    return perfilId;
+  }
+
+  const TUDO  = { ver: 1, incluir: 1, alterar: 1, excluir: 1 };
+  const SOVER = { ver: 1, incluir: 0, alterar: 0, excluir: 0 };
+  const RW    = { ver: 1, incluir: 1, alterar: 1, excluir: 0 }; // SECAD/PAC-lançamento: sem exclusão
+
+  seedPerfil('secop', 'Acesso Total', 'Acesso completo a todas as rotinas do SECOP.',
+    [['dashboard', SOVER], ['processos', TUDO], ['cotacao', TUDO], ['fornecedores', TUDO]]);
+
+  seedPerfil('secad', 'Validador', 'Valida contratos e gera comunicados.',
+    [['validacao', RW], ['comunicados', RW]]);
+  seedPerfil('secad', 'Supervisor', 'Acompanha validação e comunicados, somente leitura.',
+    [['validacao', SOVER], ['comunicados', SOVER]]);
+
+  seedPerfil('pac', 'Gestor de Área', 'Lança dados do PAC da própria área.',
+    [['pac-lancamento', RW]]);
+  seedPerfil('pac', 'Analista DEPLA', 'Gestão completa do PAC; acompanha lançamentos.',
+    [['pac-gestao', TUDO], ['pac-lancamento', SOVER]]);
+
+  try { _db.exec(`ALTER TABLE user_modulos ADD COLUMN perfil_id INTEGER REFERENCES perfis(id)`); } catch {}
+  try { _db.exec(`ALTER TABLE users ADD COLUMN nome_completo TEXT`); } catch {}
+  try { _db.exec(`ALTER TABLE users ADD COLUMN telefone TEXT`); } catch {}
+  try { _db.exec(`ALTER TABLE users ADD COLUMN departamento_id INTEGER REFERENCES departamentos(id)`); } catch {}
+  try { _db.exec(`ALTER TABLE sessions ADD COLUMN perfil_id INTEGER REFERENCES perfis(id)`); } catch {}
+
+  // 3 níveis de admin (master / admin_sistema / admin_operacional) substituem o
+  // par role='admin'+acesso_avancado. Migração roda UMA VEZ (config flag) — não
+  // promove ninguém às cegas: só quem já tinha acesso_avancado=1 (ou é master)
+  // vira admin_sistema; quem era 'admin' sem acesso_avancado nunca teve poder
+  // real no painel (requireAdmin já bloqueava essa combinação) e vira
+  // admin_operacional SEM departamento (fail-closed) — fica registrado em logs
+  // pra revisão manual. O depop_acesso de cada usuário SECAD também é traduzido
+  // pro perfil equivalente, nunca concedendo mais do que a pessoa já tinha.
+  try {
+    const jaFeito = _db.prepare(`SELECT valor FROM config WHERE chave = 'migracao_perfis_v1'`).get();
+    if (!jaFeito) {
+      const registrarLogMigracao = (acao, descricao) => {
+        try { _db.prepare(`INSERT INTO logs (tipo, acao, descricao) VALUES ('SISTEMA', ?, ?)`).run(acao, descricao); } catch {}
+      };
+
+      // Backfill do departamento padrão PRIMEIRO (todo mundo pré-existente já usa
+      // o SECOP, que é do DEPAD) — o rebaixamento de admin roda DEPOIS de propósito,
+      // pra garantir que os 3 casos fail-closed abaixo fiquem com departamento_id
+      // NULL por último, sem essa UPDATE genérica sobrescrever de volta pra DEPAD.
+      const depad = _db.prepare(`SELECT id FROM departamentos WHERE slug = 'depad'`).get();
+      if (depad) _db.prepare(`UPDATE users SET departamento_id = ? WHERE departamento_id IS NULL AND username != 'master'`).run(depad.id);
+
+      _db.prepare(`UPDATE users SET role = 'admin_sistema' WHERE role = 'admin' AND (username = 'master' OR acesso_avancado = 1)`).run();
+      const rebaixados = _db.prepare(`SELECT id, username FROM users WHERE role = 'admin' AND username != 'master'`).all();
+      rebaixados.forEach(u => {
+        _db.prepare(`UPDATE users SET role = 'admin_operacional', departamento_id = NULL WHERE id = ?`).run(u.id);
+        registrarLogMigracao('MIGRACAO_REVISAR',
+          `Migração de perfis: "${u.username}" era admin sem acesso avançado — virou admin_operacional sem departamento. Revisar manualmente.`);
+      });
+
+      const secopMod = _db.prepare(`SELECT id FROM modulos WHERE slug = 'secop'`).get();
+      const secopPerfil = secopMod && _db.prepare(`SELECT id FROM perfis WHERE modulo_id = ? AND nome = 'Acesso Total'`).get(secopMod.id);
+      if (secopMod && secopPerfil) {
+        _db.prepare(`UPDATE user_modulos SET perfil_id = ? WHERE modulo_id = ? AND perfil_id IS NULL`).run(secopPerfil.id, secopMod.id);
+      }
+
+      const secadMod = _db.prepare(`SELECT id FROM modulos WHERE slug = 'secad'`).get();
+      if (secadMod) {
+        const validador     = _db.prepare(`SELECT id FROM perfis WHERE modulo_id = ? AND nome = 'Validador'`).get(secadMod.id);
+        const rotValidacao  = _db.prepare(`SELECT id FROM rotinas WHERE modulo_id = ? AND slug = 'validacao'`).get(secadMod.id);
+
+        // Perfil de migração: preserva quem hoje só tem "valida" (o default de
+        // depop_acesso pra quem nunca teve linha lá) sem herdar "comunicados".
+        let soValida;
+        try {
+          soValida = _db.prepare(`INSERT INTO perfis (modulo_id, nome, descricao) VALUES (?, ?, ?)`)
+            .run(secadMod.id, 'Validador (só validação) [migração]', 'Gerado na migração: tinha só validação em depop_acesso.').lastInsertRowid;
+        } catch {
+          const ex = _db.prepare(`SELECT id FROM perfis WHERE modulo_id = ? AND nome = ?`).get(secadMod.id, 'Validador (só validação) [migração]');
+          soValida = ex && ex.id;
+        }
+        if (soValida && rotValidacao) {
+          try { _db.prepare(`INSERT INTO perfil_rotinas (perfil_id, rotina_id, ver, incluir, alterar) VALUES (?, ?, 1, 1, 1)`).run(soValida, rotValidacao.id); } catch {}
+        }
+
+        const acessos = _db.prepare(`SELECT user_id, valida, comunicados FROM depop_acesso`).all();
+        const setPerfil = _db.prepare(`UPDATE user_modulos SET perfil_id = ? WHERE user_id = ? AND modulo_id = ? AND perfil_id IS NULL`);
+        acessos.forEach(a => {
+          let alvo = null;
+          if (a.valida && a.comunicados) alvo = validador && validador.id;
+          else if (a.valida && !a.comunicados) alvo = soValida;
+          // !valida (com ou sem comunicados): fica sem perfil — preserva o "sem nada" de hoje
+          if (alvo) setPerfil.run(alvo, a.user_id, secadMod.id);
+        });
+        // Quem tem acesso ao módulo SECAD mas nunca teve linha em depop_acesso
+        // (default de hoje = valida=1,comunicados=0) recebe o mesmo tratamento.
+        if (soValida) {
+          _db.prepare(`
+            UPDATE user_modulos SET perfil_id = ?
+            WHERE modulo_id = ? AND perfil_id IS NULL
+              AND user_id NOT IN (SELECT user_id FROM depop_acesso)
+          `).run(soValida, secadMod.id);
+        }
+      }
+
+      _db.prepare(`INSERT INTO config (chave, valor) VALUES ('migracao_perfis_v1', '1')`).run();
+    }
+  } catch {}
 
   // ── Depop/Comunicados: parâmetros configuráveis do sistema ───────────────────
   // Tabela chave/valor editável só pelo master (ex.: url_plataforma_acesso,
@@ -479,6 +725,18 @@ function setupAnexos() {
       criado_em         DATETIME DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_compr_aval ON comprovante_entrega(id_avaliacao);
+  `);
+  // Foto de perfil do usuário — mesmo padrão do comprovante (BLOB, arquivo à
+  // parte): não existe upload-pra-disco em lugar nenhum deste projeto, então a
+  // foto segue a mesma casa/mecânica em vez de inventar um padrão novo.
+  _anexos.exec(`
+    CREATE TABLE IF NOT EXISTS user_foto (
+      user_id       INTEGER PRIMARY KEY,
+      mime          TEXT NOT NULL,
+      tamanho       INTEGER NOT NULL,
+      conteudo      BLOB NOT NULL,
+      atualizado_em DATETIME DEFAULT (datetime('now'))
+    );
   `);
 }
 

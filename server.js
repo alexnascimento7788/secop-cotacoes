@@ -61,18 +61,41 @@ function renovarSessao(token) {
     .run(getInatividadeMinutos(), token);
 }
 
+// SELECT usado tanto por requireAuth quanto por /api/auth/me — traz, além do
+// usuário, o departamento/perfil relativos ao MÓDULO ATIVO da sessão (não ao
+// usuário em si — departamento do usuário é a coluna u.departamento_id, usada
+// pro escopo do admin_operacional). Ver ao vivo a cada request (não confia em
+// nada cacheado na sessão) garante que trocar o perfil de alguém já vale na
+// próxima requisição dela, sem precisar de nenhum mecanismo de auto-cura novo.
+const SESSAO_SQL = `
+  SELECT s.user_id, s.modulo_ativo, u.username, u.role, u.acesso_avancado,
+         u.departamento_id, u.nome_completo,
+         d.slug AS modulo_departamento_slug, d.nome AS modulo_departamento_nome,
+         um.perfil_id, p.nome AS perfil_nome
+  FROM sessions s
+  JOIN users u ON u.id = s.user_id
+  LEFT JOIN modulos m       ON m.slug = s.modulo_ativo
+  LEFT JOIN departamentos d ON d.id = m.departamento_id
+  LEFT JOIN user_modulos um ON um.user_id = s.user_id AND um.modulo_id = m.id
+  LEFT JOIN perfis p        ON p.id = um.perfil_id
+  WHERE s.token = ? AND s.expires > datetime('now') AND u.ativo = 1
+`;
+
 function requireAuth(req, res, next) {
   const token = getCookie(req, 'secop_sid');
   if (!token) return res.status(401).json({ error: 'Não autenticado' });
-  const session = db.prepare(`
-    SELECT s.user_id, s.modulo_ativo, u.username, u.role, u.acesso_avancado
-    FROM sessions s JOIN users u ON u.id = s.user_id
-    WHERE s.token = ? AND s.expires > datetime('now') AND u.ativo = 1
-  `).get(token);
+  const session = db.prepare(SESSAO_SQL).get(token);
   if (!session) return res.status(401).json({ error: 'Sessão expirada' });
   renovarSessao(token);
   req.user = session;
   next();
+}
+
+// Resolve o perfil do usuário num módulo (pelo id do módulo) — usado no login
+// e na seleção de módulo, no mesmo lugar onde modulo_ativo é gravado.
+function resolverPerfilId(userId, moduloId) {
+  const row = db.prepare(`SELECT perfil_id FROM user_modulos WHERE user_id = ? AND modulo_id = ?`).get(userId, moduloId);
+  return row ? row.perfil_id : null;
 }
 
 // ── Módulos (plataforma CEASA CONECTA) ────────────────────────────────────────
@@ -82,11 +105,18 @@ function requireAuth(req, res, next) {
 function modulosDoUsuario(user) {
   // master e usuário de consulta (somente leitura) enxergam todos os módulos ativos.
   if (user.username === 'master' || user.role === 'consulta') {
-    return db.prepare(`SELECT id, slug, nome, cor, home, ordem FROM modulos WHERE ativo = 1 ORDER BY ordem`).all();
+    return db.prepare(`
+      SELECT m.id, m.slug, m.nome, m.cor, m.home, m.ordem,
+             d.slug AS departamento_slug, d.nome AS departamento_nome
+      FROM modulos m LEFT JOIN departamentos d ON d.id = m.departamento_id
+      WHERE m.ativo = 1 ORDER BY m.ordem`).all();
   }
   return db.prepare(`
-    SELECT m.id, m.slug, m.nome, m.cor, m.home, m.ordem
-    FROM modulos m JOIN user_modulos um ON um.modulo_id = m.id
+    SELECT m.id, m.slug, m.nome, m.cor, m.home, m.ordem,
+           d.slug AS departamento_slug, d.nome AS departamento_nome
+    FROM modulos m
+    JOIN user_modulos um ON um.modulo_id = m.id
+    LEFT JOIN departamentos d ON d.id = m.departamento_id
     WHERE um.user_id = ? AND m.ativo = 1 ORDER BY m.ordem
   `).all(user.user_id ?? user.id);
 }
@@ -112,9 +142,9 @@ app.use('/api', (req, res, next) => {
 // Somente leitura para o perfil "consulta": nega qualquer método que não seja
 // leitura. É a garantia real (o cliente também avisa, mas isto é o que protege).
 // Poucos POSTs de VISUALIZAÇÃO passam: abrir/ping/fechar o preview de um contrato
-// no Depop apenas montam a tela e mexem numa trava efêmera — nunca alteram dado.
+// no SECAD apenas montam a tela e mexem numa trava efêmera — nunca alteram dado.
 const CONSULTA_POST_OK = [
-  /^\/depop\/contratos\/\d+\/(abrir|ping|fechar)$/,
+  /^\/secad\/contratos\/\d+\/(abrir|ping|fechar)$/,
 ];
 app.use('/api', (req, res, next) => {
   if (!req.user || req.user.role !== 'consulta') return next();
@@ -123,24 +153,28 @@ app.use('/api', (req, res, next) => {
   return res.status(403).json({ error: 'Usuário de consulta: acesso somente leitura.' });
 });
 
-function requireAdmin(req, res, next) {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso restrito a administradores' });
-  // Segunda camada: dentro de "admin" só quem tem acesso_avancado (ou é o
-  // usuário "master") entra em Configurações/Lixeira — todo o admin.html e
-  // suas rotas (mesmo as que não vivem sob /api/admin, ex. tipos-extra,
-  // tipos-contratacao, status) passam por aqui
-  if (req.user.username !== 'master' && !req.user.acesso_avancado) {
-    return res.status(403).json({ error: 'Acesso restrito' });
-  }
+// 3 níveis de admin (substituem o antigo role='admin' + flag acesso_avancado):
+// master (irrestrito, username hardcoded — nunca gerenciado por ninguém),
+// admin_sistema (poderes totais no painel: usuários, departamentos, módulos,
+// rotinas, perfis) e admin_operacional (escopo restrito ao próprio
+// departamento — só usuários, sem CRUD de perfil/departamento/módulo).
+function requireAdminAny(req, res, next) {
+  if (req.user.username === 'master') return next();
+  if (req.user.role === 'admin_sistema' || req.user.role === 'admin_operacional') return next();
+  return res.status(403).json({ error: 'Acesso restrito a administradores' });
+}
+function requireAdminSistema(req, res, next) {
+  if (req.user.username === 'master') return next();
+  if (req.user.role !== 'admin_sistema') return res.status(403).json({ error: 'Acesso restrito ao administrador do sistema' });
   next();
 }
-app.use('/api/admin', requireAdmin);
+app.use('/api/admin', requireAdminAny);
 
 // ── Trava por módulo ativo ────────────────────────────────────────────────────
 // As rotas de dados do SECOP só respondem quando o módulo ativo da sessão é o
 // SECOP. Rotas transversais (/auth, /config, /version, /admin) e de outros
 // módulos passam livres — a trava só barra quem tenta usar dados do SECOP com
-// outro módulo ativo (ex.: master dentro do Depop). Enforcement no servidor,
+// outro módulo ativo (ex.: master dentro do SECAD). Enforcement no servidor,
 // além do redirecionamento no auth.js. `req.path` aqui é relativo ao mount /api.
 const SECOP_PREFIXOS = ['/processos', '/fornecedores', '/itens', '/precos', '/dashboard',
   '/status', '/tipos-contratacao', '/tipos-extra', '/autocomplete', '/dicionario-pt', '/setores'];
@@ -154,7 +188,7 @@ app.use('/api', (req, res, next) => {
 });
 
 // Exige que o módulo indicado seja o ativo na sessão. Usado para montar as rotas
-// próprias de um módulo (ex.: `/api/depop/*`), espelhando a trava do SECOP acima.
+// próprias de um módulo (ex.: `/api/secad/*`), espelhando a trava do SECOP acima.
 function requireModulo(slug) {
   return (req, res, next) => {
     if (req.user.modulo_ativo !== slug) {
@@ -164,10 +198,34 @@ function requireModulo(slug) {
   };
 }
 
+// Permissão granular por Rotina (tela/funcionalidade dentro de um módulo) — o
+// Perfil do usuário nesse módulo (perfil_id, resolvido em requireAuth) precisa
+// ter a flag pedida (ver/incluir/alterar/excluir) marcada pra rotina. Master
+// sempre passa; consulta passa (a guarda global de leitura já bloqueia
+// qualquer escrita, mesmo esquema do antigo requireCap do Depop). Genérico —
+// serve pra SECOP, SECAD, PAC ou qualquer módulo futuro. Só entra em rotas de
+// ESCRITA (GETs continuam abertos pra quem tem o módulo, como já era).
+const ROTINA_FLAGS_VALIDAS = new Set(['ver', 'incluir', 'alterar', 'excluir']);
+function requireRotina(rotinaSlug, flag) {
+  if (!ROTINA_FLAGS_VALIDAS.has(flag)) throw new Error(`requireRotina: flag inválida "${flag}"`);
+  return (req, res, next) => {
+    if (req.user.username === 'master') return next();
+    if (req.user.role === 'consulta') return next();
+    if (!req.user.perfil_id) return res.status(403).json({ error: 'Você não tem um perfil de acesso definido neste módulo. Procure o administrador.' });
+    const row = db.prepare(`
+      SELECT pr.${flag} AS permitido
+      FROM perfil_rotinas pr JOIN rotinas r ON r.id = pr.rotina_id
+      WHERE pr.perfil_id = ? AND r.slug = ?
+    `).get(req.user.perfil_id, rotinaSlug);
+    if (!row || !row.permitido) return res.status(403).json({ error: 'Você não tem essa permissão.' });
+    next();
+  };
+}
+
 // ── Permissões de cotação (dono ou admin) ──────────────────────────────────────
 
 function podeEditarProcesso(user, processoId) {
-  if (user.role === 'admin') return true;
+  if (user.role === 'admin' || user.role === 'admin_sistema' || user.role === 'admin_operacional') return true;
   const proc = db.prepare('SELECT criado_por_id FROM processos WHERE id = ?').get(processoId);
   return !!proc && proc.criado_por_id === user.user_id;
 }
@@ -229,13 +287,14 @@ app.post('/api/auth/login', (req, res) => {
   // master) escolhem antes de entrar — modulo_ativo fica NULL até a escolha.
   const escolher = mods.length > 1;
   const moduloInicial = escolher ? null : mods[0].slug;
+  const perfilInicial = escolher ? null : resolverPerfilId(user.id, mods[0].id);
 
   const token   = crypto.randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + getInatividadeMinutos() * 60 * 1000).toISOString();
 
   db.prepare("DELETE FROM sessions WHERE user_id = ? AND expires < datetime('now')").run(user.id);
-  db.prepare("INSERT INTO sessions (token, user_id, expires, modulo_ativo) VALUES (?, ?, ?, ?)")
-    .run(token, user.id, expires, moduloInicial);
+  db.prepare("INSERT INTO sessions (token, user_id, expires, modulo_ativo, perfil_id) VALUES (?, ?, ?, ?, ?)")
+    .run(token, user.id, expires, moduloInicial, perfilInicial);
 
   registrarLog(req, 'AUTH', 'LOGIN', `Login realizado`, user.username, user.id);
   if (moduloInicial) registrarLog(req, 'MODULO', 'ENTROU', `Entrou no módulo "${mods[0].nome}"`, user.username, user.id);
@@ -269,14 +328,12 @@ app.post('/api/auth/logout', (req, res) => {
 app.get('/api/auth/me', (req, res) => {
   const token = getCookie(req, 'secop_sid');
   if (!token) return res.status(401).json({ error: 'Não autenticado' });
-  const session = db.prepare(`
-    SELECT s.user_id AS id, s.modulo_ativo, u.username, u.role, u.acesso_avancado
-    FROM sessions s JOIN users u ON u.id = s.user_id
-    WHERE s.token = ? AND s.expires > datetime('now') AND u.ativo = 1
-  `).get(token);
+  const session = db.prepare(SESSAO_SQL).get(token);
   if (!session) return res.status(401).json({ error: 'Não autenticado' });
   renovarSessao(token);
-  res.json(session);
+  let tem_foto = false;
+  try { tem_foto = !!anexosDb.prepare(`SELECT 1 FROM user_foto WHERE user_id = ?`).get(session.user_id); } catch {}
+  res.json({ ...session, id: session.user_id, tem_foto });
 });
 
 // Módulos que o usuário logado pode acessar + qual está ativo na sessão. Serve a
@@ -296,7 +353,8 @@ app.post('/api/auth/selecionar-modulo', requireAuth, (req, res) => {
   const permitido = modulosDoUsuario(req.user).find(m => m.slug === slug);
   if (!permitido) return res.status(403).json({ error: 'Você não tem acesso a este módulo' });
   const token = getCookie(req, 'secop_sid');
-  db.prepare(`UPDATE sessions SET modulo_ativo = ? WHERE token = ?`).run(slug, token);
+  const perfilId = resolverPerfilId(req.user.user_id, permitido.id);
+  db.prepare(`UPDATE sessions SET modulo_ativo = ?, perfil_id = ? WHERE token = ?`).run(slug, perfilId, token);
   registrarLog(req, 'MODULO', 'ENTROU', `Entrou no módulo "${permitido.nome}"`);
   res.json({ ok: true, home: permitido.home });
 });
@@ -312,7 +370,7 @@ app.post('/api/auth/confirmar-senha', (req, res) => {
     WHERE s.token = ? AND s.expires > datetime('now') AND u.ativo = 1
   `).get(token);
   if (!session) return res.status(401).json({ error: 'Não autenticado' });
-  if (session.username !== 'master' && !session.acesso_avancado) {
+  if (session.username !== 'master' && session.role !== 'admin_sistema' && session.role !== 'admin_operacional') {
     return res.status(403).json({ error: 'Acesso restrito' });
   }
   const { senha } = req.body;
@@ -325,7 +383,7 @@ app.post('/api/auth/confirmar-senha', (req, res) => {
 
 // Troca de senha provisória no 1º acesso (usuário JÁ logado com a sessão criada
 // no login provisório). Ao trocar, limpa o flag senha_provisoria e o usuário
-// segue pro fluxo normal (escolha de módulo / cadastro do Depop).
+// segue pro fluxo normal (escolha de módulo / cadastro do SECAD).
 app.post('/api/auth/trocar-senha', (req, res) => {
   const token = getCookie(req, 'secop_sid');
   if (!token) return res.status(401).json({ error: 'Não autenticado' });
@@ -484,7 +542,7 @@ app.delete('/api/processos/:id', requireEditProcesso(req => req.params.id), (req
   res.json({ ok: true });
 });
 
-// ── Lixeira (Configurações → Lixeira, restrito por requireAdmin) ───────────────
+// ── Lixeira (Configurações → Lixeira, restrito por requireAdminAny) ───────────
 
 app.get('/api/admin/lixeira', (req, res) => {
   const rows = db.prepare(`
@@ -506,7 +564,7 @@ app.post('/api/admin/lixeira/:id/restaurar', (req, res) => {
   res.json({ ok: true });
 });
 
-// ── Depop: concessionários removidos da listagem (soft-remove, sem DELETE) ────
+// ── SECAD: concessionários removidos da listagem (soft-remove, sem DELETE) ────
 // O registro em ClienteConcessionario/AvaliacaoAreaRenovacao nunca é apagado —
 // só marcado aqui (secop.db, ligado por `codigo`) e ignorado por
 // dashboard/listagem/comunicados (ver codigosRemovidos() acima).
@@ -531,7 +589,7 @@ app.post('/api/admin/concessionarios-removidos', (req, res) => {
     INSERT INTO concessionario_removido (codigo, motivo, removido_por) VALUES (?, ?, ?)
     ON CONFLICT(codigo) DO UPDATE SET motivo = excluded.motivo, removido_em = datetime('now'), removido_por = excluded.removido_por
   `).run(codigo, req.body.motivo || null, req.user.user_id);
-  registrarLog(req, 'DEPOP', 'CONCESSIONARIO_REMOVEU', `Removeu concessionário ${codigo} (${cliente.cliente}) da listagem`);
+  registrarLog(req, 'SECAD', 'CONCESSIONARIO_REMOVEU', `Removeu concessionário ${codigo} (${cliente.cliente}) da listagem`);
   res.json({ ok: true });
 });
 
@@ -540,7 +598,7 @@ app.post('/api/admin/concessionarios-removidos/:codigo/restaurar', (req, res) =>
   const row = db.prepare(`SELECT codigo FROM concessionario_removido WHERE codigo = ?`).get(codigo);
   if (!row) return res.status(404).json({ error: 'Não está removido.' });
   db.prepare(`DELETE FROM concessionario_removido WHERE codigo = ?`).run(codigo);
-  registrarLog(req, 'DEPOP', 'CONCESSIONARIO_RESTAUROU', `Restaurou concessionário ${codigo} na listagem`);
+  registrarLog(req, 'SECAD', 'CONCESSIONARIO_RESTAUROU', `Restaurou concessionário ${codigo} na listagem`);
   res.json({ ok: true });
 });
 
@@ -778,7 +836,7 @@ app.get('/api/tipos-contratacao', (req, res) => {
   res.json(db.prepare(`SELECT * FROM tipos_contratacao ORDER BY ordem`).all());
 });
 
-app.post('/api/tipos-contratacao', requireAdmin, (req, res) => {
+app.post('/api/tipos-contratacao', requireAdminSistema, (req, res) => {
   const { nome, ordem } = req.body;
   if (!nome) return res.status(400).json({ error: 'Nome é obrigatório' });
   try {
@@ -789,14 +847,14 @@ app.post('/api/tipos-contratacao', requireAdmin, (req, res) => {
   }
 });
 
-app.put('/api/tipos-contratacao/:id', requireAdmin, (req, res) => {
+app.put('/api/tipos-contratacao/:id', requireAdminSistema, (req, res) => {
   const { nome, ordem } = req.body;
   if (!nome) return res.status(400).json({ error: 'Nome é obrigatório' });
   db.prepare(`UPDATE tipos_contratacao SET nome=?, ordem=? WHERE id=?`).run(nome, n(ordem) ?? 0, req.params.id);
   res.json({ ok: true });
 });
 
-app.delete('/api/tipos-contratacao/:id', requireAdmin, (req, res) => {
+app.delete('/api/tipos-contratacao/:id', requireAdminSistema, (req, res) => {
   db.prepare(`DELETE FROM tipos_contratacao WHERE id=?`).run(req.params.id);
   res.json({ ok: true });
 });
@@ -807,7 +865,7 @@ app.get('/api/tipos-extra', (req, res) => {
   res.json(db.prepare(`SELECT * FROM tipos_extra ORDER BY ordem`).all());
 });
 
-app.post('/api/tipos-extra', requireAdmin, (req, res) => {
+app.post('/api/tipos-extra', requireAdminSistema, (req, res) => {
   const { unidade, descricao, ordem, sinal, tipo_valor, conta_no_total } = req.body;
   if (!unidade || !descricao) return res.status(400).json({ error: 'Unidade e descrição são obrigatórias' });
   const sinalVal = sinal === 'negativo' ? 'negativo' : 'positivo';
@@ -821,7 +879,7 @@ app.post('/api/tipos-extra', requireAdmin, (req, res) => {
   }
 });
 
-app.put('/api/tipos-extra/:id', requireAdmin, (req, res) => {
+app.put('/api/tipos-extra/:id', requireAdminSistema, (req, res) => {
   const { unidade, descricao, ordem, sinal, tipo_valor, conta_no_total } = req.body;
   if (!unidade || !descricao) return res.status(400).json({ error: 'Unidade e descrição são obrigatórias' });
   const sinalVal = sinal === 'negativo' ? 'negativo' : 'positivo';
@@ -831,7 +889,7 @@ app.put('/api/tipos-extra/:id', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-app.delete('/api/tipos-extra/:id', requireAdmin, (req, res) => {
+app.delete('/api/tipos-extra/:id', requireAdminSistema, (req, res) => {
   db.prepare(`DELETE FROM tipos_extra WHERE id=?`).run(req.params.id);
   res.json({ ok: true });
 });
@@ -909,18 +967,35 @@ app.get('/api/setores', (req, res) => {
 // ── Admin: usuários ───────────────────────────────────────────────────────────
 
 app.get('/api/admin/users', (req, res) => {
-  // Capacidades do Depop (valida / comunicados) vêm por LEFT JOIN: sem linha em
-  // depop_acesso = padrão (valida=1, comunicados=0).
-  res.json(db.prepare(`
-    SELECT u.id, u.username, u.email, u.role, u.ativo, u.acesso_avancado, u.senha_provisoria, u.criado_em,
-           COALESCE(da.valida, 1) AS depop_valida, COALESCE(da.comunicados, 0) AS depop_comunicados
-    FROM users u LEFT JOIN depop_acesso da ON da.user_id = u.id
-    WHERE u.username != 'master' ORDER BY u.id`).all());
+  const souOperacional = req.user.role === 'admin_operacional' && req.user.username !== 'master';
+  const base = `
+    SELECT u.id, u.username, u.email, u.nome_completo, u.telefone, u.role, u.ativo,
+           u.acesso_avancado, u.senha_provisoria, u.criado_em, u.departamento_id,
+           dep.nome AS departamento_nome
+    FROM users u LEFT JOIN departamentos dep ON dep.id = u.departamento_id
+    WHERE u.username != 'master'`;
+  const rows = souOperacional
+    ? db.prepare(`${base} AND u.departamento_id = ? ORDER BY u.id`).all(req.user.departamento_id)
+    : db.prepare(`${base} ORDER BY u.id`).all();
+  res.json(rows);
 });
 
 app.post('/api/admin/users', (req, res) => {
-  const { username, senha, email, role, acesso_avancado } = req.body;
+  const { username, senha, email, role, acesso_avancado, nome_completo, telefone } = req.body;
   if (!username || !senha) return res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
+
+  let roleFinal = role || 'usuario';
+  let deptFinal = req.body.departamento_id != null ? Number(req.body.departamento_id) : null;
+  const souOperacional = req.user.role === 'admin_operacional' && req.user.username !== 'master';
+  if (souOperacional) {
+    // Escopo restrito: nunca cria administrador de nenhum tipo, e o usuário
+    // criado sempre nasce no MESMO departamento de quem está criando.
+    if (['admin_sistema', 'admin_operacional'].includes(roleFinal)) {
+      return res.status(403).json({ error: 'Você não pode criar administradores.' });
+    }
+    deptFinal = req.user.departamento_id;
+  }
+
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.pbkdf2Sync(senha, salt, 100000, 64, 'sha512').toString('hex');
   const acessoVal = acesso_avancado ? 1 : 0;
@@ -928,15 +1003,19 @@ app.post('/api/admin/users', (req, res) => {
     // senha_provisoria = 1: o admin define uma senha inicial e o usuário é
     // obrigado a trocá-la no 1º login.
     const info = db.prepare(
-      "INSERT INTO users (username, senha_hash, salt, role, ativo, acesso_avancado, email, senha_provisoria) VALUES (?, ?, ?, ?, 1, ?, ?, 1)"
-    ).run(username, hash, salt, role || 'usuario', acessoVal, email ? String(email).trim() : null);
+      "INSERT INTO users (username, senha_hash, salt, role, ativo, acesso_avancado, email, senha_provisoria, nome_completo, telefone, departamento_id) VALUES (?, ?, ?, ?, 1, ?, ?, 1, ?, ?, ?)"
+    ).run(username, hash, salt, roleFinal, acessoVal, email ? String(email).trim() : null,
+          nome_completo ? String(nome_completo).trim() : null, telefone ? String(telefone).trim() : null, deptFinal);
     registrarLog(req, 'USUARIO', 'CRIOU', `Criou usuário "${username}"`);
-    // Acesso padrão ao SECOP para o novo usuário não nascer bloqueado — o admin
-    // ajusta (concede outros / revoga) na aba Módulos.
+    // Acesso padrão ao SECOP (com o perfil "Acesso Total") pro novo usuário não
+    // nascer bloqueado nem sem permissão de escrita — o admin ajusta depois.
     try {
       const secop = db.prepare(`SELECT id FROM modulos WHERE slug = 'secop'`).get();
-      if (secop) db.prepare(`INSERT OR IGNORE INTO user_modulos (user_id, modulo_id) VALUES (?, ?)`)
-        .run(info.lastInsertRowid, secop.id);
+      if (secop) {
+        const perfilPadrao = db.prepare(`SELECT id FROM perfis WHERE modulo_id = ? AND nome = 'Acesso Total'`).get(secop.id);
+        db.prepare(`INSERT OR IGNORE INTO user_modulos (user_id, modulo_id, perfil_id) VALUES (?, ?, ?)`)
+          .run(info.lastInsertRowid, secop.id, perfilPadrao ? perfilPadrao.id : null);
+      }
     } catch {}
     res.status(201).json({ id: info.lastInsertRowid });
   } catch (e) {
@@ -945,15 +1024,32 @@ app.post('/api/admin/users', (req, res) => {
 });
 
 app.patch('/api/admin/users/:id', (req, res) => {
-  const { ativo, senha, email, role, acesso_avancado } = req.body;
+  const { ativo, senha, email, role, acesso_avancado, nome_completo, telefone, departamento_id } = req.body;
   const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
   if (!user) return res.status(404).json({ error: 'Não encontrado' });
+
+  const souOperacional = req.user.role === 'admin_operacional' && req.user.username !== 'master';
+  if (souOperacional && user.departamento_id !== req.user.departamento_id) {
+    return res.status(403).json({ error: 'Este usuário não pertence ao seu departamento.' });
+  }
 
   if (email !== undefined) {
     db.prepare("UPDATE users SET email = ? WHERE id = ?").run(email ? String(email).trim() : null, req.params.id);
     registrarLog(req, 'USUARIO', 'EMAIL', `Alterou o email do usuário "${user.username}"`);
   }
-
+  if (nome_completo !== undefined) {
+    db.prepare("UPDATE users SET nome_completo = ? WHERE id = ?").run(nome_completo ? String(nome_completo).trim() : null, req.params.id);
+    registrarLog(req, 'USUARIO', 'PERFIL_USUARIO', `Alterou o nome completo de "${user.username}"`);
+  }
+  if (telefone !== undefined) {
+    db.prepare("UPDATE users SET telefone = ? WHERE id = ?").run(telefone ? String(telefone).trim() : null, req.params.id);
+    registrarLog(req, 'USUARIO', 'PERFIL_USUARIO', `Alterou o telefone de "${user.username}"`);
+  }
+  if (departamento_id !== undefined) {
+    if (souOperacional) return res.status(403).json({ error: 'Você não pode alterar o departamento de um usuário.' });
+    db.prepare("UPDATE users SET departamento_id = ? WHERE id = ?").run(departamento_id || null, req.params.id);
+    registrarLog(req, 'USUARIO', 'DEPARTAMENTO', `Alterou o departamento do usuário "${user.username}"`);
+  }
   if (ativo !== undefined) {
     if (user.username === 'master') return res.status(400).json({ error: 'Não é possível desativar o master' });
     db.prepare("UPDATE users SET ativo = ? WHERE id = ?").run(ativo ? 1 : 0, req.params.id);
@@ -970,6 +1066,7 @@ app.patch('/api/admin/users/:id', (req, res) => {
   }
   if (role !== undefined) {
     if (user.username === 'master') return res.status(400).json({ error: 'Não é possível alterar o perfil do master' });
+    if (souOperacional) return res.status(403).json({ error: 'Você não pode alterar o nível de acesso de um usuário.' });
     db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, req.params.id);
     registrarLog(req, 'USUARIO', 'PERFIL', `Alterou perfil do usuário "${user.username}" para "${role}"`);
   }
@@ -978,25 +1075,16 @@ app.patch('/api/admin/users/:id', (req, res) => {
     db.prepare("UPDATE users SET acesso_avancado = ? WHERE id = ?").run(acesso_avancado ? 1 : 0, req.params.id);
     registrarLog(req, 'USUARIO', 'ACESSO_AVANCADO', `${acesso_avancado ? 'Concedeu' : 'Revogou'} acesso avançado (Configurações/Lixeira) a "${user.username}"`);
   }
-  // Capacidades dentro do módulo Depop: validar contratos e/ou gerar comunicados.
-  // Só grava o flag enviado; mantém o outro. O acesso ao MÓDULO em si é na aba Módulos.
-  if (req.body.depop_valida !== undefined || req.body.depop_comunicados !== undefined) {
-    if (user.username === 'master') return res.status(400).json({ error: 'O master já usa todo o Depop' });
-    const cur = db.prepare("SELECT valida, comunicados FROM depop_acesso WHERE user_id = ?").get(req.params.id) || { valida: 1, comunicados: 0 };
-    const valida      = req.body.depop_valida      !== undefined ? (req.body.depop_valida ? 1 : 0)      : cur.valida;
-    const comunicados = req.body.depop_comunicados !== undefined ? (req.body.depop_comunicados ? 1 : 0) : cur.comunicados;
-    db.prepare(`INSERT INTO depop_acesso (user_id, valida, comunicados) VALUES (?, ?, ?)
-      ON CONFLICT(user_id) DO UPDATE SET valida = excluded.valida, comunicados = excluded.comunicados`)
-      .run(req.params.id, valida, comunicados);
-    registrarLog(req, 'USUARIO', 'DEPOP_ACESSO', `Depop de "${user.username}": validação=${valida ? 'sim' : 'não'}, comunicados=${comunicados ? 'sim' : 'não'}`);
-  }
   res.json({ ok: true });
 });
 
 app.delete('/api/admin/users/:id', (req, res) => {
-  const user = db.prepare("SELECT username FROM users WHERE id = ?").get(req.params.id);
+  const user = db.prepare("SELECT username, departamento_id FROM users WHERE id = ?").get(req.params.id);
   if (!user) return res.status(404).json({ error: 'Não encontrado' });
   if (user.username === 'master') return res.status(400).json({ error: 'Não é possível excluir o master' });
+  if (req.user.role === 'admin_operacional' && req.user.username !== 'master' && user.departamento_id !== req.user.departamento_id) {
+    return res.status(403).json({ error: 'Este usuário não pertence ao seu departamento.' });
+  }
   // As cotações do usuário excluído permanecem no sistema, apenas ficam sem dono (só admin edita)
   db.prepare("UPDATE processos SET criado_por_id = NULL WHERE criado_por_id = ?").run(req.params.id);
   db.prepare("DELETE FROM users WHERE id = ?").run(req.params.id);
@@ -1004,42 +1092,206 @@ app.delete('/api/admin/users/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// ── Admin: módulos (catálogo + matriz de acesso por usuário) ──────────────────
-
-app.get('/api/admin/modulos', (req, res) => {
-  res.json(db.prepare(`SELECT id, slug, nome, cor, home, ordem, ativo FROM modulos ORDER BY ordem`).all());
+// ── Admin: foto de perfil do usuário (BLOB em anexos.db — mesmo mecanismo do
+// comprovante de entrega do SECAD; não existe upload-pra-disco neste projeto) ──
+const FOTO_MIMES = ['image/jpeg', 'image/png'];
+const FOTO_MAX = 3 * 1024 * 1024;
+app.post('/api/admin/users/:id/foto', express.raw({ type: '*/*', limit: '4mb' }), (req, res) => {
+  const user = db.prepare(`SELECT username, departamento_id FROM users WHERE id = ?`).get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+  if (req.user.role === 'admin_operacional' && req.user.username !== 'master' && user.departamento_id !== req.user.departamento_id) {
+    return res.status(403).json({ error: 'Este usuário não pertence ao seu departamento.' });
+  }
+  const mime = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) return res.status(400).json({ error: 'Arquivo vazio.' });
+  if (!FOTO_MIMES.includes(mime)) return res.status(415).json({ error: 'Envie uma imagem JPG ou PNG.' });
+  if (req.body.length > FOTO_MAX) return res.status(413).json({ error: 'Imagem muito grande (máx. 3 MB).' });
+  anexosDb.prepare(`
+    INSERT INTO user_foto (user_id, mime, tamanho, conteudo, atualizado_em) VALUES (?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(user_id) DO UPDATE SET mime = excluded.mime, tamanho = excluded.tamanho, conteudo = excluded.conteudo, atualizado_em = excluded.atualizado_em
+  `).run(req.params.id, mime, req.body.length, req.body);
+  registrarLog(req, 'USUARIO', 'FOTO', `Atualizou a foto de "${user.username}"`);
+  res.json({ ok: true });
 });
 
-app.patch('/api/admin/modulos/:id', (req, res) => {
-  const { ativo } = req.body;
+app.delete('/api/admin/users/:id/foto', (req, res) => {
+  const user = db.prepare(`SELECT username, departamento_id FROM users WHERE id = ?`).get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+  if (req.user.role === 'admin_operacional' && req.user.username !== 'master' && user.departamento_id !== req.user.departamento_id) {
+    return res.status(403).json({ error: 'Este usuário não pertence ao seu departamento.' });
+  }
+  anexosDb.prepare(`DELETE FROM user_foto WHERE user_id = ?`).run(req.params.id);
+  registrarLog(req, 'USUARIO', 'FOTO', `Removeu a foto de "${user.username}"`);
+  res.json({ ok: true });
+});
+
+// ── Admin: departamentos (só admin_sistema) ───────────────────────────────────
+
+app.get('/api/admin/departamentos', requireAdminSistema, (req, res) => {
+  res.json(db.prepare(`SELECT id, slug, nome, ordem, ativo FROM departamentos ORDER BY ordem`).all());
+});
+
+app.patch('/api/admin/departamentos/:id', requireAdminSistema, (req, res) => {
+  const { nome, ativo } = req.body;
+  const dep = db.prepare(`SELECT nome FROM departamentos WHERE id = ?`).get(req.params.id);
+  if (!dep) return res.status(404).json({ error: 'Departamento não encontrado' });
+  if (nome !== undefined) db.prepare(`UPDATE departamentos SET nome = ? WHERE id = ?`).run(String(nome).trim(), req.params.id);
+  if (ativo !== undefined) db.prepare(`UPDATE departamentos SET ativo = ? WHERE id = ?`).run(ativo ? 1 : 0, req.params.id);
+  registrarLog(req, 'DEPARTAMENTO', 'EDITOU', `Editou o departamento "${dep.nome}"`);
+  res.json({ ok: true });
+});
+
+// ── Admin: rotinas (catálogo semeado — só ativo/flags_aplicaveis são editáveis,
+// não dá pra criar/excluir rotina pelo admin) ─────────────────────────────────
+
+app.get('/api/admin/rotinas', requireAdminSistema, (req, res) => {
+  res.json(db.prepare(`
+    SELECT r.id, r.modulo_id, m.nome AS modulo_nome, r.slug, r.nome, r.ordem, r.ativo, r.flags_aplicaveis
+    FROM rotinas r JOIN modulos m ON m.id = r.modulo_id
+    ORDER BY m.ordem, r.ordem`).all());
+});
+
+app.patch('/api/admin/rotinas/:id', requireAdminSistema, (req, res) => {
+  const { ativo, flags_aplicaveis } = req.body;
+  const rot = db.prepare(`SELECT nome FROM rotinas WHERE id = ?`).get(req.params.id);
+  if (!rot) return res.status(404).json({ error: 'Rotina não encontrada' });
+  if (ativo !== undefined) db.prepare(`UPDATE rotinas SET ativo = ? WHERE id = ?`).run(ativo ? 1 : 0, req.params.id);
+  if (flags_aplicaveis !== undefined) db.prepare(`UPDATE rotinas SET flags_aplicaveis = ? WHERE id = ?`).run(String(flags_aplicaveis), req.params.id);
+  registrarLog(req, 'PERFIL', 'ROTINA_EDITOU', `Editou a rotina "${rot.nome}"`);
+  res.json({ ok: true });
+});
+
+// ── Admin: perfis (CRUD só admin_sistema; leitura liberada pro admin_operacional
+// também — ele precisa VER quais perfis existem pra atribuir um já pronto) ────
+
+app.get('/api/admin/perfis', (req, res) => {
+  const { modulo_id } = req.query;
+  const rows = modulo_id
+    ? db.prepare(`SELECT id, modulo_id, nome, descricao FROM perfis WHERE modulo_id = ? ORDER BY nome`).all(modulo_id)
+    : db.prepare(`SELECT id, modulo_id, nome, descricao FROM perfis ORDER BY modulo_id, nome`).all();
+  res.json(rows);
+});
+
+app.post('/api/admin/perfis', requireAdminSistema, (req, res) => {
+  const { modulo_id, nome, descricao } = req.body;
+  if (!modulo_id || !nome) return res.status(400).json({ error: 'Módulo e nome são obrigatórios' });
+  try {
+    const info = db.prepare(`INSERT INTO perfis (modulo_id, nome, descricao) VALUES (?, ?, ?)`)
+      .run(modulo_id, String(nome).trim(), descricao ? String(descricao).trim() : null);
+    registrarLog(req, 'PERFIL', 'CRIOU', `Criou o perfil "${nome}"`);
+    res.status(201).json({ id: info.lastInsertRowid });
+  } catch {
+    res.status(400).json({ error: 'Já existe um perfil com esse nome neste módulo' });
+  }
+});
+
+app.patch('/api/admin/perfis/:id', requireAdminSistema, (req, res) => {
+  const { nome, descricao } = req.body;
+  const perfil = db.prepare(`SELECT nome FROM perfis WHERE id = ?`).get(req.params.id);
+  if (!perfil) return res.status(404).json({ error: 'Perfil não encontrado' });
+  if (nome !== undefined) db.prepare(`UPDATE perfis SET nome = ? WHERE id = ?`).run(String(nome).trim(), req.params.id);
+  if (descricao !== undefined) db.prepare(`UPDATE perfis SET descricao = ? WHERE id = ?`).run(descricao ? String(descricao).trim() : null, req.params.id);
+  registrarLog(req, 'PERFIL', 'EDITOU', `Editou o perfil "${perfil.nome}"`);
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/perfis/:id', requireAdminSistema, (req, res) => {
+  const perfil = db.prepare(`SELECT nome FROM perfis WHERE id = ?`).get(req.params.id);
+  if (!perfil) return res.status(404).json({ error: 'Perfil não encontrado' });
+  try {
+    db.prepare(`DELETE FROM perfis WHERE id = ?`).run(req.params.id);
+    registrarLog(req, 'PERFIL', 'EXCLUIU', `Excluiu o perfil "${perfil.nome}"`);
+    res.json({ ok: true });
+  } catch {
+    res.status(400).json({ error: 'Este perfil está em uso por um ou mais usuários — remova as atribuições antes de excluir.' });
+  }
+});
+
+// Grid ver/incluir/alterar/excluir de um perfil — leitura liberada pro
+// admin_operacional (ele precisa ver o que cada perfil concede antes de
+// atribuir), escrita só admin_sistema.
+app.get('/api/admin/perfis/:id/rotinas', (req, res) => {
+  const perfil = db.prepare(`SELECT id, modulo_id FROM perfis WHERE id = ?`).get(req.params.id);
+  if (!perfil) return res.status(404).json({ error: 'Perfil não encontrado' });
+  const rows = db.prepare(`
+    SELECT r.id, r.slug, r.nome, r.flags_aplicaveis,
+           COALESCE(pr.ver, 0) AS ver, COALESCE(pr.incluir, 0) AS incluir,
+           COALESCE(pr.alterar, 0) AS alterar, COALESCE(pr.excluir, 0) AS excluir
+    FROM rotinas r LEFT JOIN perfil_rotinas pr ON pr.rotina_id = r.id AND pr.perfil_id = ?
+    WHERE r.modulo_id = ? AND r.ativo = 1 ORDER BY r.ordem
+  `).all(req.params.id, perfil.modulo_id);
+  res.json(rows);
+});
+
+app.put('/api/admin/perfis/:id/rotinas', requireAdminSistema, (req, res) => {
+  const { rotina_id, flag, valor } = req.body || {};
+  if (!ROTINA_FLAGS_VALIDAS.has(flag)) return res.status(400).json({ error: 'Flag inválida' });
+  const perfil = db.prepare(`SELECT id FROM perfis WHERE id = ?`).get(req.params.id);
+  const rotina = db.prepare(`SELECT id, nome FROM rotinas WHERE id = ?`).get(rotina_id);
+  if (!perfil || !rotina) return res.status(404).json({ error: 'Perfil ou rotina não encontrados' });
+  db.prepare(`
+    INSERT INTO perfil_rotinas (perfil_id, rotina_id, ${flag}) VALUES (?, ?, ?)
+    ON CONFLICT(perfil_id, rotina_id) DO UPDATE SET ${flag} = excluded.${flag}
+  `).run(req.params.id, rotina_id, valor ? 1 : 0);
+  registrarLog(req, 'PERFIL', 'ROTINA_FLAG', `Ajustou "${flag}" da rotina "${rotina.nome}" no perfil #${req.params.id}`);
+  res.json({ ok: true });
+});
+
+// ── Admin: módulos (catálogo, só admin_sistema + matriz de acesso por usuário,
+// leitura/escrita liberada pro admin_operacional dentro do próprio departamento) ─
+
+app.get('/api/admin/modulos', requireAdminSistema, (req, res) => {
+  res.json(db.prepare(`SELECT id, slug, nome, cor, home, ordem, ativo, departamento_id FROM modulos ORDER BY ordem`).all());
+});
+
+app.patch('/api/admin/modulos/:id', requireAdminSistema, (req, res) => {
+  const { ativo, departamento_id } = req.body;
   const modulo = db.prepare(`SELECT nome FROM modulos WHERE id = ?`).get(req.params.id);
   if (!modulo) return res.status(404).json({ error: 'Módulo não encontrado' });
   if (ativo !== undefined) {
     db.prepare(`UPDATE modulos SET ativo = ? WHERE id = ?`).run(ativo ? 1 : 0, req.params.id);
     registrarLog(req, 'MODULO', ativo ? 'ATIVOU' : 'DESATIVOU', `${ativo ? 'Ativou' : 'Desativou'} o módulo "${modulo.nome}"`);
   }
+  if (departamento_id !== undefined) {
+    db.prepare(`UPDATE modulos SET departamento_id = ? WHERE id = ?`).run(departamento_id || null, req.params.id);
+    registrarLog(req, 'MODULO', 'DEPARTAMENTO', `Alterou o departamento do módulo "${modulo.nome}"`);
+  }
   res.json({ ok: true });
 });
 
 // Matriz para a aba Módulos: todos os módulos + cada usuário (exceto master, que
-// já enxerga tudo) com a lista de módulos que possui.
+// já enxerga tudo) com o perfil que possui em cada um. admin_operacional só
+// enxerga/mexe no que é do próprio departamento.
 app.get('/api/admin/modulos/acessos', (req, res) => {
-  const modulos  = db.prepare(`SELECT id, slug, nome, cor, ativo FROM modulos ORDER BY ordem`).all();
-  const usuarios = db.prepare(`SELECT id, username, role FROM users WHERE username != 'master' ORDER BY id`).all();
-  const pares    = db.prepare(`SELECT user_id, modulo_id FROM user_modulos`).all();
-  const porUser  = {};
-  pares.forEach(p => { (porUser[p.user_id] = porUser[p.user_id] || []).push(p.modulo_id); });
-  usuarios.forEach(u => { u.modulo_ids = porUser[u.id] || []; });
-  res.json({ modulos, usuarios });
+  const souOperacional = req.user.role === 'admin_operacional' && req.user.username !== 'master';
+  const modulos = souOperacional
+    ? db.prepare(`SELECT id, slug, nome, cor, ativo, departamento_id FROM modulos WHERE departamento_id = ? ORDER BY ordem`).all(req.user.departamento_id)
+    : db.prepare(`SELECT id, slug, nome, cor, ativo, departamento_id FROM modulos ORDER BY ordem`).all();
+  const usuarios = souOperacional
+    ? db.prepare(`SELECT id, username, role FROM users WHERE username != 'master' AND departamento_id = ? ORDER BY id`).all(req.user.departamento_id)
+    : db.prepare(`SELECT id, username, role FROM users WHERE username != 'master' ORDER BY id`).all();
+  const pares   = db.prepare(`SELECT user_id, modulo_id, perfil_id FROM user_modulos`).all();
+  const porUser = {};
+  pares.forEach(p => { (porUser[p.user_id] = porUser[p.user_id] || {})[p.modulo_id] = p.perfil_id; });
+  usuarios.forEach(u => {
+    u.modulo_perfis = porUser[u.id] || {};
+    u.modulo_ids = Object.keys(u.modulo_perfis).map(Number);
+  });
+  const perfis = db.prepare(`SELECT id, modulo_id, nome FROM perfis ORDER BY modulo_id, nome`).all();
+  res.json({ modulos, usuarios, perfis });
 });
 
 app.put('/api/admin/modulos/acessos', (req, res) => {
   const { user_id, modulo_id, concedido } = req.body || {};
   if (user_id == null || modulo_id == null) return res.status(400).json({ error: 'Dados incompletos' });
-  const user   = db.prepare(`SELECT username FROM users WHERE id = ?`).get(user_id);
-  const modulo = db.prepare(`SELECT nome FROM modulos WHERE id = ?`).get(modulo_id);
+  const user   = db.prepare(`SELECT username, departamento_id FROM users WHERE id = ?`).get(user_id);
+  const modulo = db.prepare(`SELECT nome, departamento_id FROM modulos WHERE id = ?`).get(modulo_id);
   if (!user || !modulo) return res.status(404).json({ error: 'Usuário ou módulo não encontrado' });
   if (user.username === 'master') return res.status(400).json({ error: 'O master já acessa todos os módulos' });
+  if (req.user.role === 'admin_operacional' && req.user.username !== 'master' &&
+      (user.departamento_id !== req.user.departamento_id || modulo.departamento_id !== req.user.departamento_id)) {
+    return res.status(403).json({ error: 'Fora do seu departamento.' });
+  }
   if (concedido) {
     db.prepare(`INSERT OR IGNORE INTO user_modulos (user_id, modulo_id) VALUES (?, ?)`).run(user_id, modulo_id);
     registrarLog(req, 'MODULO', 'CONCEDEU', `Concedeu o módulo "${modulo.nome}" a "${user.username}"`);
@@ -1048,6 +1300,40 @@ app.put('/api/admin/modulos/acessos', (req, res) => {
     registrarLog(req, 'MODULO', 'REVOGOU', `Revogou o módulo "${modulo.nome}" de "${user.username}"`);
   }
   res.json({ ok: true });
+});
+
+// Atribui/troca o perfil de um usuário num módulo que ele já tem (não concede o
+// módulo em si, isso é o PUT acima). admin_operacional só escolhe entre perfis
+// JÁ EXISTENTES daquele módulo — nunca cria perfil na hora.
+app.patch('/api/admin/modulos/acessos', (req, res) => {
+  const { user_id, modulo_id, perfil_id } = req.body || {};
+  if (user_id == null || modulo_id == null) return res.status(400).json({ error: 'Dados incompletos' });
+  const user   = db.prepare(`SELECT username, departamento_id FROM users WHERE id = ?`).get(user_id);
+  const modulo = db.prepare(`SELECT nome, departamento_id FROM modulos WHERE id = ?`).get(modulo_id);
+  if (!user || !modulo) return res.status(404).json({ error: 'Usuário ou módulo não encontrado' });
+  if (user.username === 'master') return res.status(400).json({ error: 'O master já acessa tudo' });
+  if (req.user.role === 'admin_operacional' && req.user.username !== 'master' &&
+      (user.departamento_id !== req.user.departamento_id || modulo.departamento_id !== req.user.departamento_id)) {
+    return res.status(403).json({ error: 'Fora do seu departamento.' });
+  }
+  if (perfil_id != null) {
+    const perfil = db.prepare(`SELECT id FROM perfis WHERE id = ? AND modulo_id = ?`).get(perfil_id, modulo_id);
+    if (!perfil) return res.status(400).json({ error: 'Perfil não pertence a este módulo.' });
+  }
+  const info = db.prepare(`UPDATE user_modulos SET perfil_id = ? WHERE user_id = ? AND modulo_id = ?`).run(perfil_id || null, user_id, modulo_id);
+  if (info.changes === 0) return res.status(404).json({ error: 'Este usuário ainda não tem esse módulo — conceda o módulo primeiro.' });
+  registrarLog(req, 'MODULO', 'PERFIL', `Definiu o perfil de "${user.username}" em "${modulo.nome}"`);
+  res.json({ ok: true });
+});
+
+// Qualquer usuário autenticado pode ver a foto de outro (é só avatar de
+// sidebar, não é dado sensível) — mesmo padrão de exposição do comprovante.
+app.get('/api/usuarios/:id/foto', (req, res) => {
+  const row = anexosDb.prepare(`SELECT mime, conteudo FROM user_foto WHERE user_id = ?`).get(req.params.id);
+  if (!row) return res.status(404).end();
+  res.set('Content-Type', row.mime);
+  res.set('Cache-Control', 'private, max-age=300');
+  res.send(Buffer.from(row.conteudo));
 });
 
 // ── Admin: export / import banco ─────────────────────────────────────────────
@@ -1162,7 +1448,7 @@ app.delete('/api/admin/logs', (req, res) => {
   res.json({ ok: true });
 });
 
-// ── Depop: perfil de assinatura (CPF + par de chaves) ─────────────────────────
+// ── SECAD: perfil de assinatura (CPF + par de chaves) ─────────────────────────
 
 // Validação de CPF pelo algoritmo dos dígitos verificadores (mesma regra da
 // Receita) — offline, sem consulta externa. Rejeita tamanho errado e as
@@ -1181,7 +1467,7 @@ function cpfValido(cpf) {
 
 // (Assinatura por par de chaves EC removida: a validação passou a ser confirmada
 // pela senha de LOGIN do próprio usuário + timbre SHA-256 verificável — uma senha
-// só. Ver POST /api/depop/contratos/:id/validar. As colunas chave_* de
+// só. Ver POST /api/secad/contratos/:id/validar. As colunas chave_* de
 // depop_perfil viram legado, gravadas vazias.)
 
 // ── Consulta de CPF na API externa (cpfhub.io) ────────────────────────────────
@@ -1246,12 +1532,12 @@ app.get('/api/admin/cpfhub', (req, res) => {
   res.json({ configurada: !!v, mascara: v ? (v.slice(0, 4) + '••••••' + v.slice(-2)) : '' });
 });
 
-// Todas as rotas /api/depop/* exigem o módulo Depop ativo na sessão.
-app.use('/api/depop', requireModulo('depop'));
+// Todas as rotas /api/secad/* exigem o módulo SECAD ativo na sessão.
+app.use('/api/secad', requireModulo('secad'));
 
 // Consulta um CPF: valida dígitos offline e, se passar, confirma na API e
 // devolve o nome (pra tela mostrar antes de salvar). Não grava nada.
-app.post('/api/depop/consultar-cpf', async (req, res) => {
+app.post('/api/secad/consultar-cpf', async (req, res) => {
   const cpfLimpo = String((req.body && req.body.cpf) || '').replace(/\D/g, '');
   if (!cpfValido(cpfLimpo)) return res.json({ valido: false, motivo: 'digitos', error: 'CPF inválido.' });
   const r = await consultarCpfApi(cpfLimpo);
@@ -1263,9 +1549,9 @@ app.post('/api/depop/consultar-cpf', async (req, res) => {
 
 // Situação do perfil do usuário logado (o front decide se mostra o cadastro de
 // 1º acesso ou o conteúdo). Nunca devolve chave privada; CPF vem mascarado.
-app.get('/api/depop/perfil', (req, res) => {
+app.get('/api/secad/perfil', (req, res) => {
   const ferramenta = perfilFerramenta(req); // 'master' | 'validador'
-  const caps = depopCaps(req);
+  const caps = secadCaps(req);
   const perfil = db.prepare(`SELECT cpf, nome, criado_em FROM depop_perfil WHERE user_id = ?`).get(req.user.user_id);
   const cadastrado = !!perfil;
   // Só passa pelo cadastro de 1º acesso (CPF) quem vai VALIDAR: master (supervisor),
@@ -1279,7 +1565,7 @@ app.get('/api/depop/perfil', (req, res) => {
 
 // Cadastro de 1º acesso: CPF (validado) + senha de assinatura → gera e guarda o
 // par de chaves. Só uma vez por usuário; CPF é único no módulo.
-app.post('/api/depop/perfil', async (req, res) => {
+app.post('/api/secad/perfil', async (req, res) => {
   const { cpf } = req.body || {};
   const ja = db.prepare(`SELECT 1 FROM depop_perfil WHERE user_id = ?`).get(req.user.user_id);
   if (ja) return res.status(400).json({ error: 'Perfil já configurado' });
@@ -1299,11 +1585,11 @@ app.post('/api/depop/perfil', async (req, res) => {
   // As colunas chave_* (NOT NULL, legado) ficam vazias.
   db.prepare(`INSERT INTO depop_perfil (user_id, cpf, chave_publica, chave_privada_pem, nome) VALUES (?, ?, '', '', ?)`)
     .run(req.user.user_id, cpfLimpo, nome);
-  registrarLog(req, 'DEPOP', 'PERFIL', `Cadastrou CPF no Depop${info.fonte === 'offline' ? ' (validado offline)' : ''}`);
+  registrarLog(req, 'SECAD', 'PERFIL', `Cadastrou CPF no SECAD${info.fonte === 'offline' ? ' (validado offline)' : ''}`);
   res.status(201).json({ ok: true, nome });
 });
 
-// ── Depop: ferramenta de validação de contratos ───────────────────────────────
+// ── SECAD: ferramenta de validação de contratos ───────────────────────────────
 // Confere, contrato a contrato, os dados vindos das planilhas (carregados no
 // depop.db, só leitura). Cada validação fica assinada; o registro vive no
 // secop.db (validacao_contrato). Concorrência: um contrato aberto por um
@@ -1312,33 +1598,26 @@ app.post('/api/depop/perfil', async (req, res) => {
 const LOCK_TTL_SEG = 120; // trava sem ping por mais que isso = abandonada (libera)
 
 // Supervisor (o usuário 'master' da plataforma): só lê e exporta PDF, nunca
-// assina nem marca erro. Todos os demais usuários do Depop são validadores.
+// assina nem marca erro. Todos os demais usuários do SECAD são validadores.
 function perfilFerramenta(req) {
   return req.user.username === 'master' ? 'master' : 'validador';
 }
 
-// Capacidades do usuário DENTRO do módulo Depop (o acesso ao módulo em si é por
-// user_modulos). master = tudo. Sem linha em depop_acesso = padrão histórico
-// (valida contratos, sem comunicados) — não quebra quem já usava a validação.
-function depopCaps(req) {
+// Capacidades do usuário DENTRO do módulo SECAD, pro FRONT decidir o que
+// mostrar (a guarda de verdade nas rotas é requireRotina, mais abaixo). Deriva
+// da flag "ver" do Perfil do usuário nas rotinas validacao/comunicados — quem
+// não tem "ver" numa delas nem enxerga aquela seção na tela.
+function secadCaps(req) {
   if (req.user.username === 'master') return { is_master: true, is_consulta: false, pode_validar: true, pode_comunicados: true };
-  // Consulta (somente leitura) enxerga as duas seções, mas as ações são barradas
-  // pela guarda global de leitura — aqui só liberamos a VISUALIZAÇÃO.
   if (req.user.role === 'consulta') return { is_master: false, is_consulta: true, pode_validar: true, pode_comunicados: true };
-  const row = db.prepare(`SELECT valida, comunicados FROM depop_acesso WHERE user_id = ?`).get(req.user.user_id);
-  return { is_master: false, is_consulta: false, pode_validar: row ? !!row.valida : true, pode_comunicados: row ? !!row.comunicados : false };
-}
-
-// Guarda de rota por capacidade ('valida' | 'comunicados'). O master e o consulta
-// passam sempre (consulta só lê; as escritas caem na guarda global de leitura).
-function requireCap(cap) {
-  const chave = cap === 'valida' ? 'pode_validar' : 'pode_comunicados';
-  return (req, res, next) => {
-    if (req.user.role === 'consulta') return next();
-    const c = depopCaps(req);
-    if (c.is_master || c[chave]) return next();
-    return res.status(403).json({ error: 'Você não tem essa permissão no Depop.' });
-  };
+  if (!req.user.perfil_id) return { is_master: false, is_consulta: false, pode_validar: false, pode_comunicados: false };
+  const rows = db.prepare(`
+    SELECT r.slug, pr.ver
+    FROM perfil_rotinas pr JOIN rotinas r ON r.id = pr.rotina_id
+    WHERE pr.perfil_id = ? AND r.slug IN ('validacao', 'comunicados')
+  `).all(req.user.perfil_id);
+  const mapa = Object.fromEntries(rows.map(r => [r.slug, !!r.ver]));
+  return { is_master: false, is_consulta: false, pode_validar: !!mapa.validacao, pode_comunicados: !!mapa.comunicados };
 }
 
 // Trava ativa (com ping recente) de um contrato, ou null se livre/abandonada.
@@ -1414,7 +1693,7 @@ function payloadContrato(det, cpf, iso) {
 }
 
 // Indicadores da tela inicial.
-app.get('/api/depop/dashboard', (req, res) => {
+app.get('/api/secad/dashboard', (req, res) => {
   const removidos = new Set(codigosRemovidos());
   const avals = depopDb.prepare(`SELECT id, id_contrato, codigo, id_cidade FROM AvaliacaoAreaRenovacao`)
     .all().filter(a => !removidos.has(a.codigo));
@@ -1482,7 +1761,7 @@ app.get('/api/depop/dashboard', (req, res) => {
 });
 
 // Lista completa (o front filtra por aba/cidade/busca e agrupa por concessionário).
-app.get('/api/depop/contratos', (req, res) => {
+app.get('/api/secad/contratos', (req, res) => {
   const removidos = new Set(codigosRemovidos());
   const avals = depopDb.prepare(`
     SELECT a.id, a.id_contrato, a.codigo, a.numero_ccu, a.valor_ponto, a.valor_30_ceasa,
@@ -1517,7 +1796,7 @@ app.get('/api/depop/contratos', (req, res) => {
 
 // Abre o preview de um contrato. Validador toma a trava (ou 409 se estiver com
 // outro); supervisor só visualiza, sem travar e sem ser travado.
-app.post('/api/depop/contratos/:id/abrir', requireCap('valida'), (req, res) => {
+app.post('/api/secad/contratos/:id/abrir', requireRotina('validacao', 'ver'), (req, res) => {
   const id = parseInt(req.params.id, 10);
   const det = montarDetalhe(id);
   if (!det) return res.status(404).json({ error: 'Contrato não encontrado' });
@@ -1548,7 +1827,7 @@ app.post('/api/depop/contratos/:id/abrir', requireCap('valida'), (req, res) => {
 });
 
 // Heartbeat da trava enquanto o preview está aberto.
-app.post('/api/depop/contratos/:id/ping', (req, res) => {
+app.post('/api/secad/contratos/:id/ping', (req, res) => {
   const id = parseInt(req.params.id, 10);
   const info = db.prepare(`UPDATE validacao_lock SET ultimo_ping = datetime('now') WHERE id_avaliacao = ? AND user_id = ?`)
     .run(id, req.user.user_id);
@@ -1556,7 +1835,7 @@ app.post('/api/depop/contratos/:id/ping', (req, res) => {
 });
 
 // Libera a trava ao fechar o preview.
-app.post('/api/depop/contratos/:id/fechar', (req, res) => {
+app.post('/api/secad/contratos/:id/fechar', (req, res) => {
   const id = parseInt(req.params.id, 10);
   db.prepare(`DELETE FROM validacao_lock WHERE id_avaliacao = ? AND user_id = ?`).run(id, req.user.user_id);
   res.json({ ok: true });
@@ -1564,7 +1843,7 @@ app.post('/api/depop/contratos/:id/fechar', (req, res) => {
 
 // Confirmar e assinar: assina o payload canônico com a chave do validador
 // (destravada pela senha de assinatura) e grava status 'validado' + timbre.
-app.post('/api/depop/contratos/:id/validar', requireCap('valida'), (req, res) => {
+app.post('/api/secad/contratos/:id/validar', requireRotina('validacao', 'incluir'), (req, res) => {
   if (perfilFerramenta(req) === 'master') return res.status(403).json({ error: 'O supervisor não assina validações.' });
   const id = parseInt(req.params.id, 10);
   const { senha } = req.body || {};
@@ -1605,13 +1884,13 @@ app.post('/api/depop/contratos/:id/validar', requireCap('valida'), (req, res) =>
       assinatura_b64 = NULL`)
     .run(id, req.user.user_id, iso, timbre);
   db.prepare(`DELETE FROM validacao_lock WHERE id_avaliacao = ?`).run(id);
-  registrarLog(req, 'DEPOP', 'VALIDOU', `Validou contrato CCU ${det.numero_ccu || det.id_contrato}`);
+  registrarLog(req, 'SECAD', 'VALIDOU', `Validou contrato CCU ${det.numero_ccu || det.id_contrato}`);
   res.json({ ok: true, timbre: timbre.slice(0, 12), dt_validacao: iso, validador: nome });
 });
 
 // Marcar como errado: grava o problema (observação) E a solução — as duas são
 // obrigatórias, pra quem for reabrir (ou só olhar) já saber o que corrigir.
-app.post('/api/depop/contratos/:id/errado', requireCap('valida'), (req, res) => {
+app.post('/api/secad/contratos/:id/errado', requireRotina('validacao', 'incluir'), (req, res) => {
   if (perfilFerramenta(req) === 'master') return res.status(403).json({ error: 'O supervisor não marca erros.' });
   const id = parseInt(req.params.id, 10);
   const obs = String((req.body && req.body.observacao) || '').trim();
@@ -1639,13 +1918,13 @@ app.post('/api/depop/contratos/:id/errado', requireCap('valida'), (req, res) => 
       dt_validacao = excluded.dt_validacao, hash_assinatura = NULL, assinatura_b64 = NULL`)
     .run(id, obs, solucao, req.user.user_id, iso);
   db.prepare(`DELETE FROM validacao_lock WHERE id_avaliacao = ?`).run(id);
-  registrarLog(req, 'DEPOP', 'ERRO', `Marcou erro no contrato CCU ${det.numero_ccu || det.id_contrato}: ${obs.slice(0, 120)} | Solução: ${solucao.slice(0, 120)}`);
+  registrarLog(req, 'SECAD', 'ERRO', `Marcou erro no contrato CCU ${det.numero_ccu || det.id_contrato}: ${obs.slice(0, 120)} | Solução: ${solucao.slice(0, 120)}`);
   res.json({ ok: true });
 });
 
 // Voltar um contrato marcado como ERRADO para "A Validar" (só supervisor/master).
 // Remove a marcação de erro → volta a 'pendente' pra um validador reconferir.
-app.post('/api/depop/contratos/:id/reabrir', requireCap('valida'), (req, res) => {
+app.post('/api/secad/contratos/:id/reabrir', requireRotina('validacao', 'alterar'), (req, res) => {
   if (perfilFerramenta(req) !== 'master') return res.status(403).json({ error: 'Apenas o supervisor pode reabrir um contrato.' });
   const id = parseInt(req.params.id, 10);
   const v = db.prepare(`SELECT status FROM validacao_contrato WHERE id_avaliacao = ?`).get(id);
@@ -1653,7 +1932,7 @@ app.post('/api/depop/contratos/:id/reabrir', requireCap('valida'), (req, res) =>
   const det = montarDetalhe(id);
   db.prepare(`DELETE FROM validacao_contrato WHERE id_avaliacao = ?`).run(id);
   db.prepare(`DELETE FROM validacao_lock WHERE id_avaliacao = ?`).run(id);
-  registrarLog(req, 'DEPOP', 'REABRIU', `Voltou p/ A Validar o contrato CCU ${det ? (det.numero_ccu || det.id_contrato) : id} (estava errado)`);
+  registrarLog(req, 'SECAD', 'REABRIU', `Voltou p/ A Validar o contrato CCU ${det ? (det.numero_ccu || det.id_contrato) : id} (estava errado)`);
   res.json({ ok: true });
 });
 
@@ -1661,7 +1940,7 @@ app.post('/api/depop/contratos/:id/reabrir', requireCap('valida'), (req, res) =>
 // devolve o contrato para 'pendente', permitindo nova conferência/assinatura. É
 // uma ação sensível sobre um registro assinado — exige a senha de login do master
 // e um motivo, e fica registrada no log. Se já havia comunicado gerado, avisa.
-app.post('/api/depop/contratos/:id/cancelar-validacao', requireCap('valida'), (req, res) => {
+app.post('/api/secad/contratos/:id/cancelar-validacao', requireRotina('validacao', 'alterar'), (req, res) => {
   if (perfilFerramenta(req) !== 'master') return res.status(403).json({ error: 'Apenas o supervisor pode cancelar uma assinatura.' });
   const id = parseInt(req.params.id, 10);
   const { senha, motivo } = req.body || {};
@@ -1686,13 +1965,13 @@ app.post('/api/depop/contratos/:id/cancelar-validacao', requireCap('valida'), (r
   db.prepare(`DELETE FROM validacao_lock WHERE id_avaliacao = ?`).run(id);
 
   const ref = det ? (det.numero_ccu || det.id_contrato) : id;
-  registrarLog(req, 'DEPOP', 'CANCELOU_VALIDACAO', `Cancelou assinatura do contrato CCU ${ref}: ${just.slice(0, 160)}${alerta ? ' [ATENÇÃO: comunicado já havia sido gerado]' : ''}`);
+  registrarLog(req, 'SECAD', 'CANCELOU_VALIDACAO', `Cancelou assinatura do contrato CCU ${ref}: ${just.slice(0, 160)}${alerta ? ' [ATENÇÃO: comunicado já havia sido gerado]' : ''}`);
   res.json({ ok: true, comunicado_alerta: alerta });
 });
 
 // Exportação em massa (supervisor): devolve os detalhes de todos os contratos do
 // filtro para o front montar um PDF único (impressão do navegador).
-app.get('/api/depop/exportar', (req, res) => {
+app.get('/api/secad/exportar', (req, res) => {
   if (perfilFerramenta(req) !== 'master') return res.status(403).json({ error: 'Exportação em massa restrita ao supervisor.' });
   const { status, cidade } = req.query;
   const avals = depopDb.prepare(`
@@ -1705,7 +1984,7 @@ app.get('/api/depop/exportar', (req, res) => {
     return true;
   }).map(a => a.id);
   const detalhes = ids.map(id => montarDetalhe(id)).filter(Boolean);
-  registrarLog(req, 'DEPOP', 'EXPORTOU', `Exportou ${detalhes.length} contrato(s) em PDF`);
+  registrarLog(req, 'SECAD', 'EXPORTOU', `Exportou ${detalhes.length} contrato(s) em PDF`);
   res.json({ detalhes });
 });
 
@@ -1713,7 +1992,7 @@ app.get('/api/depop/exportar', (req, res) => {
 // Notifica cada concessionário elegível da prorrogação antecipada, com as
 // credenciais de acesso à plataforma de adesão. Um comunicado por CONTRATO
 // (login/senha se repetem entre contratos do mesmo concessionário; CCU, área e
-// vencimento são de cada contrato). Perfil por capacidade: requireCap('comunicados').
+// vencimento são de cada contrato). Guarda por permissão: requireRotina('comunicados', flag).
 
 // Prazo final de adesão pela regra do TCC/edital, pelo ano de vencimento. Fora do
 // intervalo previsto (2027–2032) → não gera (retorna null; o chamador bloqueia).
@@ -1777,7 +2056,7 @@ function montarComunicado(idAvaliacao) {
 
 // Lista para a tela: todos os contratos com elegibilidade + contador de gerações
 // e status de entrega. O front agrupa por cidade → concessionário.
-app.get('/api/depop/comunicados/lista', requireCap('comunicados'), (req, res) => {
+app.get('/api/secad/comunicados/lista', requireRotina('comunicados', 'ver'), (req, res) => {
   const removidos = new Set(codigosRemovidos());
   const avals = depopDb.prepare(`
     SELECT a.id, a.codigo, a.numero_ccu, a.data_vencimento, a.endereco AS area,
@@ -1821,7 +2100,7 @@ app.get('/api/depop/comunicados/lista', requireCap('comunicados'), (req, res) =>
     };
   });
   const cidades = [...new Set(contratos.map(c => c.cidade))].sort();
-  res.json({ caps: depopCaps(req), url_definida: paramSistema('url_plataforma_acesso', 'A DEFINIR') !== 'A DEFINIR',
+  res.json({ caps: secadCaps(req), url_definida: paramSistema('url_plataforma_acesso', 'A DEFINIR') !== 'A DEFINIR',
              contratos, cidades });
 });
 
@@ -1829,7 +2108,7 @@ app.get('/api/depop/comunicados/lista', requireCap('comunicados'), (req, res) =>
 // seleção múltipla), monta os comunicados elegíveis e registra a geração
 // (incrementa o contador). Contratos fora do intervalo/sem credencial voltam em
 // `pulados` (nunca falha em silêncio).
-app.post('/api/depop/comunicados/gerar', requireCap('comunicados'), (req, res) => {
+app.post('/api/secad/comunicados/gerar', requireRotina('comunicados', 'incluir'), (req, res) => {
   const { cidade, codigo, codigos } = req.query;
   const removidos = new Set(codigosRemovidos());
   let rows;
@@ -1883,32 +2162,32 @@ app.post('/api/depop/comunicados/gerar', requireCap('comunicados'), (req, res) =
   for (const c of comunicados) up.run(c.id, iso, iso, req.user.user_id);
 
   if (novos.length) {
-    registrarLog(req, 'DEPOP', 'COMUNICADO_GEROU',
+    registrarLog(req, 'SECAD', 'COMUNICADO_GEROU',
       `Gerou ${novos.length} comunicado(s) (1ª via)${pulados.length ? ` — ${pulados.length} pulado(s)` : ''}`);
   }
   if (regerados.length) {
-    registrarLog(req, 'DEPOP', 'COMUNICADO_REGEROU',
+    registrarLog(req, 'SECAD', 'COMUNICADO_REGEROU',
       `Regerou ${regerados.length} comunicado(s) (2ª via+): CCU ${regerados.map(c => c.numero_ccu).filter(Boolean).join(', ').slice(0, 200)}`);
   }
   res.json({ comunicados, pulados, novos: novos.length, regerados: regerados.length });
 });
 
 // Controle de entrega (manual, separado da geração). Só marca quem já foi gerado.
-app.post('/api/depop/comunicados/:id/enviado', requireCap('comunicados'), (req, res) => {
+app.post('/api/secad/comunicados/:id/enviado', requireRotina('comunicados', 'alterar'), (req, res) => {
   const id = parseInt(req.params.id, 10);
   const enviado = !!(req.body && req.body.enviado);
   const row = db.prepare(`SELECT geracoes FROM comunicado_gerado WHERE id_avaliacao = ?`).get(id);
   if (!row || !row.geracoes) return res.status(400).json({ error: 'Gere o comunicado antes de marcar a entrega.' });
   const iso = enviado ? new Date().toISOString() : null;
   db.prepare(`UPDATE comunicado_gerado SET enviado = ?, dt_envio = ? WHERE id_avaliacao = ?`).run(enviado ? 1 : 0, iso, id);
-  registrarLog(req, 'DEPOP', 'COMUNICADO_ENTREGA', `Comunicado ${id} marcado como ${enviado ? 'enviado' : 'não enviado'}`);
+  registrarLog(req, 'SECAD', 'COMUNICADO_ENTREGA', `Comunicado ${id} marcado como ${enviado ? 'enviado' : 'não enviado'}`);
   res.json({ ok: true, enviado, dt_envio: iso });
 });
 
 // Cancelar a entrega (só supervisor/master): desfaz a entrega finalizada,
 // removendo os comprovantes e liberando o comunicado para gerar/imprimir de novo.
 // Igual ao cancelar assinatura — exige a senha de login do master e um motivo.
-app.post('/api/depop/comunicados/:id/cancelar-entrega', requireCap('comunicados'), (req, res) => {
+app.post('/api/secad/comunicados/:id/cancelar-entrega', requireRotina('comunicados', 'alterar'), (req, res) => {
   if (perfilFerramenta(req) !== 'master') return res.status(403).json({ error: 'Apenas o supervisor pode cancelar a entrega.' });
   const id = parseInt(req.params.id, 10);
   const { senha, motivo } = req.body || {};
@@ -1927,14 +2206,14 @@ app.post('/api/depop/comunicados/:id/cancelar-entrega', requireCap('comunicados'
   const nCompr = anexosDb.prepare(`SELECT COUNT(*) c FROM comprovante_entrega WHERE id_avaliacao = ?`).get(id).c;
   anexosDb.prepare(`DELETE FROM comprovante_entrega WHERE id_avaliacao = ?`).run(id);
   db.prepare(`UPDATE comunicado_gerado SET enviado = 0, dt_envio = NULL WHERE id_avaliacao = ?`).run(id);
-  registrarLog(req, 'DEPOP', 'ENTREGA_CANCELOU', `Cancelou a entrega do comunicado do contrato ${id} (removeu ${nCompr} comprovante(s)): ${just.slice(0, 160)}`);
+  registrarLog(req, 'SECAD', 'ENTREGA_CANCELOU', `Cancelou a entrega do comunicado do contrato ${id} (removeu ${nCompr} comprovante(s)): ${just.slice(0, 160)}`);
   res.json({ ok: true });
 });
 
 // Dados de UM comunicado (para reimprimir o comunicado ou o protocolo de entrega
 // de um contrato específico, fora do fluxo de geração em massa). Devolve o mesmo
 // objeto de montarComunicado (ok:false + motivo quando não é gerável).
-app.get('/api/depop/comunicados/:id/dados', requireCap('comunicados'), (req, res) => {
+app.get('/api/secad/comunicados/:id/dados', requireRotina('comunicados', 'ver'), (req, res) => {
   const id = parseInt(req.params.id, 10);
   res.json(montarComunicado(id));
 });
@@ -1946,8 +2225,8 @@ app.get('/api/depop/comunicados/:id/dados', requireCap('comunicados'), (req, res
 const COMPROVANTE_MIMES = ['image/jpeg', 'image/png', 'application/pdf'];
 const COMPROVANTE_MAX = 10 * 1024 * 1024; // 10 MB por anexo (pós-compressão no cliente)
 
-app.post('/api/depop/comunicados/:id/comprovante',
-  requireCap('comunicados'),
+app.post('/api/secad/comunicados/:id/comprovante',
+  requireRotina('comunicados', 'incluir'),
   express.raw({ type: '*/*', limit: '12mb' }),
   (req, res) => {
     const id = parseInt(req.params.id, 10);
@@ -1975,13 +2254,13 @@ app.post('/api/depop/comunicados/:id/comprovante',
     // Anexar prova = entregue.
     const iso = new Date().toISOString();
     db.prepare(`UPDATE comunicado_gerado SET enviado = 1, dt_envio = ? WHERE id_avaliacao = ?`).run(iso, id);
-    registrarLog(req, 'DEPOP', 'COMPROVANTE_ANEXOU', `Anexou comprovante de entrega ao comunicado do contrato ${id} (${nome})`);
+    registrarLog(req, 'SECAD', 'COMPROVANTE_ANEXOU', `Anexou comprovante de entrega ao comunicado do contrato ${id} (${nome})`);
     res.json({ ok: true });
   }
 );
 
 // Lista os comprovantes de um contrato (metadados, sem o BLOB).
-app.get('/api/depop/comunicados/:id/comprovantes', requireCap('comunicados'), (req, res) => {
+app.get('/api/secad/comunicados/:id/comprovantes', requireRotina('comunicados', 'ver'), (req, res) => {
   const id = parseInt(req.params.id, 10);
   const rows = anexosDb.prepare(`
     SELECT id, nome_arquivo, mime, tamanho, enviado_por_nome, criado_em
@@ -1990,7 +2269,7 @@ app.get('/api/depop/comunicados/:id/comprovantes', requireCap('comunicados'), (r
 });
 
 // Baixa/visualiza um comprovante (o BLOB). GET → consulta também pode ver.
-app.get('/api/depop/comprovante/:cid', requireCap('comunicados'), (req, res) => {
+app.get('/api/secad/comprovante/:cid', requireRotina('comunicados', 'ver'), (req, res) => {
   const cid = parseInt(req.params.cid, 10);
   const row = anexosDb.prepare(`SELECT nome_arquivo, mime, conteudo FROM comprovante_entrega WHERE id = ?`).get(cid);
   if (!row) return res.status(404).json({ error: 'Comprovante não encontrado.' });
@@ -2001,7 +2280,7 @@ app.get('/api/depop/comprovante/:cid', requireCap('comunicados'), (req, res) => 
 
 // Remove um comprovante. Se sobrar nenhum no contrato, desmarca a entrega.
 // Entrega finalizada (enviado=1) só o master mexe — o comum usa o supervisor.
-app.delete('/api/depop/comprovante/:cid', requireCap('comunicados'), (req, res) => {
+app.delete('/api/secad/comprovante/:cid', requireRotina('comunicados', 'alterar'), (req, res) => {
   const cid = parseInt(req.params.cid, 10);
   const row = anexosDb.prepare(`SELECT id_avaliacao, nome_arquivo FROM comprovante_entrega WHERE id = ?`).get(cid);
   if (!row) return res.status(404).json({ error: 'Comprovante não encontrado.' });
@@ -2011,18 +2290,18 @@ app.delete('/api/depop/comprovante/:cid', requireCap('comunicados'), (req, res) 
   anexosDb.prepare(`DELETE FROM comprovante_entrega WHERE id = ?`).run(cid);
   const restantes = anexosDb.prepare(`SELECT COUNT(*) c FROM comprovante_entrega WHERE id_avaliacao = ?`).get(row.id_avaliacao).c;
   if (restantes === 0) db.prepare(`UPDATE comunicado_gerado SET enviado = 0, dt_envio = NULL WHERE id_avaliacao = ?`).run(row.id_avaliacao);
-  registrarLog(req, 'DEPOP', 'COMPROVANTE_REMOVEU', `Removeu comprovante do contrato ${row.id_avaliacao} (${row.nome_arquivo || ''})`);
+  registrarLog(req, 'SECAD', 'COMPROVANTE_REMOVEU', `Removeu comprovante do contrato ${row.id_avaliacao} (${row.nome_arquivo || ''})`);
   res.json({ ok: true, entregue: restantes > 0 });
 });
 
 // Parâmetros do sistema (parametro_sistema) — leitura/edição só do master.
-app.get('/api/depop/parametros', (req, res) => {
+app.get('/api/secad/parametros', (req, res) => {
   if (req.user.username !== 'master') return res.status(403).json({ error: 'Restrito ao master.' });
   const p = {};
   db.prepare(`SELECT chave, valor FROM parametro_sistema`).all().forEach(r => { p[r.chave] = r.valor; });
   res.json(p);
 });
-app.put('/api/depop/parametros', (req, res) => {
+app.put('/api/secad/parametros', (req, res) => {
   if (req.user.username !== 'master') return res.status(403).json({ error: 'Restrito ao master.' });
   const entries = Object.entries(req.body || {});
   if (!entries.length) return res.status(400).json({ error: 'Nada para salvar.' });
