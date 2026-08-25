@@ -176,8 +176,13 @@ app.use('/api/admin', requireAdminAny);
 // módulos passam livres — a trava só barra quem tenta usar dados do SECOP com
 // outro módulo ativo (ex.: master dentro do SECAD). Enforcement no servidor,
 // além do redirecionamento no auth.js. `req.path` aqui é relativo ao mount /api.
+// tipos-contratacao/tipos-extra ficam DE FORA de propósito: são catálogos de
+// configuração geridos pelo admin.html (transversal, não tem data-modulo) — se
+// entrassem aqui, quem estivesse com outro módulo ativo (ex.: master no PAC)
+// tomaria 403 ao abrir essas abas do admin, mesmo sem nenhuma relação com dado
+// de processo do SECOP.
 const SECOP_PREFIXOS = ['/processos', '/fornecedores', '/itens', '/precos', '/dashboard',
-  '/status', '/tipos-contratacao', '/tipos-extra', '/autocomplete', '/dicionario-pt', '/setores'];
+  '/status', '/autocomplete', '/dicionario-pt', '/setores'];
 app.use('/api', (req, res, next) => {
   if (!req.user) return next(); // /auth/* não tem req.user — segue pro handler próprio
   const ehSecop = SECOP_PREFIXOS.some(p => req.path === p || req.path.startsWith(p + '/'));
