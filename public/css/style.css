@@ -358,6 +358,25 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 .badge-parado   { background: #fee2e2; color: #991b1b; }
 .badge-cancelado{ background: #e5e7eb; color: #4b5563; }
 
+/* PAC: status do DFD (Documento de Formalização de Demanda) */
+.badge-aberto  { background: #dbeafe; color: #1e40af; }
+.badge-analise { background: #fef9c3; color: #854d0e; }
+.badge-fechado { background: #e5e7eb; color: #4b5563; }
+[data-theme="dark"] .badge-aberto  { background: rgba(37,99,235,.2); color: #93c5fd; }
+[data-theme="dark"] .badge-analise { background: rgba(202,138,4,.22); color: #fde047; }
+[data-theme="dark"] .badge-fechado { background: rgba(100,116,139,.25); color: #cbd5e1; }
+
+/* ── PAC: tabela de itens do DFD (colunas configuráveis, potencialmente muitas) ─
+   1ª e 2ª colunas fixas (Nº / Descrição) durante o scroll horizontal; grupos de
+   colunas (data-grupo="A"/"B"/"C") colapsáveis via classe .colapsado. */
+.dfd-table-wrap { overflow-x: auto; position: relative; }
+.dfd-table { border-collapse: separate; border-spacing: 0; }
+.dfd-table th, .dfd-table td { white-space: nowrap; }
+.dfd-table th[data-grupo].colapsado, .dfd-table td[data-grupo].colapsado { display: none; }
+.dfd-table th.dfd-col-fixa-1, .dfd-table td.dfd-col-fixa-1 { position: sticky; left: 0; z-index: 2; background: var(--surface); min-width: 56px; }
+.dfd-table th.dfd-col-fixa-2, .dfd-table td.dfd-col-fixa-2 { position: sticky; left: 56px; z-index: 2; background: var(--surface); min-width: 220px; white-space: normal; box-shadow: 2px 0 4px rgba(0,0,0,.06); }
+.dfd-table thead th.dfd-col-fixa-1, .dfd-table thead th.dfd-col-fixa-2 { z-index: 3; background: var(--surface-2); }
+
 /* ── Abas da listagem de processos ────────────────────── */
 .page-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
 .page-tab {
@@ -914,6 +933,17 @@ textarea:focus::placeholder { color: transparent; }
   .main { margin-left: 0; padding: 20px 16px; }
   .cards-grid { grid-template-columns: 1fr 1fr; }
   .form-row.cols-3, .form-row.cols-4 { grid-template-columns: 1fr 1fr; }
+
+  /* PAC: tabela de itens do DFD vira cartões — sem 2º renderer em JS, só CSS.
+     Cada <td> já carrega data-label (o rótulo da coluna) na hora de montar o
+     HTML; ::before o exibe como rótulo do campo dentro do cartão. */
+  .dfd-table-wrap { overflow-x: visible; }
+  .dfd-table thead { display: none; }
+  .dfd-table, .dfd-table tbody, .dfd-table tr, .dfd-table td { display: block; width: 100%; }
+  .dfd-table tr { border: 1px solid var(--cinza-b); border-radius: 8px; margin-bottom: 12px; padding: 8px 12px; }
+  .dfd-table td { position: static; white-space: normal; border: none; padding: 6px 0; min-width: 0; box-shadow: none; }
+  .dfd-table td::before { content: attr(data-label); display: block; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--text-subtle); margin-bottom: 2px; }
+  .dfd-table td[data-grupo].colapsado { display: none; }
 }
 
 /* ── Impressão ────────────────────────────────────────── */

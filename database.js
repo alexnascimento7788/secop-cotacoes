@@ -637,6 +637,185 @@ function setupDb() {
     );
   `);
 
+  // ── PAC/DEPLA: DFD (Documento de Formalização de Demanda) ────────────────────
+  // Cada setor lança itens de demanda dentro de um DFD criado pelo DEPLA. Colunas
+  // do DFD são configuráveis por documento (dfd_colunas_ativas escolhe, de um
+  // catálogo fixo, quais aparecem e em que ordem) — os valores ficam num modelo
+  // chave/valor (dfd_itens_valores) pra suportar isso sem coluna nova por campo.
+  // `lista` em dfd_colunas_catalogo casa por STRING com dfd_parametros_lista.lista
+  // (mesmo padrão de tipos_extra.unidade — casar por chave, não por FK id).
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS setores (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome      TEXT    NOT NULL UNIQUE,
+      sigla     TEXT,
+      ativo     INTEGER NOT NULL DEFAULT 1,
+      ordem     INTEGER NOT NULL DEFAULT 0,
+      criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS setor_usuarios (
+      id       INTEGER PRIMARY KEY AUTOINCREMENT,
+      setor_id INTEGER NOT NULL,
+      user_id  INTEGER NOT NULL,
+      UNIQUE (setor_id, user_id),
+      FOREIGN KEY (setor_id) REFERENCES setores(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS dfd_parametros_lista (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      lista     TEXT    NOT NULL,
+      valor     TEXT    NOT NULL,
+      ordem     INTEGER NOT NULL DEFAULT 0,
+      ativo     INTEGER NOT NULL DEFAULT 1,
+      criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (lista, valor)
+    );
+
+    CREATE TABLE IF NOT EXISTS dfd_colunas_catalogo (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      slug         TEXT    NOT NULL UNIQUE,
+      label        TEXT    NOT NULL,
+      grupo        TEXT    NOT NULL,
+      tipo_input   TEXT    NOT NULL,
+      lista        TEXT,
+      obrigatoria  INTEGER NOT NULL DEFAULT 0,
+      ordem_padrao INTEGER NOT NULL DEFAULT 0,
+      ativa        INTEGER NOT NULL DEFAULT 1
+    );
+
+    CREATE TABLE IF NOT EXISTS dfds (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      ano_base      INTEGER NOT NULL,
+      titulo        TEXT    NOT NULL,
+      descricao     TEXT,
+      status        TEXT    NOT NULL DEFAULT 'aberto',
+      criado_por    INTEGER REFERENCES users(id),
+      criado_em     DATETIME DEFAULT CURRENT_TIMESTAMP,
+      atualizado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS dfd_setores (
+      id       INTEGER PRIMARY KEY AUTOINCREMENT,
+      dfd_id   INTEGER NOT NULL,
+      setor_id INTEGER NOT NULL,
+      UNIQUE (dfd_id, setor_id),
+      FOREIGN KEY (dfd_id) REFERENCES dfds(id) ON DELETE CASCADE,
+      FOREIGN KEY (setor_id) REFERENCES setores(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS dfd_colunas_ativas (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      dfd_id    INTEGER NOT NULL,
+      coluna_id INTEGER NOT NULL,
+      ordem     INTEGER NOT NULL DEFAULT 0,
+      UNIQUE (dfd_id, coluna_id),
+      FOREIGN KEY (dfd_id) REFERENCES dfds(id) ON DELETE CASCADE,
+      FOREIGN KEY (coluna_id) REFERENCES dfd_colunas_catalogo(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS dfd_itens (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      dfd_id        INTEGER NOT NULL,
+      setor_id      INTEGER NOT NULL,
+      numero_item   INTEGER NOT NULL,
+      criado_por    INTEGER REFERENCES users(id),
+      criado_em     DATETIME DEFAULT CURRENT_TIMESTAMP,
+      atualizado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+      excluido_em   DATETIME,
+      FOREIGN KEY (dfd_id) REFERENCES dfds(id) ON DELETE CASCADE,
+      FOREIGN KEY (setor_id) REFERENCES setores(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS dfd_itens_valores (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      item_id   INTEGER NOT NULL,
+      coluna_id INTEGER NOT NULL,
+      valor     TEXT,
+      UNIQUE (item_id, coluna_id),
+      FOREIGN KEY (item_id) REFERENCES dfd_itens(id) ON DELETE CASCADE,
+      FOREIGN KEY (coluna_id) REFERENCES dfd_colunas_catalogo(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS dfd_pedidos_edicao (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      dfd_id         INTEGER NOT NULL,
+      item_id        INTEGER,
+      setor_id       INTEGER NOT NULL,
+      solicitante_id INTEGER REFERENCES users(id),
+      tipo           TEXT    NOT NULL,
+      justificativa  TEXT,
+      status         TEXT    NOT NULL DEFAULT 'pendente',
+      respondido_por INTEGER REFERENCES users(id),
+      resposta       TEXT,
+      criado_em      DATETIME DEFAULT CURRENT_TIMESTAMP,
+      respondido_em  DATETIME,
+      consumido_em   DATETIME,
+      FOREIGN KEY (dfd_id) REFERENCES dfds(id) ON DELETE CASCADE,
+      FOREIGN KEY (item_id) REFERENCES dfd_itens(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_dfd_itens_valores_item ON dfd_itens_valores(item_id);
+    CREATE INDEX IF NOT EXISTS idx_dfd_itens_dfd_setor ON dfd_itens(dfd_id, setor_id);
+  `);
+
+  // Seed dos setores participantes do PAC (nomes exatamente como fornecidos)
+  [
+    'Depop', 'Dereh', 'Detin', 'Depla', 'Depad', 'Audin', 'Defin', 'Deuni',
+    'Detec', 'Dejur', 'Secom', 'Ouvidoria', 'Conger', 'Deinfra', 'Gabin',
+    'Dirfin', 'Dirtec', 'Presi', 'Gerência Uberlândia', 'Gerência Caratinga',
+    'Gerência Gov. Valadares', 'Gerência Barbacena', 'Gerência Juiz de Fora',
+  ].forEach((nome, i) => {
+    try { _db.prepare(`INSERT INTO setores (nome, ordem) VALUES (?, ?)`).run(nome, i + 1); } catch {}
+  });
+
+  // Seed das listas de parâmetro usadas como dropdown nas colunas do DFD
+  {
+    const seedLista = (lista, valores) => {
+      valores.forEach((valor, i) => {
+        try { _db.prepare(`INSERT INTO dfd_parametros_lista (lista, valor, ordem) VALUES (?, ?, ?)`).run(lista, valor, i + 1); } catch {}
+      });
+    };
+    seedLista('tipo', ['Material', 'Serviço', 'Imobilizado']);
+    seedLista('subitem', ['Permanente', 'Consumo', 'Continuado', 'Não Continuado', 'Obras']);
+    seedLista('prioridade', ['Alta', 'Média', 'Baixa']);
+    seedLista('fonte_pagadora', ['TU', 'RDC', 'MLP']);
+    seedLista('unidade_medida', ['Unidade', 'Mês', 'Anual', 'M²', 'Litros', 'KG', 'Serviço']);
+    seedLista('sim_nao', ['Sim', 'Não']);
+  }
+
+  // Seed do catálogo fixo de colunas do DFD (17 colunas, 3 grupos visuais).
+  // "numero_item" é tipo_input 'auto' — não gera linha em dfd_itens_valores,
+  // o frontend lê direto de dfd_itens.numero_item (é sempre a 1ª coluna, sticky).
+  {
+    const seedColuna = (slug, label, grupo, tipo_input, lista, obrigatoria, ordem_padrao) => {
+      try {
+        _db.prepare(`
+          INSERT INTO dfd_colunas_catalogo (slug, label, grupo, tipo_input, lista, obrigatoria, ordem_padrao)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(slug, label, grupo, tipo_input, lista || null, obrigatoria ? 1 : 0, ordem_padrao);
+      } catch {}
+    };
+    seedColuna('numero_item',      'Nº',                       'A', 'auto',     null,             0, 1);
+    seedColuna('tipo',             'Tipo',                     'A', 'select',   'tipo',           0, 2);
+    seedColuna('subitem',          'Subitem',                  'A', 'select',   'subitem',        0, 3);
+    seedColuna('encaminhar_para',  'Encaminhar para',          'A', 'texto',    null,             0, 4);
+    seedColuna('descricao_objeto', 'Descrição do Objeto',      'A', 'textarea', null,             1, 5);
+    seedColuna('unidade_medida',   'Unidade',                  'A', 'select',   'unidade_medida', 0, 6);
+    seedColuna('quantidade',       'Qtd',                      'A', 'numero',   null,             0, 7);
+    seedColuna('valor_estimado',   'Valor Est. Anual (R$)',    'A', 'moeda',    null,             0, 8);
+    seedColuna('justificativa',    'Justificativa',            'A', 'textarea', null,             0, 9);
+    seedColuna('prioridade',       'Prioridade',                'A', 'select',   'prioridade',     0, 10);
+    seedColuna('data_desejada',    'Data Desejada',            'A', 'data',     null,             0, 11);
+    seedColuna('dependencia',      'Dependência?',             'A', 'select',   'sim_nao',        0, 12);
+    seedColuna('fonte_pagadora',   'Fonte Pagadora',           'A', 'select',   'fonte_pagadora', 0, 13);
+    seedColuna('possui_contrato',  'Possui Contrato?',         'B', 'select',   'sim_nao',        0, 14);
+    seedColuna('numero_contrato',  'Nº Contrato',              'C', 'texto',    null,             0, 15);
+    seedColuna('razao_social',     'Razão Social',             'C', 'texto',    null,             0, 16);
+    seedColuna('data_vencimento',  'Vencimento',                'C', 'data',     null,             0, 17);
+  }
+
   _db.exec(`
     CREATE TABLE IF NOT EXISTS logs (
       id        INTEGER PRIMARY KEY AUTOINCREMENT,

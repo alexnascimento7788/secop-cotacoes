@@ -2339,6 +2339,458 @@ app.put('/api/secad/parametros', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── PAC/DEPLA: DFD (Documento de Formalização de Demanda) ─────────────────────
+// Setores lançam itens de demanda dentro de um DFD administrado pelo DEPLA
+// (rotina 'pac-gestao'); o gestor de cada setor lança pelos seus itens (rotina
+// 'pac-lancamento'). Setor do usuário não é resolvido no requireAuth (seria
+// permissão cacheada demais pra algo que muda pouco) — consulta ao vivo aqui.
+
+app.use('/api/pac', requireModulo('pac'));
+
+function setoresDoUsuario(userId) {
+  return db.prepare(`SELECT setor_id FROM setor_usuarios WHERE user_id = ?`).all(userId).map(r => r.setor_id);
+}
+
+// DEPLA (perfil com 'ver' em pac-gestao) enxerga o DFD inteiro (todos os
+// setores lado a lado); gestor de setor só o próprio recorte — usado pra
+// decidir o filtro nas listagens de DFDs/itens/pedidos.
+function temPacGestao(req) {
+  if (req.user.username === 'master' || req.user.role === 'consulta') return true;
+  if (!req.user.perfil_id) return false;
+  const row = db.prepare(`
+    SELECT pr.ver AS v FROM perfil_rotinas pr JOIN rotinas r ON r.id = pr.rotina_id
+    WHERE pr.perfil_id = ? AND r.slug = 'pac-gestao'
+  `).get(req.user.perfil_id);
+  return !!(row && row.v);
+}
+
+// Como requireRotina, mas aceita a flag em QUALQUER UMA das duas rotinas do
+// PAC — usado nas rotas de DFD que tanto o DEPLA quanto o gestor de setor
+// precisam alcançar (listar/abrir um DFD, ver colunas do catálogo).
+function requireRotinaPac(flag) {
+  if (!ROTINA_FLAGS_VALIDAS.has(flag)) throw new Error(`requireRotinaPac: flag inválida "${flag}"`);
+  return (req, res, next) => {
+    if (req.user.username === 'master' || req.user.role === 'consulta') return next();
+    if (!req.user.perfil_id) return res.status(403).json({ error: 'Você não tem um perfil de acesso definido neste módulo. Procure o administrador.' });
+    const row = db.prepare(`
+      SELECT MAX(pr.${flag}) AS permitido
+      FROM perfil_rotinas pr JOIN rotinas r ON r.id = pr.rotina_id
+      WHERE pr.perfil_id = ? AND r.slug IN ('pac-gestao', 'pac-lancamento')
+    `).get(req.user.perfil_id);
+    if (!row || !row.permitido) return res.status(403).json({ error: 'Você não tem essa permissão.' });
+    next();
+  };
+}
+
+// Escrita em itens só com o DFD "aberto". "Fechado" nunca aceita escrita. Em
+// "análise", só passa se houver um pedido de edição APROVADO e ainda não
+// CONSUMIDO pra aquele item+tipo (opts) — usado só no PUT/DELETE de item, não
+// na criação (não existe "pedido de inclusão"). Ao passar por um pedido,
+// marca req.pedidoConsumir pro handler consumir (uso único) na mesma operação.
+function requireDfdEditavel(resolveDfdId, opts = {}) {
+  return (req, res, next) => {
+    const dfd = db.prepare(`SELECT id, status FROM dfds WHERE id = ?`).get(resolveDfdId(req));
+    if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
+    // master nunca fica bloqueado por status — pode intervir em qualquer situação.
+    if (req.user.username === 'master') { req.dfd = dfd; return next(); }
+    if (dfd.status === 'aberto') { req.dfd = dfd; return next(); }
+    if (dfd.status === 'fechado') return res.status(409).json({ error: 'Este DFD está fechado — somente leitura.' });
+    if (opts.resolveItemId) {
+      const pedido = db.prepare(`
+        SELECT id FROM dfd_pedidos_edicao
+        WHERE item_id = ? AND tipo = ? AND status = 'aprovado' AND consumido_em IS NULL
+        ORDER BY id DESC LIMIT 1
+      `).get(opts.resolveItemId(req), opts.tipo);
+      if (pedido) { req.dfd = dfd; req.pedidoConsumir = pedido.id; return next(); }
+    }
+    return res.status(409).json({ error: 'DFD em análise — solicite um pedido de edição.', pedeEdicao: true });
+  };
+}
+
+// Setor(es) do usuário logado — o frontend de Lançamento usa isso pra saber em
+// nome de qual setor lançar um item novo. Master não pertence a setor nenhum
+// de verdade, mas precisa poder agir em qualquer um (mesmo bypass de sempre).
+app.get('/api/pac/meus-setores', requireRotinaPac('ver'), (req, res) => {
+  if (req.user.username === 'master') {
+    return res.json(db.prepare(`SELECT id, nome FROM setores WHERE ativo = 1 ORDER BY ordem`).all());
+  }
+  const ids = setoresDoUsuario(req.user.user_id);
+  if (!ids.length) return res.json([]);
+  const ph = ids.map(() => '?').join(',');
+  res.json(db.prepare(`SELECT id, nome FROM setores WHERE id IN (${ph}) AND ativo = 1 ORDER BY ordem`).all(...ids));
+});
+
+// ── PAC: setores (cadastro do DEPLA) ──────────────────────────────────────────
+
+app.get('/api/pac/setores', requireRotina('pac-gestao', 'ver'), (req, res) => {
+  res.json(db.prepare(`SELECT id, nome, sigla, ativo, ordem FROM setores ORDER BY ordem`).all());
+});
+
+app.post('/api/pac/setores', requireRotina('pac-gestao', 'incluir'), (req, res) => {
+  const { nome, sigla, ordem } = req.body || {};
+  if (!nome) return res.status(400).json({ error: 'Nome é obrigatório' });
+  try {
+    const info = db.prepare(`INSERT INTO setores (nome, sigla, ordem) VALUES (?, ?, ?)`)
+      .run(String(nome).trim(), sigla ? String(sigla).trim() : null, ordem || 0);
+    registrarLog(req, 'PAC', 'CRIOU_SETOR', `Criou o setor "${nome}"`);
+    res.status(201).json({ id: info.lastInsertRowid });
+  } catch {
+    res.status(400).json({ error: 'Já existe um setor com esse nome' });
+  }
+});
+
+app.put('/api/pac/setores/:id', requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const setor = db.prepare(`SELECT nome FROM setores WHERE id = ?`).get(req.params.id);
+  if (!setor) return res.status(404).json({ error: 'Setor não encontrado' });
+  const { nome, sigla, ordem } = req.body || {};
+  if (nome !== undefined) db.prepare(`UPDATE setores SET nome = ? WHERE id = ?`).run(String(nome).trim(), req.params.id);
+  if (sigla !== undefined) db.prepare(`UPDATE setores SET sigla = ? WHERE id = ?`).run(sigla ? String(sigla).trim() : null, req.params.id);
+  if (ordem !== undefined) db.prepare(`UPDATE setores SET ordem = ? WHERE id = ?`).run(ordem, req.params.id);
+  registrarLog(req, 'PAC', 'EDITOU_SETOR', `Editou o setor "${setor.nome}"`);
+  res.json({ ok: true });
+});
+
+app.patch('/api/pac/setores/:id/ativo', requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const setor = db.prepare(`SELECT nome FROM setores WHERE id = ?`).get(req.params.id);
+  if (!setor) return res.status(404).json({ error: 'Setor não encontrado' });
+  db.prepare(`UPDATE setores SET ativo = ? WHERE id = ?`).run(req.body?.ativo ? 1 : 0, req.params.id);
+  registrarLog(req, 'PAC', 'SETOR_ATIVO', `${req.body?.ativo ? 'Ativou' : 'Desativou'} o setor "${setor.nome}"`);
+  res.json({ ok: true });
+});
+
+app.get('/api/pac/setores/:id/usuarios', requireRotina('pac-gestao', 'ver'), (req, res) => {
+  res.json(db.prepare(`
+    SELECT u.id, u.username, u.nome_completo,
+           EXISTS(SELECT 1 FROM setor_usuarios su WHERE su.setor_id = ? AND su.user_id = u.id) AS vinculado
+    FROM users u WHERE u.username != 'master' AND u.ativo = 1 ORDER BY u.username
+  `).all(req.params.id));
+});
+
+app.put('/api/pac/setores/:id/usuarios', requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const { user_id, vinculado } = req.body || {};
+  if (vinculado) {
+    try { db.prepare(`INSERT INTO setor_usuarios (setor_id, user_id) VALUES (?, ?)`).run(req.params.id, user_id); } catch {}
+  } else {
+    db.prepare(`DELETE FROM setor_usuarios WHERE setor_id = ? AND user_id = ?`).run(req.params.id, user_id);
+  }
+  registrarLog(req, 'PAC', 'SETOR_USUARIO', `${vinculado ? 'Vinculou' : 'Desvinculou'} usuário #${user_id} ao setor #${req.params.id}`);
+  res.json({ ok: true });
+});
+
+// ── PAC: parâmetros (listas de dropdown das colunas do DFD) ───────────────────
+
+// Leitura liberada pra quem acessa QUALQUER rotina do PAC — o gestor de setor
+// (só pac-lancamento) precisa das listas pra preencher os <select> dos itens;
+// escrita continua exclusiva do DEPLA (pac-gestao), logo abaixo.
+app.get('/api/pac/parametros', requireRotinaPac('ver'), (req, res) => {
+  const { lista } = req.query;
+  const rows = lista
+    ? db.prepare(`SELECT id, lista, valor, ordem, ativo FROM dfd_parametros_lista WHERE lista = ? ORDER BY ordem`).all(lista)
+    : db.prepare(`SELECT id, lista, valor, ordem, ativo FROM dfd_parametros_lista ORDER BY lista, ordem`).all();
+  res.json(rows);
+});
+
+app.post('/api/pac/parametros', requireRotina('pac-gestao', 'incluir'), (req, res) => {
+  const { lista, valor, ordem } = req.body || {};
+  if (!lista || !valor) return res.status(400).json({ error: 'Lista e valor são obrigatórios' });
+  try {
+    const info = db.prepare(`INSERT INTO dfd_parametros_lista (lista, valor, ordem) VALUES (?, ?, ?)`)
+      .run(String(lista).trim(), String(valor).trim(), ordem || 0);
+    registrarLog(req, 'PAC', 'CRIOU_PARAMETRO', `Criou "${valor}" na lista "${lista}"`);
+    res.status(201).json({ id: info.lastInsertRowid });
+  } catch {
+    res.status(400).json({ error: 'Este valor já existe nessa lista' });
+  }
+});
+
+app.put('/api/pac/parametros/:id', requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const p = db.prepare(`SELECT valor FROM dfd_parametros_lista WHERE id = ?`).get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Não encontrado' });
+  const { valor, ordem, ativo } = req.body || {};
+  if (valor !== undefined) db.prepare(`UPDATE dfd_parametros_lista SET valor = ? WHERE id = ?`).run(String(valor).trim(), req.params.id);
+  if (ordem !== undefined) db.prepare(`UPDATE dfd_parametros_lista SET ordem = ? WHERE id = ?`).run(ordem, req.params.id);
+  if (ativo !== undefined) db.prepare(`UPDATE dfd_parametros_lista SET ativo = ? WHERE id = ?`).run(ativo ? 1 : 0, req.params.id);
+  registrarLog(req, 'PAC', 'EDITOU_PARAMETRO', `Editou "${p.valor}"`);
+  res.json({ ok: true });
+});
+
+app.delete('/api/pac/parametros/:id', requireRotina('pac-gestao', 'excluir'), (req, res) => {
+  const p = db.prepare(`SELECT valor FROM dfd_parametros_lista WHERE id = ?`).get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Não encontrado' });
+  try {
+    db.prepare(`DELETE FROM dfd_parametros_lista WHERE id = ?`).run(req.params.id);
+    registrarLog(req, 'PAC', 'EXCLUIU_PARAMETRO', `Excluiu "${p.valor}"`);
+    res.json({ ok: true });
+  } catch {
+    res.status(400).json({ error: 'Este valor está em uso.' });
+  }
+});
+
+// ── PAC: catálogo de colunas (fixo, só leitura) ───────────────────────────────
+
+app.get('/api/pac/colunas', requireRotinaPac('ver'), (req, res) => {
+  res.json(db.prepare(`
+    SELECT id, slug, label, grupo, tipo_input, lista, obrigatoria, ordem_padrao
+    FROM dfd_colunas_catalogo WHERE ativa = 1 ORDER BY ordem_padrao
+  `).all());
+});
+
+// ── PAC: DFDs ──────────────────────────────────────────────────────────────
+
+app.get('/api/pac/dfds', requireRotinaPac('ver'), (req, res) => {
+  let rows;
+  if (temPacGestao(req)) {
+    rows = db.prepare(`SELECT * FROM dfds ORDER BY ano_base DESC, id DESC`).all();
+  } else {
+    const meus = setoresDoUsuario(req.user.user_id);
+    if (!meus.length) return res.json([]);
+    const ph = meus.map(() => '?').join(',');
+    rows = db.prepare(`
+      SELECT DISTINCT d.* FROM dfds d JOIN dfd_setores ds ON ds.dfd_id = d.id
+      WHERE ds.setor_id IN (${ph}) ORDER BY d.ano_base DESC, d.id DESC
+    `).all(...meus);
+  }
+  res.json(rows);
+});
+
+app.post('/api/pac/dfds', requireRotina('pac-gestao', 'incluir'), (req, res) => {
+  const { ano_base, titulo, descricao } = req.body || {};
+  if (!ano_base || !titulo) return res.status(400).json({ error: 'Ano base e título são obrigatórios' });
+  const info = db.prepare(`INSERT INTO dfds (ano_base, titulo, descricao, criado_por) VALUES (?, ?, ?, ?)`)
+    .run(ano_base, String(titulo).trim(), descricao ? String(descricao).trim() : null, req.user.user_id);
+  const dfdId = info.lastInsertRowid;
+  // Colunas ativas começam todas pré-selecionadas (o DEPLA desativa quem não quer).
+  const colunas = db.prepare(`SELECT id, ordem_padrao FROM dfd_colunas_catalogo WHERE ativa = 1 ORDER BY ordem_padrao`).all();
+  const insColuna = db.prepare(`INSERT INTO dfd_colunas_ativas (dfd_id, coluna_id, ordem) VALUES (?, ?, ?)`);
+  colunas.forEach(c => insColuna.run(dfdId, c.id, c.ordem_padrao));
+  registrarLog(req, 'PAC', 'CRIOU_DFD', `Criou o DFD "${titulo}" (${ano_base})`);
+  res.status(201).json({ id: dfdId });
+});
+
+app.get('/api/pac/dfds/:id', requireRotinaPac('ver'), (req, res) => {
+  const dfd = db.prepare(`SELECT * FROM dfds WHERE id = ?`).get(req.params.id);
+  if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
+  const setoresParticipantes = db.prepare(`
+    SELECT s.id, s.nome FROM dfd_setores ds JOIN setores s ON s.id = ds.setor_id
+    WHERE ds.dfd_id = ? ORDER BY s.ordem
+  `).all(req.params.id);
+  const colunas = db.prepare(`
+    SELECT c.id, c.slug, c.label, c.grupo, c.tipo_input, c.lista, c.obrigatoria, dca.ordem
+    FROM dfd_colunas_ativas dca JOIN dfd_colunas_catalogo c ON c.id = dca.coluna_id
+    WHERE dca.dfd_id = ? ORDER BY dca.ordem
+  `).all(req.params.id);
+  res.json({ ...dfd, setores: setoresParticipantes, colunas });
+});
+
+app.put('/api/pac/dfds/:id', requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const dfd = db.prepare(`SELECT titulo FROM dfds WHERE id = ?`).get(req.params.id);
+  if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
+  const { ano_base, titulo, descricao } = req.body || {};
+  if (ano_base !== undefined) db.prepare(`UPDATE dfds SET ano_base = ? WHERE id = ?`).run(ano_base, req.params.id);
+  if (titulo !== undefined) db.prepare(`UPDATE dfds SET titulo = ? WHERE id = ?`).run(String(titulo).trim(), req.params.id);
+  if (descricao !== undefined) db.prepare(`UPDATE dfds SET descricao = ? WHERE id = ?`).run(descricao ? String(descricao).trim() : null, req.params.id);
+  db.prepare(`UPDATE dfds SET atualizado_em = datetime('now') WHERE id = ?`).run(req.params.id);
+  registrarLog(req, 'PAC', 'EDITOU_DFD', `Editou o DFD "${dfd.titulo}"`);
+  res.json({ ok: true });
+});
+
+const DFD_STATUS_VALIDOS = new Set(['aberto', 'analise', 'fechado']);
+app.patch('/api/pac/dfds/:id/status', requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const { status } = req.body || {};
+  if (!DFD_STATUS_VALIDOS.has(status)) return res.status(400).json({ error: 'Status inválido' });
+  const dfd = db.prepare(`SELECT titulo FROM dfds WHERE id = ?`).get(req.params.id);
+  if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
+  db.prepare(`UPDATE dfds SET status = ?, atualizado_em = datetime('now') WHERE id = ?`).run(status, req.params.id);
+  registrarLog(req, 'PAC', 'MUDOU_STATUS_DFD', `DFD "${dfd.titulo}" → ${status}`);
+  res.json({ ok: true });
+});
+
+app.get('/api/pac/dfds/:id/setores', requireRotina('pac-gestao', 'ver'), (req, res) => {
+  res.json(db.prepare(`
+    SELECT s.id, s.nome,
+           EXISTS(SELECT 1 FROM dfd_setores ds WHERE ds.dfd_id = ? AND ds.setor_id = s.id) AS ativo
+    FROM setores s WHERE s.ativo = 1 ORDER BY s.ordem
+  `).all(req.params.id));
+});
+
+app.put('/api/pac/dfds/:id/setores', requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const { setor_id, ativo } = req.body || {};
+  if (ativo) {
+    try { db.prepare(`INSERT INTO dfd_setores (dfd_id, setor_id) VALUES (?, ?)`).run(req.params.id, setor_id); } catch {}
+  } else {
+    db.prepare(`DELETE FROM dfd_setores WHERE dfd_id = ? AND setor_id = ?`).run(req.params.id, setor_id);
+  }
+  registrarLog(req, 'PAC', 'DFD_SETOR', `${ativo ? 'Incluiu' : 'Removeu'} setor #${setor_id} no DFD #${req.params.id}`);
+  res.json({ ok: true });
+});
+
+app.get('/api/pac/dfds/:id/colunas', requireRotina('pac-gestao', 'ver'), (req, res) => {
+  res.json(db.prepare(`
+    SELECT c.id, c.slug, c.label, c.grupo,
+           (dca.id IS NOT NULL) AS ativa, COALESCE(dca.ordem, c.ordem_padrao) AS ordem
+    FROM dfd_colunas_catalogo c LEFT JOIN dfd_colunas_ativas dca ON dca.dfd_id = ? AND dca.coluna_id = c.id
+    WHERE c.ativa = 1 ORDER BY c.ordem_padrao
+  `).all(req.params.id));
+});
+
+app.put('/api/pac/dfds/:id/colunas', requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const { coluna_id, ativa } = req.body || {};
+  if (ativa) {
+    const cat = db.prepare(`SELECT ordem_padrao FROM dfd_colunas_catalogo WHERE id = ?`).get(coluna_id);
+    try { db.prepare(`INSERT INTO dfd_colunas_ativas (dfd_id, coluna_id, ordem) VALUES (?, ?, ?)`).run(req.params.id, coluna_id, cat ? cat.ordem_padrao : 0); } catch {}
+  } else {
+    db.prepare(`DELETE FROM dfd_colunas_ativas WHERE dfd_id = ? AND coluna_id = ?`).run(req.params.id, coluna_id);
+  }
+  registrarLog(req, 'PAC', 'DFD_COLUNA', `${ativa ? 'Ativou' : 'Desativou'} coluna #${coluna_id} no DFD #${req.params.id}`);
+  res.json({ ok: true });
+});
+
+// ── PAC: itens do DFD ──────────────────────────────────────────────────────
+
+app.get('/api/pac/dfds/:id/itens', requireRotinaPac('ver'), (req, res) => {
+  const dfdId = req.params.id;
+  let itens;
+  if (temPacGestao(req)) {
+    itens = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL ORDER BY setor_id, numero_item`).all(dfdId);
+  } else {
+    const meus = setoresDoUsuario(req.user.user_id);
+    if (!meus.length) return res.json([]);
+    const ph = meus.map(() => '?').join(',');
+    itens = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND setor_id IN (${ph}) ORDER BY numero_item`).all(dfdId, ...meus);
+  }
+  const ids = itens.map(i => i.id);
+  const valoresPorItem = {};
+  if (ids.length) {
+    const ph = ids.map(() => '?').join(',');
+    db.prepare(`SELECT item_id, coluna_id, valor FROM dfd_itens_valores WHERE item_id IN (${ph})`).all(...ids)
+      .forEach(v => { (valoresPorItem[v.item_id] ??= {})[v.coluna_id] = v.valor; });
+  }
+  res.json(itens.map(i => ({ ...i, valores: valoresPorItem[i.id] || {} })));
+});
+
+app.post('/api/pac/dfds/:id/itens', requireRotina('pac-lancamento', 'incluir'), requireDfdEditavel(req => req.params.id), (req, res) => {
+  const dfdId = Number(req.params.id);
+  const { setor_id, valores } = req.body || {};
+  if (!setor_id) return res.status(400).json({ error: 'Setor é obrigatório' });
+  if (req.user.username !== 'master' && !setoresDoUsuario(req.user.user_id).includes(Number(setor_id))) {
+    return res.status(403).json({ error: 'Você não pertence a este setor.' });
+  }
+  const participa = db.prepare(`SELECT 1 FROM dfd_setores WHERE dfd_id = ? AND setor_id = ?`).get(dfdId, setor_id);
+  if (!participa) return res.status(400).json({ error: 'Este setor não participa deste DFD.' });
+
+  const max = db.prepare(`SELECT COALESCE(MAX(numero_item), 0) AS m FROM dfd_itens WHERE dfd_id = ? AND setor_id = ?`).get(dfdId, setor_id).m;
+  const info = db.prepare(`INSERT INTO dfd_itens (dfd_id, setor_id, numero_item, criado_por) VALUES (?, ?, ?, ?)`)
+    .run(dfdId, setor_id, max + 1, req.user.user_id);
+  const itemId = info.lastInsertRowid;
+
+  const colunasAtivas = new Set(db.prepare(`SELECT coluna_id FROM dfd_colunas_ativas WHERE dfd_id = ?`).all(dfdId).map(r => r.coluna_id));
+  const upsert = db.prepare(`INSERT INTO dfd_itens_valores (item_id, coluna_id, valor) VALUES (?, ?, ?)`);
+  Object.entries(valores || {}).forEach(([colunaId, valor]) => {
+    if (!colunasAtivas.has(Number(colunaId))) return;
+    upsert.run(itemId, Number(colunaId), valor == null ? null : String(valor));
+  });
+
+  registrarLog(req, 'PAC', 'CRIOU_ITEM', `Criou o item #${max + 1} no DFD #${dfdId} (setor ${setor_id})`);
+  res.status(201).json({ id: itemId, numero_item: max + 1 });
+});
+
+app.put('/api/pac/itens/:id',
+  requireRotina('pac-lancamento', 'alterar'),
+  (req, res, next) => {
+    const item = db.prepare(`SELECT id, dfd_id, setor_id FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
+    if (!item) return res.status(404).json({ error: 'Item não encontrado' });
+    req.item = item;
+    next();
+  },
+  (req, res, next) => requireDfdEditavel(() => req.item.dfd_id, { resolveItemId: () => req.item.id, tipo: 'editar' })(req, res, next),
+  (req, res) => {
+    const item = req.item;
+    if (req.user.username !== 'master' && !setoresDoUsuario(req.user.user_id).includes(item.setor_id)) {
+      return res.status(403).json({ error: 'Você não pertence ao setor deste item.' });
+    }
+    const colunasAtivas = new Set(db.prepare(`SELECT coluna_id FROM dfd_colunas_ativas WHERE dfd_id = ?`).all(item.dfd_id).map(r => r.coluna_id));
+    const upsert = db.prepare(`
+      INSERT INTO dfd_itens_valores (item_id, coluna_id, valor) VALUES (?, ?, ?)
+      ON CONFLICT(item_id, coluna_id) DO UPDATE SET valor = excluded.valor
+    `);
+    Object.entries(req.body?.valores || {}).forEach(([colunaId, valor]) => {
+      if (!colunasAtivas.has(Number(colunaId))) return;
+      upsert.run(item.id, Number(colunaId), valor == null ? null : String(valor));
+    });
+    db.prepare(`UPDATE dfd_itens SET atualizado_em = datetime('now') WHERE id = ?`).run(item.id);
+    if (req.pedidoConsumir) db.prepare(`UPDATE dfd_pedidos_edicao SET consumido_em = datetime('now') WHERE id = ?`).run(req.pedidoConsumir);
+    registrarLog(req, 'PAC', 'EDITOU_ITEM', `Editou o item #${item.id} do DFD #${item.dfd_id}`);
+    res.json({ ok: true });
+  }
+);
+
+app.delete('/api/pac/itens/:id',
+  requireRotina('pac-lancamento', 'excluir'),
+  (req, res, next) => {
+    const item = db.prepare(`SELECT id, dfd_id, setor_id FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
+    if (!item) return res.status(404).json({ error: 'Item não encontrado' });
+    req.item = item;
+    next();
+  },
+  (req, res, next) => requireDfdEditavel(() => req.item.dfd_id, { resolveItemId: () => req.item.id, tipo: 'excluir' })(req, res, next),
+  (req, res) => {
+    const item = req.item;
+    if (req.user.username !== 'master' && !setoresDoUsuario(req.user.user_id).includes(item.setor_id)) {
+      return res.status(403).json({ error: 'Você não pertence ao setor deste item.' });
+    }
+    db.prepare(`UPDATE dfd_itens SET excluido_em = datetime('now') WHERE id = ?`).run(item.id);
+    if (req.pedidoConsumir) db.prepare(`UPDATE dfd_pedidos_edicao SET consumido_em = datetime('now') WHERE id = ?`).run(req.pedidoConsumir);
+    registrarLog(req, 'PAC', 'EXCLUIU_ITEM', `Excluiu o item #${item.id} do DFD #${item.dfd_id}`);
+    res.json({ ok: true });
+  }
+);
+
+// ── PAC: pedidos de edição (DFD em análise) ───────────────────────────────────
+
+app.post('/api/pac/pedidos', requireRotina('pac-lancamento', 'incluir'), (req, res) => {
+  const { item_id, tipo, justificativa } = req.body || {};
+  if (!['editar', 'excluir'].includes(tipo)) return res.status(400).json({ error: 'Tipo inválido' });
+  const item = db.prepare(`SELECT dfd_id, setor_id FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(item_id);
+  if (!item) return res.status(404).json({ error: 'Item não encontrado' });
+  if (req.user.username !== 'master' && !setoresDoUsuario(req.user.user_id).includes(item.setor_id)) {
+    return res.status(403).json({ error: 'Você não pertence ao setor deste item.' });
+  }
+  const dfd = db.prepare(`SELECT status FROM dfds WHERE id = ?`).get(item.dfd_id);
+  if (!dfd || dfd.status !== 'analise') return res.status(409).json({ error: 'Só é possível abrir pedido com o DFD em análise.' });
+  const info = db.prepare(`
+    INSERT INTO dfd_pedidos_edicao (dfd_id, item_id, setor_id, solicitante_id, tipo, justificativa)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(item.dfd_id, item_id, item.setor_id, req.user.user_id, tipo, justificativa ? String(justificativa).trim() : null);
+  registrarLog(req, 'PAC', 'SOLICITOU_EDICAO', `Solicitou ${tipo} no item #${item_id} do DFD #${item.dfd_id}`);
+  res.status(201).json({ id: info.lastInsertRowid });
+});
+
+app.get('/api/pac/pedidos', requireRotinaPac('ver'), (req, res) => {
+  const { dfd_id } = req.query;
+  let rows;
+  if (temPacGestao(req)) {
+    rows = dfd_id
+      ? db.prepare(`SELECT * FROM dfd_pedidos_edicao WHERE dfd_id = ? ORDER BY id DESC`).all(dfd_id)
+      : db.prepare(`SELECT * FROM dfd_pedidos_edicao ORDER BY id DESC`).all();
+  } else {
+    rows = db.prepare(`SELECT * FROM dfd_pedidos_edicao WHERE solicitante_id = ? ORDER BY id DESC`).all(req.user.user_id);
+  }
+  res.json(rows);
+});
+
+app.patch('/api/pac/pedidos/:id/resposta', requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const { status, resposta } = req.body || {};
+  if (!['aprovado', 'rejeitado'].includes(status)) return res.status(400).json({ error: 'Status inválido' });
+  const pedido = db.prepare(`SELECT status FROM dfd_pedidos_edicao WHERE id = ?`).get(req.params.id);
+  if (!pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
+  if (pedido.status !== 'pendente') return res.status(409).json({ error: 'Este pedido já foi respondido.' });
+  db.prepare(`
+    UPDATE dfd_pedidos_edicao SET status = ?, resposta = ?, respondido_por = ?, respondido_em = datetime('now') WHERE id = ?
+  `).run(status, resposta ? String(resposta).trim() : null, req.user.user_id, req.params.id);
+  registrarLog(req, 'PAC', 'RESPONDEU_PEDIDO', `${status === 'aprovado' ? 'Aprovou' : 'Rejeitou'} o pedido #${req.params.id}`);
+  res.json({ ok: true });
+});
+
 // ── Versão ───────────────────────────────────────────────────────────────────
 // Precisa vir ANTES do catch-all "Serve SPA" abaixo — senão o catch-all intercepta
 // /api/version primeiro (Express casa rotas na ordem de registro), o `if` dele só

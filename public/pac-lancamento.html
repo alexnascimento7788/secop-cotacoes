@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PAC — CEASA CONECTA</title>
+  <title>PAC — Lançamento — CEASA CONECTA</title>
   <link rel="stylesheet" href="css/style.css" />
   <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
   <link rel="manifest" href="manifest.webmanifest">
@@ -56,11 +56,49 @@
       </div>
     </div>
 
-    <div class="card">
-      <div style="padding:64px 24px;text-align:center;">
-        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--verde)" stroke-width="1.5" style="margin-bottom:16px;"><path d="M12 5v14M5 12h14"/></svg>
-        <div style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:6px;">PAC</div>
-        <div style="font-size:14px;color:var(--text-muted);">Módulo em desenvolvimento.</div>
+    <!-- Lista de DFDs -->
+    <div id="pac-dfd-lista">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Documentos de Formalização de Demanda</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Título</th><th>Ano</th><th>Status</th><th></th></tr></thead>
+            <tbody id="dfds-tbody"><tr><td colspan="4" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Itens do DFD aberto -->
+    <div id="pac-dfd-itens" style="display:none;">
+      <button class="btn btn-secondary btn-sm" onclick="fecharDfd()" style="margin-bottom:14px;">← Voltar aos DFDs</button>
+
+      <div class="card" style="margin-bottom:16px;">
+        <div style="padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+          <div>
+            <div style="font-size:15px;font-weight:700;color:var(--text);" id="lanc-dfd-titulo">—</div>
+            <span class="badge" id="lanc-dfd-badge"></span>
+          </div>
+          <div id="lanc-grupos-toggle" style="display:flex;gap:6px;"></div>
+        </div>
+      </div>
+
+      <div class="card" id="lanc-pedidos-card" style="display:none;margin-bottom:16px;">
+        <div class="card-header"><span class="card-title">Meus pedidos de edição</span></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Item</th><th>Tipo</th><th>Justificativa</th><th>Status</th><th>Resposta</th></tr></thead>
+          <tbody id="lanc-pedidos-tbody"></tbody>
+        </table></div>
+      </div>
+
+      <div class="card">
+        <div class="table-wrap dfd-table-wrap">
+          <table class="dfd-table" id="lanc-itens-table">
+            <thead id="lanc-itens-thead"></thead>
+            <tbody id="lanc-itens-tbody"><tr><td style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
+          </table>
+        </div>
+        <div id="lanc-novo-item" style="padding:16px 20px;border-top:1px solid var(--cinza-b);"></div>
       </div>
     </div>
   </main>
@@ -69,5 +107,6 @@
 <div id="toast"></div>
 <script src="js/pwa.js"></script>
 <script src="js/auth.js"></script>
+<script src="js/pac-lancamento.js"></script>
 </body>
 </html>
