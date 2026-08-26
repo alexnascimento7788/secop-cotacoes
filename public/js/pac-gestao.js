@@ -183,9 +183,15 @@ async function toggleColunaDoDfd(colunaId, ativa) {
 }
 
 // Leitura simples (o perfil "Analista DEPLA" só tem "ver" em pac-lancamento —
-// quem edita item é o gestor do setor, na tela de Lançamento).
+// quem edita item é o gestor do setor, na tela de Lançamento). Grupo B/C
+// (Possui Contrato? + dados do contrato) vira 1 coluna só, ícone com tooltip
+// listando os dados — mesma simplificação do Lançamento, aqui só leitura.
 async function renderItensDfd(colunasParam) {
-  const colunas = colunasParam || (await (await fetch(`/api/pac/dfds/${_dfdAtualId}`)).json()).colunas;
+  const todasColunas = colunasParam || (await (await fetch(`/api/pac/dfds/${_dfdAtualId}`)).json()).colunas;
+  const colunas = todasColunas.filter(c => c.grupo === 'A');
+  const colunasContrato = todasColunas.filter(c => c.grupo === 'C');
+  const temColContrato = colunasContrato.length > 0;
+
   const [itensRes, setoresRes] = await Promise.all([
     fetch(`/api/pac/dfds/${_dfdAtualId}/itens`),
     fetch('/api/pac/setores'),
@@ -194,14 +200,16 @@ async function renderItensDfd(colunasParam) {
   const setores = setoresRes.ok ? await setoresRes.json() : [];
   const nomeSetor = id => (setores.find(s => s.id === id) || {}).nome || `#${id}`;
 
-  document.getElementById('dfd-det-itens-thead').innerHTML = `<tr><th>Setor</th>${colunas.map(c => `<th>${c.label}</th>`).join('')}</tr>`;
+  document.getElementById('dfd-det-itens-thead').innerHTML =
+    `<tr><th>Setor</th>${colunas.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}</tr>`;
 
   document.getElementById('dfd-det-itens-tbody').innerHTML = itens.map(item => `
     <tr>
       <td>${nomeSetor(item.setor_id)}</td>
       ${colunas.map(c => `<td>${formatarValorColuna(c, c.slug === 'numero_item' ? item.numero_item : item.valores[c.id])}</td>`).join('')}
+      ${temColContrato ? celulaContratoLeitura(item, colunasContrato) : ''}
     </tr>
-  `).join('') || `<tr><td colspan="${colunas.length + 1}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`;
+  `).join('') || `<tr><td colspan="${colunas.length + (temColContrato ? 2 : 1)}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`;
 }
 
 /* ── Formatação por tipo de coluna (mesma ideia de fmtBr/fmtMoeda do resto do
@@ -221,6 +229,23 @@ function formatarValorColuna(coluna, valor) {
   if (coluna.tipo_input === 'data') return fmtBr(valor);
   if (coluna.tipo_input === 'moeda') return fmtMoeda(valor);
   return valor;
+}
+
+const ICONE_CONTRATO_SIM = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--verde)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg>`;
+const ICONE_CONTRATO_NAO = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-subtle)" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
+
+// Só leitura aqui (quem edita é o gestor em Lançamento) — em vez de popup,
+// o tooltip já lista os dados do contrato preenchidos.
+function celulaContratoLeitura(item, colunasContrato) {
+  const preenchidos = colunasContrato.filter(c => {
+    const v = item.valores[c.id];
+    return v !== null && v !== undefined && v !== '';
+  });
+  if (!preenchidos.length) {
+    return `<td style="text-align:center;" title="Este item não tem contrato">${ICONE_CONTRATO_NAO}</td>`;
+  }
+  const titulo = preenchidos.map(c => `${c.label}: ${formatarValorColuna(c, item.valores[c.id])}`).join(' · ');
+  return `<td style="text-align:center;" title="${titulo}">${ICONE_CONTRATO_SIM}</td>`;
 }
 
 /* ── Setores (cadastro) ──────────────────────────────────────────────────── */

@@ -40,6 +40,7 @@ let _dfdAtual = null;
 let _meusSetores = [];
 let _grupoColapsado = {};
 let _pedidosLiberados = {}; // item_id -> Set('editar'|'excluir') aprovados e ainda não consumidos
+let _itensAtuais = [];
 
 document.addEventListener('DOMContentLoaded', () => {
   carregarDfds();
@@ -96,9 +97,11 @@ function fecharDfd() {
   carregarDfds();
 }
 
+// Grupos B/C (Possui Contrato? + dados do contrato) viraram 1 coluna só
+// ("Contrato", com popup) — só o grupo A ainda faz sentido colapsar aqui.
 function renderGrupoToggle() {
-  const grupos = [...new Set(_dfdAtual.colunas.map(c => c.grupo))];
-  const nomes = { A: 'Demanda', B: 'Contrato?', C: 'Dados do contrato' };
+  const grupos = [...new Set(_dfdAtual.colunas.filter(c => c.grupo === 'A').map(c => c.grupo))];
+  const nomes = { A: 'Demanda' };
   document.getElementById('lanc-grupos-toggle').innerHTML = grupos.map(g => `
     <button class="btn btn-secondary btn-sm" onclick="toggleGrupo('${g}')">
       ${_grupoColapsado[g] ? '▸' : '▾'} ${nomes[g] || g}
@@ -115,22 +118,30 @@ function toggleGrupo(g) {
 
 /* ── Tabela de itens ─────────────────────────────────────────────────────── */
 
+// Grupo B (Possui Contrato?) e C (Nº/Razão Social/Vencimento) viram 1 coluna só
+// ("Contrato") — ícone com tooltip, clique abre popup com os campos de C.
+// "Possui Contrato?" some da tabela: é deduzido de C ter algum valor preenchido.
 async function renderItens() {
-  const colunas = _dfdAtual.colunas;
+  const colunasPrincipais = _dfdAtual.colunas.filter(c => c.grupo === 'A');
+  const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
+  const temColContrato = colunasContrato.length > 0;
+
   const thead = document.getElementById('lanc-itens-thead');
-  thead.innerHTML = `<tr>${colunas.map((c, i) => `<th class="${i === 0 ? 'dfd-col-fixa-1' : i === 1 ? 'dfd-col-fixa-2' : ''}" data-grupo="${c.grupo}">${c.label}</th>`).join('')}<th></th></tr>`;
+  thead.innerHTML = `<tr>${colunasPrincipais.map((c, i) => `<th class="${i === 0 ? 'dfd-col-fixa-1' : i === 1 ? 'dfd-col-fixa-2' : ''}" data-grupo="${c.grupo}">${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}<th></th></tr>`;
 
   const res = await fetch(`/api/pac/dfds/${_dfdAtualId}/itens`);
-  const itens = res.ok ? await res.json() : [];
+  _itensAtuais = res.ok ? await res.json() : [];
 
+  const colspan = colunasPrincipais.length + (temColContrato ? 1 : 0) + 1;
   const tbody = document.getElementById('lanc-itens-tbody');
-  tbody.innerHTML = itens.map(item => {
+  tbody.innerHTML = _itensAtuais.map(item => {
     const liberado = _pedidosLiberados[item.id] || new Set();
     const podeExcluir = _dfdAtual.status === 'aberto' || liberado.has('excluir');
     const podeSolicitar = _dfdAtual.status === 'analise'; // fechado não aceita nem pedido
     return `
     <tr data-item-id="${item.id}">
-      ${colunas.map((c, i) => renderCelula(item, c, i, liberado)).join('')}
+      ${colunasPrincipais.map((c, i) => renderCelula(item, c, i, liberado)).join('')}
+      ${temColContrato ? renderCelulaContrato(item, colunasContrato) : ''}
       <td style="text-align:right;white-space:nowrap;">
         ${podeExcluir
           ? `<button class="btn btn-danger btn-xs" onclick="excluirItem(${item.id})">Excluir</button>`
@@ -139,7 +150,7 @@ async function renderItens() {
           ? `<button class="btn btn-secondary btn-xs" onclick="abrirPedido(${item.id}, 'editar')">Solicitar edição</button>` : ''}
       </td>
     </tr>`;
-  }).join('') || `<tr><td colspan="${colunas.length + 1}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`;
+  }).join('') || `<tr><td colspan="${colspan}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`;
 
   // Grupos colapsados persistidos
   Object.entries(_grupoColapsado).forEach(([g, colapsado]) => {
@@ -148,6 +159,22 @@ async function renderItens() {
 
   wireCelulas();
   renderFormNovoItem();
+}
+
+const ICONE_CONTRATO_SIM = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--verde)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg>`;
+const ICONE_CONTRATO_NAO = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-subtle)" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
+
+function contratoPreenchido(item, colunasContrato) {
+  return colunasContrato.some(c => {
+    const v = item.valores[c.id];
+    return v !== null && v !== undefined && v !== '';
+  });
+}
+
+function renderCelulaContrato(item, colunasContrato) {
+  const tem = contratoPreenchido(item, colunasContrato);
+  const titulo = tem ? 'Este item tem contrato — clique para ver/editar' : 'Este item não tem contrato — clique para preencher';
+  return `<td data-label="Contrato" style="text-align:center;cursor:pointer;" title="${titulo}" onclick="abrirModalContrato(${item.id})">${tem ? ICONE_CONTRATO_SIM : ICONE_CONTRATO_NAO}</td>`;
 }
 
 function renderCelula(item, coluna, indice, liberado) {
@@ -191,6 +218,93 @@ function renderInputCelula(itemId, coluna, valor) {
     return `<input type="date" ${base} value="${valor || ''}" style="width:140px;" />`;
   }
   return `<input type="text" ${base} value="${valor || ''}" style="min-width:140px;" />`;
+}
+
+/* ── Popup "Dados do contrato" (grupo C) — aberto pela coluna única Contrato ── */
+
+let _mcItemId = null;
+
+function abrirModalContrato(itemId) {
+  const item = _itensAtuais.find(i => i.id === itemId);
+  if (!item) return;
+  _mcItemId = itemId;
+  const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
+  const liberado = _pedidosLiberados[itemId] || new Set();
+  const editavel = _dfdAtual.status === 'aberto' || liberado.has('editar');
+
+  document.getElementById('mc-campos').innerHTML = colunasContrato.map(c => {
+    const valor = item.valores[c.id];
+    const campo = editavel ? renderInputCelula(itemId, c, valor) : `<div style="padding:8px 0;">${formatarValorExibicao(c, valor)}</div>`;
+    return `<div class="form-group" style="margin-bottom:10px;"><label>${c.label}</label>${campo}</div>`;
+  }).join('') || '<p class="text-muted">Nenhuma coluna de contrato ativa neste DFD.</p>';
+
+  document.getElementById('mc-salvar').style.display = editavel ? '' : 'none';
+  document.getElementById('mc-remover').style.display = (editavel && contratoPreenchido(item, colunasContrato)) ? '' : 'none';
+  document.getElementById('mc-msg').textContent = '';
+  document.getElementById('modal-contrato').classList.add('open');
+}
+
+function fecharModalContrato() {
+  document.getElementById('modal-contrato').classList.remove('open');
+  _mcItemId = null;
+}
+
+// "Possui Contrato?" (grupo B) não aparece mais como campo — é deduzido aqui:
+// Sim se sobrar algum valor preenchido no grupo C, Não caso contrário.
+function valoresContratoDoForm() {
+  const valores = {};
+  document.querySelectorAll('#mc-campos [data-coluna]').forEach(el => {
+    let v = el.value;
+    if (el.dataset.tipo === 'moeda') { const n = parseMoeda(v); v = n == null ? '' : String(n); }
+    valores[el.dataset.coluna] = v === '' ? null : v;
+  });
+  const possuiCol = _dfdAtual.colunas.find(c => c.slug === 'possui_contrato');
+  if (possuiCol) valores[possuiCol.id] = Object.values(valores).some(v => v !== null) ? 'Sim' : 'Não';
+  return valores;
+}
+
+async function salvarContrato() {
+  const valores = valoresContratoDoForm();
+  try {
+    const res = await fetch(`/api/pac/itens/${_mcItemId}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ valores }),
+    });
+    if (res.status === 409) {
+      const e = await res.json();
+      if (e.pedeEdicao) { fecharModalContrato(); ofertarPedidoEdicao(_mcItemId); return; }
+      document.getElementById('mc-msg').style.color = '#c00';
+      document.getElementById('mc-msg').textContent = e.error || 'Não foi possível salvar.';
+      return;
+    }
+    if (!res.ok) throw new Error();
+    if (_dfdAtual.status !== 'aberto') await renderMeusPedidos();
+    fecharModalContrato();
+    renderItens();
+  } catch {
+    document.getElementById('mc-msg').style.color = '#c00';
+    document.getElementById('mc-msg').textContent = 'Erro ao salvar.';
+  }
+}
+
+async function removerContrato() {
+  if (!confirm('Remover os dados de contrato deste item?')) return;
+  const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
+  const valores = {};
+  colunasContrato.forEach(c => { valores[c.id] = null; });
+  const possuiCol = _dfdAtual.colunas.find(c => c.slug === 'possui_contrato');
+  if (possuiCol) valores[possuiCol.id] = 'Não';
+  try {
+    const res = await fetch(`/api/pac/itens/${_mcItemId}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ valores }),
+    });
+    if (!res.ok) throw new Error();
+    fecharModalContrato();
+    renderItens();
+  } catch {
+    toast('Erro ao remover contrato', 'error');
+  }
 }
 
 let _listasCache = {};

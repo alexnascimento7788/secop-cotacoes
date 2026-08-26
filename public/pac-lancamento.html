@@ -104,6 +104,22 @@
   </main>
 </div>
 
+<!-- Dados do contrato de um item — coluna única na tabela (ícone), campos aqui -->
+<div class="modal-overlay" id="modal-contrato">
+  <div class="modal-box" style="max-width:380px;">
+    <h3>Dados do contrato</h3>
+    <div id="mc-campos"></div>
+    <div id="mc-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin:4px 0 8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:space-between;">
+      <button type="button" class="btn btn-danger btn-sm" id="mc-remover" onclick="removerContrato()">Remover contrato</button>
+      <div style="display:flex;gap:8px;">
+        <button type="button" class="btn btn-secondary" onclick="fecharModalContrato()">Fechar</button>
+        <button type="button" class="btn btn-primary" id="mc-salvar" onclick="salvarContrato()">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 <script src="js/pwa.js"></script>
 <script src="js/auth.js"></script>
