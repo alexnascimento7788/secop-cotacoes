@@ -862,7 +862,7 @@
   <div class="modal-box" style="max-width:420px;">
     <h3>Editar perfil do usuário</h3>
     <input type="hidden" id="mpu-user-id" />
-    <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;">
+    <div id="mpu-foto-linha" style="display:flex;align-items:center;gap:14px;margin-bottom:14px;">
       <img id="mpu-foto-preview" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:var(--surface-2);flex-shrink:0;" />
       <div style="flex:1;">
         <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
@@ -870,6 +870,20 @@
           <input type="file" id="mpu-foto-input" accept="image/jpeg,image/png" style="display:none" onchange="mpuFotoSelecionada(this)">
         </label>
         <button class="btn btn-secondary btn-sm" onclick="mpuRemoverFoto()">Remover</button>
+      </div>
+    </div>
+
+    <!-- Cropper: arrastar pra posicionar + régua de zoom, some após confirmar -->
+    <div id="mpu-cropper" style="display:none;margin-bottom:14px;">
+      <div id="mpu-crop-viewport" style="width:220px;height:220px;margin:0 auto;border-radius:50%;overflow:hidden;background:#111;position:relative;cursor:grab;touch-action:none;"
+           onpointerdown="mpuCropIniciarDrag(event)">
+        <img id="mpu-crop-img" style="position:absolute;max-width:none;max-height:none;user-select:none;-webkit-user-drag:none;pointer-events:none;" />
+      </div>
+      <input type="range" id="mpu-crop-zoom" min="100" max="300" value="100" oninput="mpuCropZoom()" style="width:220px;display:block;margin:10px auto 0;">
+      <div style="text-align:center;font-size:11px;color:var(--text-subtle);margin-top:4px;">Arraste a foto pra posicionar · use a régua pra dar zoom</div>
+      <div style="display:flex;gap:8px;justify-content:center;margin-top:10px;">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="mpuCropCancelar()">Cancelar</button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="mpuCropConfirmar()">Confirmar posição</button>
       </div>
     </div>
     <div class="form-group" style="margin-bottom:14px;">
@@ -1915,6 +1929,9 @@ async function abrirModalPerfilUsuario(id) {
   document.getElementById('mpu-foto-preview').src = `/api/usuarios/${id}/foto?t=${Date.now()}`;
   document.getElementById('mpu-msg').textContent = '';
   _mpuFotoNova = null; _mpuFotoRemover = false;
+  _mpuCropState = null;
+  document.getElementById('mpu-cropper').style.display = 'none';
+  document.getElementById('mpu-foto-linha').style.display = 'flex';
   document.getElementById('modal-perfil-usuario').classList.add('open');
   await mpuCarregarModulos(id);
 }
@@ -1979,12 +1996,108 @@ function fecharModalPerfilUsuario() {
   document.getElementById('modal-perfil-usuario').classList.remove('open');
 }
 
+// Foto crua raramente já vem enquadrada certo pro avatar circular (object-fit:cover
+// corta pelo centro, cortando rosto se a foto for retrato) — em vez de subir a
+// imagem original direto, abre um cropper simples (arrastar + zoom numa régua)
+// e só gera o Blob final (já enquadrado, resolução fixa) quando o usuário confirma.
+const MPU_CROP_VIEWPORT = 220;
+let _mpuCropState = null; // { scale, minScale, nw, nh, offsetX, offsetY, dragging, ... }
+
 function mpuFotoSelecionada(input) {
   const f = input.files[0];
   input.value = '';
   if (!f) return;
-  _mpuFotoNova = f; _mpuFotoRemover = false;
-  document.getElementById('mpu-foto-preview').src = URL.createObjectURL(f);
+  const url = URL.createObjectURL(f);
+  const img = document.getElementById('mpu-crop-img');
+  img.onload = () => { URL.revokeObjectURL(url); mpuCropIniciar(img); };
+  img.src = url;
+}
+
+function mpuCropIniciar(img) {
+  const vp = MPU_CROP_VIEWPORT;
+  const nw = img.naturalWidth, nh = img.naturalHeight;
+  const minScale = vp / Math.min(nw, nh); // escala mínima que cobre o círculo inteiro
+  const dW = nw * minScale, dH = nh * minScale;
+  _mpuCropState = {
+    minScale, scale: minScale, nw, nh, dragging: false,
+    offsetX: (vp - dW) / 2, offsetY: (vp - dH) / 2,
+  };
+  document.getElementById('mpu-crop-zoom').value = 100;
+  document.getElementById('mpu-foto-linha').style.display = 'none';
+  document.getElementById('mpu-cropper').style.display = 'block';
+  mpuCropRenderizar();
+}
+
+// Reaplica a escala/posição no <img> do cropper, sempre garantindo que ele
+// continue cobrindo o círculo inteiro (clamp do offset — nunca aparece fundo vazio).
+function mpuCropRenderizar() {
+  const st = _mpuCropState;
+  if (!st) return;
+  const vp = MPU_CROP_VIEWPORT;
+  const dW = st.nw * st.scale, dH = st.nh * st.scale;
+  st.offsetX = Math.min(0, Math.max(vp - dW, st.offsetX));
+  st.offsetY = Math.min(0, Math.max(vp - dH, st.offsetY));
+  const img = document.getElementById('mpu-crop-img');
+  img.style.width = dW + 'px';
+  img.style.height = dH + 'px';
+  img.style.left = st.offsetX + 'px';
+  img.style.top = st.offsetY + 'px';
+}
+
+// Zoom pela régua: mantém o ponto que está no centro do círculo fixo (dá zoom
+// "pro centro", não desloca a foto de forma inesperada).
+function mpuCropZoom() {
+  const st = _mpuCropState;
+  if (!st) return;
+  const vp = MPU_CROP_VIEWPORT;
+  const centroImgX = (vp / 2 - st.offsetX) / st.scale;
+  const centroImgY = (vp / 2 - st.offsetY) / st.scale;
+  st.scale = st.minScale * (Number(document.getElementById('mpu-crop-zoom').value) / 100);
+  st.offsetX = vp / 2 - centroImgX * st.scale;
+  st.offsetY = vp / 2 - centroImgY * st.scale;
+  mpuCropRenderizar();
+}
+
+function mpuCropIniciarDrag(e) {
+  const st = _mpuCropState;
+  if (!st) return;
+  st.dragging = true;
+  st.dragStartX = e.clientX; st.dragStartY = e.clientY;
+  st.dragOffsetX = st.offsetX; st.dragOffsetY = st.offsetY;
+  e.currentTarget.setPointerCapture(e.pointerId);
+}
+document.addEventListener('pointermove', e => {
+  const st = _mpuCropState;
+  if (!st || !st.dragging) return;
+  st.offsetX = st.dragOffsetX + (e.clientX - st.dragStartX);
+  st.offsetY = st.dragOffsetY + (e.clientY - st.dragStartY);
+  mpuCropRenderizar();
+});
+document.addEventListener('pointerup', () => { if (_mpuCropState) _mpuCropState.dragging = false; });
+
+function mpuCropCancelar() {
+  _mpuCropState = null;
+  document.getElementById('mpu-cropper').style.display = 'none';
+  document.getElementById('mpu-foto-linha').style.display = 'flex';
+}
+
+function mpuCropConfirmar() {
+  const st = _mpuCropState;
+  if (!st) return;
+  const vp = MPU_CROP_VIEWPORT;
+  const out = 320; // resolução final do avatar salvo
+  const sx = -st.offsetX / st.scale, sy = -st.offsetY / st.scale, sSize = vp / st.scale;
+  const canvas = document.createElement('canvas');
+  canvas.width = out; canvas.height = out;
+  canvas.getContext('2d').drawImage(document.getElementById('mpu-crop-img'), sx, sy, sSize, sSize, 0, 0, out, out);
+  canvas.toBlob(blob => {
+    if (!blob) { toast('Erro ao processar a foto', 'error'); return; }
+    _mpuFotoNova = blob; _mpuFotoRemover = false;
+    document.getElementById('mpu-foto-preview').src = URL.createObjectURL(blob);
+    _mpuCropState = null;
+    document.getElementById('mpu-cropper').style.display = 'none';
+    document.getElementById('mpu-foto-linha').style.display = 'flex';
+  }, 'image/jpeg', 0.88);
 }
 
 function mpuRemoverFoto() {

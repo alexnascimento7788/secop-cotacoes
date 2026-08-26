@@ -1271,21 +1271,6 @@ app.get('/api/admin/modulos', requireAdminSistema, (req, res) => {
   res.json(db.prepare(`SELECT id, slug, nome, cor, home, ordem, ativo, departamento_id FROM modulos ORDER BY ordem`).all());
 });
 
-app.patch('/api/admin/modulos/:id', requireAdminSistema, (req, res) => {
-  const { ativo, departamento_id } = req.body;
-  const modulo = db.prepare(`SELECT nome FROM modulos WHERE id = ?`).get(req.params.id);
-  if (!modulo) return res.status(404).json({ error: 'Módulo não encontrado' });
-  if (ativo !== undefined) {
-    db.prepare(`UPDATE modulos SET ativo = ? WHERE id = ?`).run(ativo ? 1 : 0, req.params.id);
-    registrarLog(req, 'MODULO', ativo ? 'ATIVOU' : 'DESATIVOU', `${ativo ? 'Ativou' : 'Desativou'} o módulo "${modulo.nome}"`);
-  }
-  if (departamento_id !== undefined) {
-    db.prepare(`UPDATE modulos SET departamento_id = ? WHERE id = ?`).run(departamento_id || null, req.params.id);
-    registrarLog(req, 'MODULO', 'DEPARTAMENTO', `Alterou o departamento do módulo "${modulo.nome}"`);
-  }
-  res.json({ ok: true });
-});
-
 // Matriz para a aba Módulos: todos os módulos + cada usuário (exceto master, que
 // já enxerga tudo) com o perfil que possui em cada um. admin_operacional só
 // enxerga/mexe no que é do próprio departamento.
@@ -1350,6 +1335,25 @@ app.patch('/api/admin/modulos/acessos', (req, res) => {
   const info = db.prepare(`UPDATE user_modulos SET perfil_id = ? WHERE user_id = ? AND modulo_id = ?`).run(perfil_id || null, user_id, modulo_id);
   if (info.changes === 0) return res.status(404).json({ error: 'Este usuário ainda não tem esse módulo — conceda o módulo primeiro.' });
   registrarLog(req, 'MODULO', 'PERFIL', `Definiu o perfil de "${user.username}" em "${modulo.nome}"`);
+  res.json({ ok: true });
+});
+
+// Precisa vir DEPOIS das rotas /api/admin/modulos/acessos acima — Express casa
+// rotas na ordem de registro, e ":id" bateria com o literal "acessos" primeiro
+// (era exatamente esse bug: PATCH /modulos/acessos caía aqui, buscava um módulo
+// de id="acessos", não achava, e devolvia "Módulo não encontrado").
+app.patch('/api/admin/modulos/:id', requireAdminSistema, (req, res) => {
+  const { ativo, departamento_id } = req.body;
+  const modulo = db.prepare(`SELECT nome FROM modulos WHERE id = ?`).get(req.params.id);
+  if (!modulo) return res.status(404).json({ error: 'Módulo não encontrado' });
+  if (ativo !== undefined) {
+    db.prepare(`UPDATE modulos SET ativo = ? WHERE id = ?`).run(ativo ? 1 : 0, req.params.id);
+    registrarLog(req, 'MODULO', ativo ? 'ATIVOU' : 'DESATIVOU', `${ativo ? 'Ativou' : 'Desativou'} o módulo "${modulo.nome}"`);
+  }
+  if (departamento_id !== undefined) {
+    db.prepare(`UPDATE modulos SET departamento_id = ? WHERE id = ?`).run(departamento_id || null, req.params.id);
+    registrarLog(req, 'MODULO', 'DEPARTAMENTO', `Alterou o departamento do módulo "${modulo.nome}"`);
+  }
   res.json({ ok: true });
 });
 
