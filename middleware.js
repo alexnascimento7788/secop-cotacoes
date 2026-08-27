@@ -21,6 +21,13 @@ function getInatividadeMinutos() {
   return min > 0 ? min : 30;
 }
 
+// Usado por routes/secop.js (purgarLixeira) e routes/admin.js (GET /api/admin/lixeira).
+function getLixeiraDias() {
+  const row = db.prepare(`SELECT valor FROM config WHERE chave = 'lixeira_dias'`).get();
+  const dias = parseInt(row?.valor, 10);
+  return dias > 0 ? dias : 60;
+}
+
 // Empurra o vencimento da sessão pra frente a cada requisição autenticada —
 // o cookie em si dura bastante (ver /api/auth/login), quem controla o timeout
 // de verdade é sessions.expires, rolando conforme uso real
@@ -175,7 +182,7 @@ function getCpfHubKey() {
 }
 
 module.exports = {
-  n, getCookie, getInatividadeMinutos, renovarSessao, SESSAO_SQL, requireAuth,
+  n, getCookie, getInatividadeMinutos, getLixeiraDias, renovarSessao, SESSAO_SQL, requireAuth,
   resolverPerfilId, modulosDoUsuario, registrarLog, CONSULTA_POST_OK,
   requireAdminAny, requireAdminSistema, requireModulo, ROTINA_FLAGS_VALIDAS,
   requireRotina, getCpfHubKey,

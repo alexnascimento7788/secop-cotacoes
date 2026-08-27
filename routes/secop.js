@@ -12,7 +12,7 @@
 // propósito, pra admin.html gerenciar de qualquer módulo ativo).
 const express = require('express');
 const { db, gerarNumeroProcesso } = require('../database');
-const { n, registrarLog, requireModulo } = require('../middleware');
+const { n, registrarLog, requireModulo, getLixeiraDias } = require('../middleware');
 
 // Dicionário geral de português (já vem ordenado por frequência de uso do
 // idioma) — recorte das mais comuns, apoia o autocomplete quando o histórico
@@ -57,11 +57,7 @@ function processoIdDoItem(itemId) {
 // existe "excluir" manual na Lixeira, só esta purga por tempo (ver a rota
 // GET /api/admin/lixeira em routes/admin.js). Autoexecuta ao carregar este
 // módulo (uma vez no boot + hora em hora), como já era em server.js.
-function getLixeiraDias() {
-  const row = db.prepare(`SELECT valor FROM config WHERE chave = 'lixeira_dias'`).get();
-  const dias = parseInt(row?.valor, 10);
-  return dias > 0 ? dias : 60;
-}
+// getLixeiraDias vem de ../middleware (também usado pela rota de lixeira em admin.js).
 function purgarLixeira() {
   try {
     db.prepare(`DELETE FROM processos WHERE excluido_em IS NOT NULL AND excluido_em < datetime('now', '-' || ? || ' days')`)
