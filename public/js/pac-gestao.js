@@ -234,18 +234,19 @@ function formatarValorColuna(coluna, valor) {
 const ICONE_CONTRATO_SIM = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--verde)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg>`;
 const ICONE_CONTRATO_NAO = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-subtle)" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
 
-// Só leitura aqui (quem edita é o gestor em Lançamento) — em vez de popup,
-// o tooltip já lista os dados do contrato preenchidos.
+// Só leitura aqui (quem edita é o gestor em Lançamento) — badge com texto
+// (Com/Sem contrato) já visível, sem depender de hover; o tooltip complementa
+// listando os dados quando preenchido.
 function celulaContratoLeitura(item, colunasContrato) {
   const preenchidos = colunasContrato.filter(c => {
     const v = item.valores[c.id];
     return v !== null && v !== undefined && v !== '';
   });
-  if (!preenchidos.length) {
-    return `<td style="text-align:center;" title="Este item não tem contrato">${ICONE_CONTRATO_NAO}</td>`;
-  }
-  const titulo = preenchidos.map(c => `${c.label}: ${formatarValorColuna(c, item.valores[c.id])}`).join(' · ');
-  return `<td style="text-align:center;" title="${titulo}">${ICONE_CONTRATO_SIM}</td>`;
+  const tem = !!preenchidos.length;
+  const titulo = tem
+    ? preenchidos.map(c => `${c.label}: ${formatarValorColuna(c, item.valores[c.id])}`).join(' · ')
+    : 'Este item não tem contrato';
+  return `<td style="text-align:center;"><span class="badge-contrato ${tem ? 'tem' : 'nao'}" title="${titulo}">${tem ? ICONE_CONTRATO_SIM : ICONE_CONTRATO_NAO} ${tem ? 'Com contrato' : 'Sem contrato'}</span></td>`;
 }
 
 /* ── Setores (cadastro) ──────────────────────────────────────────────────── */

@@ -52,9 +52,12 @@
   --azul:    #1565C0;
 }
 :root[data-modulo="pac"] {
-  --verde:   #F9A800;
-  --verde-l: #FFB300;
-  --azul:    #F9A800;
+  /* Antes #F9A800 (mesmo tom do logo) — em botões/texto ficava pálido demais
+     num fundo claro ("cor creme" na avaliação do Alex). Amber mais escuro e
+     saturado, mais contraste sem trocar a família de cor do módulo. */
+  --verde:   #C97A00;
+  --verde-l: #E08E00;
+  --azul:    #C97A00;
 }
 
 body {
@@ -367,15 +370,51 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 [data-theme="dark"] .badge-fechado { background: rgba(100,116,139,.25); color: #cbd5e1; }
 
 /* ── PAC: tabela de itens do DFD (colunas configuráveis, potencialmente muitas) ─
-   1ª e 2ª colunas fixas (Nº / Descrição) durante o scroll horizontal; grupos de
-   colunas (data-grupo="A"/"B"/"C") colapsáveis via classe .colapsado. */
+   1ª e 2ª colunas fixas (Nº / Descrição) durante o scroll horizontal. */
 .dfd-table-wrap { overflow-x: auto; position: relative; }
 .dfd-table { border-collapse: separate; border-spacing: 0; }
 .dfd-table th, .dfd-table td { white-space: nowrap; }
-.dfd-table th[data-grupo].colapsado, .dfd-table td[data-grupo].colapsado { display: none; }
+.dfd-table tbody td { padding: 12px 12px; }
 .dfd-table th.dfd-col-fixa-1, .dfd-table td.dfd-col-fixa-1 { position: sticky; left: 0; z-index: 2; background: var(--surface); min-width: 56px; }
 .dfd-table th.dfd-col-fixa-2, .dfd-table td.dfd-col-fixa-2 { position: sticky; left: 56px; z-index: 2; background: var(--surface); min-width: 220px; white-space: normal; box-shadow: 2px 0 4px rgba(0,0,0,.06); }
 .dfd-table thead th.dfd-col-fixa-1, .dfd-table thead th.dfd-col-fixa-2 { z-index: 3; background: var(--surface-2); }
+
+/* Inputs/selects dentro da tabela do DFD reaproveitam a aparência de
+   .form-group, em vez do controle cru do navegador (era isso que dava a
+   sensação de "planilha Excel" no lançamento). */
+.dfd-table td select,
+.dfd-table td input,
+.dfd-table td textarea {
+  border: 1.5px solid var(--cinza-b);
+  border-radius: 6px;
+  padding: 7px 9px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface);
+  transition: border-color .15s;
+}
+.dfd-table td select:focus,
+.dfd-table td input:focus,
+.dfd-table td textarea:focus { outline: none; border-color: var(--verde); }
+.dfd-table td textarea { resize: vertical; }
+
+/* Coluna única "Contrato" (grupos B/C consolidados) — badge com texto sempre
+   visível (Com/Sem contrato), não só um ícone dependente de hover. */
+.badge-contrato {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 11px; border-radius: 20px; font-size: 11.5px; font-weight: 600;
+  border: 1px solid var(--cinza-b); background: var(--surface-2); color: var(--text-muted);
+  font-family: inherit; white-space: nowrap;
+}
+button.badge-contrato { cursor: pointer; }
+button.badge-contrato:hover { filter: brightness(0.96); border-color: var(--cinza-t); }
+.badge-contrato.tem { background: #dcfce7; color: #15803d; border-color: transparent; }
+[data-theme="dark"] .badge-contrato.tem { background: rgba(21,128,61,.22); color: #86efac; }
+
+/* Cartão de cabeçalho de um DFD aberto (Lançamento/Gestão) — faixa de destaque
+   no topo pra não ficar tão "sem graça" quanto um card branco comum. */
+.pac-dfd-header-card { border-top: 3px solid var(--verde); }
 
 /* ── Abas da listagem de processos ────────────────────── */
 .page-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
@@ -943,7 +982,6 @@ textarea:focus::placeholder { color: transparent; }
   .dfd-table tr { border: 1px solid var(--cinza-b); border-radius: 8px; margin-bottom: 12px; padding: 8px 12px; }
   .dfd-table td { position: static; white-space: normal; border: none; padding: 6px 0; min-width: 0; box-shadow: none; }
   .dfd-table td::before { content: attr(data-label); display: block; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--text-subtle); margin-bottom: 2px; }
-  .dfd-table td[data-grupo].colapsado { display: none; }
 }
 
 /* ── Impressão ────────────────────────────────────────── */

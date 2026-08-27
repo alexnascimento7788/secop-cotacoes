@@ -38,13 +38,33 @@ function badgeStatusDfd(status) {
 let _dfdAtualId = null;
 let _dfdAtual = null;
 let _meusSetores = [];
-let _grupoColapsado = {};
 let _pedidosLiberados = {}; // item_id -> Set('editar'|'excluir') aprovados e ainda não consumidos
 let _itensAtuais = [];
 
 document.addEventListener('DOMContentLoaded', () => {
+  atualizarCabecalhoUsuario();
   carregarDfds();
 });
+
+// Antes só mostrava um texto fixo "Departamento de Planejamento (DEPLA)" —
+// herdado por engano do pac-gestao.html (lá é correto, aqui não: quem lança
+// pode ser gestor de qualquer setor). Mostra o nome de quem está logado e o(s)
+// setor(es) reais dele.
+async function atualizarCabecalhoUsuario() {
+  const el = document.getElementById('lanc-page-subtitle');
+  try {
+    const [user, setoresRes] = await Promise.all([
+      window.getCurrentUser(),
+      fetch('/api/pac/meus-setores'),
+    ]);
+    _meusSetores = setoresRes.ok ? await setoresRes.json() : [];
+    const nome = (user && (user.nome_completo || user.username)) || '';
+    const setores = _meusSetores.map(s => s.nome).join(', ') || 'nenhum setor vinculado';
+    el.textContent = `${nome} — ${setores}`;
+  } catch {
+    el.textContent = '';
+  }
+}
 
 async function carregarDfds() {
   try {
@@ -67,8 +87,6 @@ async function abrirDfd(id) {
   _dfdAtualId = id;
   document.getElementById('pac-dfd-lista').style.display = 'none';
   document.getElementById('pac-dfd-itens').style.display = 'block';
-  const key = `secop_pac_grupos_${id}`;
-  try { _grupoColapsado = JSON.parse(localStorage.getItem(key) || '{}'); } catch { _grupoColapsado = {}; }
 
   const [dfdRes, setoresRes] = await Promise.all([
     fetch(`/api/pac/dfds/${id}`),
@@ -84,7 +102,6 @@ async function abrirDfd(id) {
   badge.className = `badge badge-${_dfdAtual.status}`;
   badge.textContent = map[_dfdAtual.status] || _dfdAtual.status;
 
-  renderGrupoToggle();
   await carregarListas();
   await renderMeusPedidos(); // calcula _pedidosLiberados antes da tabela usar
   await renderItens();
@@ -97,40 +114,23 @@ function fecharDfd() {
   carregarDfds();
 }
 
-// Grupos B/C (Possui Contrato? + dados do contrato) viraram 1 coluna só
-// ("Contrato", com popup) — só o grupo A ainda faz sentido colapsar aqui.
-function renderGrupoToggle() {
-  const grupos = [...new Set(_dfdAtual.colunas.filter(c => c.grupo === 'A').map(c => c.grupo))];
-  const nomes = { A: 'Demanda' };
-  document.getElementById('lanc-grupos-toggle').innerHTML = grupos.map(g => `
-    <button class="btn btn-secondary btn-sm" onclick="toggleGrupo('${g}')">
-      ${_grupoColapsado[g] ? '▸' : '▾'} ${nomes[g] || g}
-    </button>
-  `).join('');
-}
-
-function toggleGrupo(g) {
-  _grupoColapsado[g] = !_grupoColapsado[g];
-  localStorage.setItem(`secop_pac_grupos_${_dfdAtualId}`, JSON.stringify(_grupoColapsado));
-  renderGrupoToggle();
-  document.querySelectorAll(`[data-grupo="${g}"]`).forEach(el => el.classList.toggle('colapsado', !!_grupoColapsado[g]));
-}
-
 /* ── Tabela de itens ─────────────────────────────────────────────────────── */
 
 // Grupo B (Possui Contrato?) e C (Nº/Razão Social/Vencimento) viram 1 coluna só
-// ("Contrato") — ícone com tooltip, clique abre popup com os campos de C.
-// "Possui Contrato?" some da tabela: é deduzido de C ter algum valor preenchido.
+// ("Contrato") — badge com texto (Sim/Não já visível, sem depender de hover),
+// clique abre popup com o seletor Sim/Não + os campos de C.
 async function renderItens() {
   const colunasPrincipais = _dfdAtual.colunas.filter(c => c.grupo === 'A');
   const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
   const temColContrato = colunasContrato.length > 0;
 
   const thead = document.getElementById('lanc-itens-thead');
-  thead.innerHTML = `<tr>${colunasPrincipais.map((c, i) => `<th class="${i === 0 ? 'dfd-col-fixa-1' : i === 1 ? 'dfd-col-fixa-2' : ''}" data-grupo="${c.grupo}">${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}<th></th></tr>`;
+  thead.innerHTML = `<tr>${colunasPrincipais.map((c, i) => `<th class="${i === 0 ? 'dfd-col-fixa-1' : i === 1 ? 'dfd-col-fixa-2' : ''}">${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}<th></th></tr>`;
 
   const res = await fetch(`/api/pac/dfds/${_dfdAtualId}/itens`);
   _itensAtuais = res.ok ? await res.json() : [];
+  const contagem = document.getElementById('lanc-dfd-contagem');
+  if (contagem) contagem.textContent = _itensAtuais.length === 1 ? '1 item lançado' : `${_itensAtuais.length} itens lançados`;
 
   const colspan = colunasPrincipais.length + (temColContrato ? 1 : 0) + 1;
   const tbody = document.getElementById('lanc-itens-tbody');
@@ -152,11 +152,6 @@ async function renderItens() {
     </tr>`;
   }).join('') || `<tr><td colspan="${colspan}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`;
 
-  // Grupos colapsados persistidos
-  Object.entries(_grupoColapsado).forEach(([g, colapsado]) => {
-    if (colapsado) document.querySelectorAll(`[data-grupo="${g}"]`).forEach(el => el.classList.add('colapsado'));
-  });
-
   wireCelulas();
   renderFormNovoItem();
 }
@@ -173,8 +168,10 @@ function contratoPreenchido(item, colunasContrato) {
 
 function renderCelulaContrato(item, colunasContrato) {
   const tem = contratoPreenchido(item, colunasContrato);
-  const titulo = tem ? 'Este item tem contrato — clique para ver/editar' : 'Este item não tem contrato — clique para preencher';
-  return `<td data-label="Contrato" style="text-align:center;cursor:pointer;" title="${titulo}" onclick="abrirModalContrato(${item.id})">${tem ? ICONE_CONTRATO_SIM : ICONE_CONTRATO_NAO}</td>`;
+  const titulo = tem ? 'Clique para ver/editar os dados do contrato' : 'Clique para informar os dados do contrato';
+  return `<td data-label="Contrato" style="text-align:center;">
+    <button type="button" class="badge-contrato ${tem ? 'tem' : 'nao'}" title="${titulo}" onclick="abrirModalContrato(${item.id})">${tem ? ICONE_CONTRATO_SIM : ICONE_CONTRATO_NAO} ${tem ? 'Com contrato' : 'Sem contrato'}</button>
+  </td>`;
 }
 
 function renderCelula(item, coluna, indice, liberado) {
@@ -183,12 +180,12 @@ function renderCelula(item, coluna, indice, liberado) {
   const editavel = _dfdAtual.status === 'aberto' || (liberado && liberado.has('editar'));
 
   if (coluna.tipo_input === 'auto') {
-    return `<td class="${classe}" data-grupo="${coluna.grupo}" data-label="${coluna.label}">${valor ?? ''}</td>`;
+    return `<td class="${classe}" data-label="${coluna.label}">${valor ?? ''}</td>`;
   }
   if (!editavel) {
-    return `<td class="${classe}" data-grupo="${coluna.grupo}" data-label="${coluna.label}">${formatarValorExibicao(coluna, valor)}</td>`;
+    return `<td class="${classe}" data-label="${coluna.label}">${formatarValorExibicao(coluna, valor)}</td>`;
   }
-  return `<td class="${classe}" data-grupo="${coluna.grupo}" data-label="${coluna.label}">${renderInputCelula(item.id, coluna, valor)}</td>`;
+  return `<td class="${classe}" data-label="${coluna.label}">${renderInputCelula(item.id, coluna, valor)}</td>`;
 }
 
 function formatarValorExibicao(coluna, valor) {
@@ -231,6 +228,11 @@ function abrirModalContrato(itemId) {
   const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
   const liberado = _pedidosLiberados[itemId] || new Set();
   const editavel = _dfdAtual.status === 'aberto' || liberado.has('editar');
+  const tem = contratoPreenchido(item, colunasContrato);
+
+  const selectPossui = document.getElementById('mc-possui');
+  selectPossui.value = tem ? 'sim' : 'nao';
+  selectPossui.disabled = !editavel;
 
   document.getElementById('mc-campos').innerHTML = colunasContrato.map(c => {
     const valor = item.valores[c.id];
@@ -238,10 +240,18 @@ function abrirModalContrato(itemId) {
     return `<div class="form-group" style="margin-bottom:10px;"><label>${c.label}</label>${campo}</div>`;
   }).join('') || '<p class="text-muted">Nenhuma coluna de contrato ativa neste DFD.</p>';
 
+  mcAtualizarVisibilidadeCampos();
   document.getElementById('mc-salvar').style.display = editavel ? '' : 'none';
-  document.getElementById('mc-remover').style.display = (editavel && contratoPreenchido(item, colunasContrato)) ? '' : 'none';
   document.getElementById('mc-msg').textContent = '';
   document.getElementById('modal-contrato').classList.add('open');
+}
+
+// Os campos de contrato (grupo C) só fazem sentido enquanto "Sim" está
+// selecionado — evita a confusão de mostrar Nº/Razão Social/Vencimento
+// junto de um "Não" (era exatamente essa mistura que deixava a lógica pouco clara).
+function mcAtualizarVisibilidadeCampos() {
+  const sim = document.getElementById('mc-possui').value === 'sim';
+  document.getElementById('mc-campos').style.display = sim ? '' : 'none';
 }
 
 function fecharModalContrato() {
@@ -249,17 +259,25 @@ function fecharModalContrato() {
   _mcItemId = null;
 }
 
-// "Possui Contrato?" (grupo B) não aparece mais como campo — é deduzido aqui:
-// Sim se sobrar algum valor preenchido no grupo C, Não caso contrário.
+// "Possui Contrato?" (grupo B) não aparece mais como coluna própria na
+// tabela, mas agora tem um lugar explícito no popup (o seletor Sim/Não) em vez
+// de ser deduzido silenciosamente do preenchimento dos campos — era isso que
+// deixava a lógica pouco clara. Se "Não", os campos de C são zerados.
 function valoresContratoDoForm() {
+  const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
+  const sim = document.getElementById('mc-possui').value === 'sim';
   const valores = {};
-  document.querySelectorAll('#mc-campos [data-coluna]').forEach(el => {
-    let v = el.value;
-    if (el.dataset.tipo === 'moeda') { const n = parseMoeda(v); v = n == null ? '' : String(n); }
-    valores[el.dataset.coluna] = v === '' ? null : v;
-  });
+  if (sim) {
+    document.querySelectorAll('#mc-campos [data-coluna]').forEach(el => {
+      let v = el.value;
+      if (el.dataset.tipo === 'moeda') { const n = parseMoeda(v); v = n == null ? '' : String(n); }
+      valores[el.dataset.coluna] = v === '' ? null : v;
+    });
+  } else {
+    colunasContrato.forEach(c => { valores[c.id] = null; });
+  }
   const possuiCol = _dfdAtual.colunas.find(c => c.slug === 'possui_contrato');
-  if (possuiCol) valores[possuiCol.id] = Object.values(valores).some(v => v !== null) ? 'Sim' : 'Não';
+  if (possuiCol) valores[possuiCol.id] = sim ? 'Sim' : 'Não';
   return valores;
 }
 
@@ -287,25 +305,6 @@ async function salvarContrato() {
   }
 }
 
-async function removerContrato() {
-  if (!confirm('Remover os dados de contrato deste item?')) return;
-  const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
-  const valores = {};
-  colunasContrato.forEach(c => { valores[c.id] = null; });
-  const possuiCol = _dfdAtual.colunas.find(c => c.slug === 'possui_contrato');
-  if (possuiCol) valores[possuiCol.id] = 'Não';
-  try {
-    const res = await fetch(`/api/pac/itens/${_mcItemId}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ valores }),
-    });
-    if (!res.ok) throw new Error();
-    fecharModalContrato();
-    renderItens();
-  } catch {
-    toast('Erro ao remover contrato', 'error');
-  }
-}
 
 let _listasCache = {};
 

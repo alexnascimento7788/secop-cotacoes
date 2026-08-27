@@ -52,7 +52,7 @@
     <div class="page-header">
       <div>
         <div class="page-title">PAC — Lançamento</div>
-        <div class="page-subtitle">Departamento de Planejamento (DEPLA)</div>
+        <div class="page-subtitle" id="lanc-page-subtitle">Carregando...</div>
       </div>
     </div>
 
@@ -73,13 +73,13 @@
     <div id="pac-dfd-itens" style="display:none;">
       <button class="btn btn-secondary btn-sm" onclick="fecharDfd()" style="margin-bottom:14px;">← Voltar aos DFDs</button>
 
-      <div class="card" style="margin-bottom:16px;">
+      <div class="card pac-dfd-header-card" style="margin-bottom:20px;">
         <div style="padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
           <div>
             <div style="font-size:15px;font-weight:700;color:var(--text);" id="lanc-dfd-titulo">—</div>
             <span class="badge" id="lanc-dfd-badge"></span>
           </div>
-          <div id="lanc-grupos-toggle" style="display:flex;gap:6px;"></div>
+          <span class="text-muted" id="lanc-dfd-contagem" style="font-size:12.5px;"></span>
         </div>
       </div>
 
@@ -91,14 +91,14 @@
         </table></div>
       </div>
 
-      <div class="card">
+      <div class="card" style="margin-bottom:32px;">
         <div class="table-wrap dfd-table-wrap">
           <table class="dfd-table" id="lanc-itens-table">
             <thead id="lanc-itens-thead"></thead>
             <tbody id="lanc-itens-tbody"><tr><td style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
           </table>
         </div>
-        <div id="lanc-novo-item" style="padding:16px 20px;border-top:1px solid var(--cinza-b);"></div>
+        <div id="lanc-novo-item" style="padding:16px 20px;border-top:1px solid var(--cinza-b);background:var(--surface-2);"></div>
       </div>
     </div>
   </main>
@@ -108,14 +108,18 @@
 <div class="modal-overlay" id="modal-contrato">
   <div class="modal-box" style="max-width:380px;">
     <h3>Dados do contrato</h3>
+    <div class="form-group" style="margin-bottom:14px;">
+      <label for="mc-possui">Este item possui contrato?</label>
+      <select id="mc-possui" title="Este item possui contrato?" onchange="mcAtualizarVisibilidadeCampos()">
+        <option value="nao">Não</option>
+        <option value="sim">Sim</option>
+      </select>
+    </div>
     <div id="mc-campos"></div>
     <div id="mc-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin:4px 0 8px;"></div>
-    <div style="display:flex;gap:8px;justify-content:space-between;">
-      <button type="button" class="btn btn-danger btn-sm" id="mc-remover" onclick="removerContrato()">Remover contrato</button>
-      <div style="display:flex;gap:8px;">
-        <button type="button" class="btn btn-secondary" onclick="fecharModalContrato()">Fechar</button>
-        <button type="button" class="btn btn-primary" id="mc-salvar" onclick="salvarContrato()">Salvar</button>
-      </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button type="button" class="btn btn-secondary" onclick="fecharModalContrato()">Fechar</button>
+      <button type="button" class="btn btn-primary" id="mc-salvar" onclick="salvarContrato()">Salvar</button>
     </div>
   </div>
 </div>
