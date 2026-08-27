@@ -253,6 +253,18 @@ app.get('*', (req, res) => {
   }
 });
 
+// Rede de segurança: qualquer exceção não tratada em QUALQUER rota (não só
+// PAC) cai aqui em vez de virar a página HTML de erro padrão do Express —
+// o frontend sempre espera `res.json()`, então uma resposta HTML nesse caso
+// vira um "Erro ao X" genérico e o motivo real se perde. Precisa dos 4
+// argumentos (err primeiro) pra o Express reconhecer como error handler;
+// precisa vir por último, depois de toda rota/middleware normal.
+app.use((err, req, res, _next) => {
+  console.error('Erro não tratado:', err);
+  if (res.headersSent) return;
+  res.status(500).json({ error: 'Erro interno no servidor.' });
+});
+
 // purgarLixeira() + setInterval agora rodam dentro de routes/secop.js
 // (autoexecuta ao carregar o módulo, já acontece via o require acima).
 

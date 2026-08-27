@@ -39,6 +39,7 @@ window.getCurrentUser = () => window._userPromise || (window._userPromise = (asy
   if (user.tem_foto) _injetarFoto(user);
   _injetarToggleDark();
   _injetarVersao();
+  _injetarRodape();
   _initInatividade();
 })();
 
@@ -139,8 +140,11 @@ function _injetarModuloLabel(modulo, podeTrocar, departamentoNome) {
 
 // Foto de perfil (se cadastrada) ao lado do nome de usuário na sidebar —
 // mesmo <img> simples, sem placeholder/iniciais (o nome de usuário já cobre
-// esse caso quando não há foto).
+// esse caso quando não há foto). Pula em páginas que já têm o próprio slot
+// de avatar no cabeçalho (hoje só pac-lancamento.html) — lá o avatar mora
+// só no cabeçalho, não duplica na sidebar.
 function _injetarFoto(user) {
+  if (document.getElementById('pac-lanc-avatar')) return;
   const el = document.getElementById('sidebar-username');
   if (!el || document.getElementById('sidebar-foto')) return;
   const img = document.createElement('img');
@@ -304,5 +308,27 @@ async function _injetarVersao() {
     const footer = document.querySelector('.sidebar-footer');
     if (footer) sidebar.insertBefore(el, footer);
     else sidebar.appendChild(el);
+  } catch {}
+}
+
+/* ── Rodapé institucional (componente global) ─────────────────────────────
+   Só existe hoje um jeito de "incluir" HTML compartilhado no projeto, e é
+   este: fetch de um fragmento estático + innerHTML. Roda em toda página que
+   carrega auth.js, mas só faz algo se a própria página tiver o slot — é
+   assim que login/selecionar-modulo/admin/trocar-senha ficam de fora, sem
+   precisar de nenhuma lista de exclusão aqui. */
+async function _injetarRodape() {
+  const el = document.getElementById('app-footer');
+  if (!el) return;
+  try {
+    const html = await (await fetch('/components/footer.html')).text();
+    el.innerHTML = html;
+    const anoEl = el.querySelector('#footer-ano');
+    if (anoEl) anoEl.textContent = new Date().getFullYear();
+    const versaoEl = el.querySelector('#footer-versao');
+    if (versaoEl) {
+      const r = await fetch('/api/version');
+      if (r.ok) { const { version } = await r.json(); versaoEl.textContent = `CEASA CONECTA · v${version}`; }
+    }
   } catch {}
 }

@@ -205,6 +205,35 @@ button { cursor: pointer; }
   word-break: break-word;
 }
 
+/* ── PAC Lançamento: cabeçalho fixo (sticky) com relógio + avatar ─────────
+   Some ao rolar não é aceitável aqui (o usuário perde a referência de
+   setor/DFD numa tela com tabela comprida) — position:sticky relativo ao
+   próprio scroll da página (.main não tem overflow próprio). As margens/
+   paddings negativos fazem a faixa esticar até a borda do container mesmo
+   com o padding padrão de .main, senão o sticky "flutuaria" com um respiro
+   estranho nas laterais ao colar no topo. */
+.pac-lanc-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--cinza-bg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -32px -32px 24px;
+  padding: 14px 32px 16px;
+  border-bottom: 1px solid var(--cinza-b);
+}
+.pac-lanc-header-esq { min-width: 0; }
+.pac-lanc-linha1 { font-size: 20px; font-weight: 700; color: var(--text); }
+.pac-lanc-modulo { color: var(--verde); }
+.pac-lanc-linha2 { font-size: 13px; color: var(--text-muted); margin-top: 3px; }
+.pac-lanc-linha3 { font-size: 12.5px; color: var(--text-subtle); margin-top: 3px; overflow-wrap: break-word; }
+.pac-lanc-header-dir { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+.pac-lanc-relogio { text-align: right; font-size: 12px; color: var(--text-muted); line-height: 1.35; }
+.pac-lanc-relogio div:first-child { font-size: 15px; font-weight: 700; color: var(--text); }
+
 /* ── Botões ───────────────────────────────────────────── */
 .btn {
   display: inline-flex;
@@ -958,6 +987,35 @@ textarea:focus::placeholder { color: transparent; }
 .setor-bar-fill  { height: 100%; background: var(--verde); border-radius: 4px; transition: width .35s ease; }
 .setor-count     { font-size: 12px; font-weight: 700; color: var(--text); width: 22px; text-align: right; flex-shrink: 0; }
 
+/* ── Rodapé institucional (componente global, todas as páginas operacionais
+   dos 3 módulos — ver public/components/footer.html) ─────────────────────
+   Fundo escuro fixo de propósito (não segue --surface/--cinza-bg do tema) —
+   é identidade da plataforma, não do módulo nem do tema claro/escuro; só o
+   ícone de localização usa var(--verde), que already muda por módulo. */
+.app-footer {
+  margin-top: 40px;
+  padding: 22px 24px 16px;
+  border-radius: 10px;
+  background: #1a2029;
+  color: #aab2bd;
+  font-size: 0.8rem;
+}
+[data-theme="dark"] .app-footer { background: #12161d; border: 1px solid #232a35; }
+
+.app-footer-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+.app-footer-unidades { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 16px; }
+.app-footer-unidade { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.app-footer-unidade svg { flex-shrink: 0; color: var(--verde); }
+.app-footer-central { text-align: center; }
+.app-footer-central img { height: 26px; margin-bottom: 6px; }
+.app-footer-versao { font-size: 0.75rem; color: #7c8494; }
+.app-footer-credito { text-align: right; line-height: 1.6; }
+
 /* ── Responsive ────────────────────────────────────────── */
 @media (max-width: 1366px) {
   .cards-grid { grid-template-columns: repeat(2, 1fr); }
@@ -982,6 +1040,12 @@ textarea:focus::placeholder { color: transparent; }
   .dfd-table tr { border: 1px solid var(--cinza-b); border-radius: 8px; margin-bottom: 12px; padding: 8px 12px; }
   .dfd-table td { position: static; white-space: normal; border: none; padding: 6px 0; min-width: 0; box-shadow: none; }
   .dfd-table td::before { content: attr(data-label); display: block; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--text-subtle); margin-bottom: 2px; }
+
+  .pac-lanc-header { margin: -20px -16px 20px; padding: 12px 16px 14px; flex-wrap: wrap; }
+
+  .app-footer-grid { grid-template-columns: 1fr; text-align: center; gap: 18px; }
+  .app-footer-unidades { grid-template-columns: repeat(2, 1fr); justify-items: center; }
+  .app-footer-credito { text-align: center; }
 }
 
 /* ── Impressão ────────────────────────────────────────── */
@@ -1001,6 +1065,8 @@ textarea:focus::placeholder { color: transparent; }
   .no-print,
   .sidebar,
   .status-select,
+  .app-footer,
+  .pac-lanc-header,
   button,
   a.btn { display: none !important; }
 

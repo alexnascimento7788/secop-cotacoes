@@ -31,8 +31,23 @@ function parseMoeda(s) {
 }
 
 function badgeStatusDfd(status) {
+  const icone = { aberto: '●', analise: '⚠', fechado: '🔒' };
   const map = { aberto: 'Aberto', analise: 'Em análise', fechado: 'Fechado' };
-  return `<span class="badge badge-${status}">${map[status] || status}</span>`;
+  return `<span class="badge badge-${status}">${icone[status] || ''} ${map[status] || status}</span>`;
+}
+
+// Lê a mensagem de erro real do corpo da resposta (qualquer status, não só
+// 409) — sem isso, toda rejeição do backend (403 de setor, 404 de item já
+// removido, etc.) virava o mesmo toast genérico "Erro ao X", escondendo o
+// motivo de verdade. Corpo pode não ser JSON (ex.: erro 500 cru do Express)
+// — nesse caso cai no fallback.
+async function mensagemErro(res, fallback) {
+  try {
+    const e = await res.json();
+    return e.error || fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 let _dfdAtualId = null;
@@ -43,15 +58,43 @@ let _itensAtuais = [];
 
 document.addEventListener('DOMContentLoaded', () => {
   atualizarCabecalhoUsuario();
+  atualizarRelogioHeader();
+  setInterval(atualizarRelogioHeader, 60 * 1000);
   carregarDfds();
 });
 
-// Antes só mostrava um texto fixo "Departamento de Planejamento (DEPLA)" —
-// herdado por engano do pac-gestao.html (lá é correto, aqui não: quem lança
-// pode ser gestor de qualquer setor). Mostra o nome de quem está logado e o(s)
-// setor(es) reais dele.
+const MESES_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
+function atualizarRelogioHeader() {
+  const agora = new Date();
+  const hora = document.getElementById('pac-lanc-hora');
+  if (hora) hora.textContent = `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
+  const data = document.getElementById('pac-lanc-data');
+  if (data) data.textContent = `${String(agora.getDate()).padStart(2, '0')}/${MESES_PT[agora.getMonth()]}/${agora.getFullYear()}`;
+}
+
+// Foto (mesmo endpoint que a sidebar já usa) ou, sem foto, iniciais do nome
+// sobre fundo na cor do módulo — o avatar sai da sidebar e vive só aqui
+// nesta página (ver guarda em auth.js/_injetarFoto).
+function renderAvatarHeader(user) {
+  const el = document.getElementById('pac-lanc-avatar');
+  if (!el) return;
+  if (user && user.tem_foto) {
+    el.innerHTML = `<img src="/api/usuarios/${user.id}/foto" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover;display:block;" />`;
+    return;
+  }
+  const nome = (user && (user.nome_completo || user.username)) || '';
+  const iniciais = nome.trim().split(/\s+/).slice(0, 2).map(p => p[0]?.toUpperCase() || '').join('') || '?';
+  el.innerHTML = `<div style="width:36px;height:36px;border-radius:50%;background:var(--verde);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;">${iniciais}</div>`;
+}
+
+// Linha 3 do cabeçalho: nome + setor(es) + departamento gestor do módulo —
+// tudo já vem de getCurrentUser()/meus-setores, nenhuma requisição nova.
+// (Antes mostrava um texto fixo "Departamento de Planejamento (DEPLA)" —
+// herdado por engano do pac-gestao.html; aqui quem lança pode ser gestor de
+// qualquer setor, por isso vem dinâmico.)
 async function atualizarCabecalhoUsuario() {
-  const el = document.getElementById('lanc-page-subtitle');
+  const el = document.getElementById('pac-lanc-linha3');
   try {
     const [user, setoresRes] = await Promise.all([
       window.getCurrentUser(),
@@ -60,11 +103,15 @@ async function atualizarCabecalhoUsuario() {
     _meusSetores = setoresRes.ok ? await setoresRes.json() : [];
     const nome = (user && (user.nome_completo || user.username)) || '';
     const setores = _meusSetores.map(s => s.nome).join(', ') || 'nenhum setor vinculado';
-    el.textContent = `${nome} — ${setores}`;
+    const depto = (user && user.modulo_departamento_nome) || 'DEPLA';
+    el.textContent = `${nome} — ${setores} → ${depto}`;
+    renderAvatarHeader(user);
   } catch {
     el.textContent = '';
   }
 }
+
+const ICONE_VAZIO = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-subtle)" stroke-width="1.5"><path d="M9 12h6M9 16h6M9 8h1"/><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
 
 async function carregarDfds() {
   try {
@@ -75,9 +122,15 @@ async function carregarDfds() {
         <td><strong>${d.titulo}</strong></td>
         <td>${d.ano_base}</td>
         <td>${badgeStatusDfd(d.status)}</td>
-        <td style="text-align:right;"><button class="btn btn-secondary btn-sm" onclick="abrirDfd(${d.id})">Abrir</button></td>
+        <td>${d.itens_count ?? 0}</td>
+        <td style="text-align:right;"><button class="btn btn-primary btn-sm" onclick="abrirDfd(${d.id})">Abrir →</button></td>
       </tr>
-    `).join('') || `<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum DFD disponível para o seu setor no momento.</td></tr>`;
+    `).join('') || `<tr><td colspan="5" style="padding:32px 20px;text-align:center;color:var(--text-subtle);">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+          ${ICONE_VAZIO}
+          <span>Nenhum DFD disponível para o seu setor no momento.</span>
+        </div>
+      </td></tr>`;
   } catch {
     toast('Erro ao carregar DFDs', 'error');
   }
@@ -96,11 +149,10 @@ async function abrirDfd(id) {
   _dfdAtual = await dfdRes.json();
   _meusSetores = setoresRes.ok ? await setoresRes.json() : [];
 
-  document.getElementById('lanc-dfd-titulo').textContent = `${_dfdAtual.titulo} (${_dfdAtual.ano_base})`;
-  const badge = document.getElementById('lanc-dfd-badge');
-  const map = { aberto: 'Aberto', analise: 'Em análise', fechado: 'Fechado' };
-  badge.className = `badge badge-${_dfdAtual.status}`;
-  badge.textContent = map[_dfdAtual.status] || _dfdAtual.status;
+  document.getElementById('pac-lanc-titulo').textContent = `${_dfdAtual.titulo} (${_dfdAtual.ano_base})`;
+  const linha2 = document.getElementById('pac-lanc-linha2');
+  linha2.innerHTML = `Lançamento · ${badgeStatusDfd(_dfdAtual.status)}`;
+  linha2.style.display = '';
 
   await carregarListas();
   await renderMeusPedidos(); // calcula _pedidosLiberados antes da tabela usar
@@ -111,6 +163,8 @@ function fecharDfd() {
   _dfdAtualId = null; _dfdAtual = null;
   document.getElementById('pac-dfd-itens').style.display = 'none';
   document.getElementById('pac-dfd-lista').style.display = 'block';
+  document.getElementById('pac-lanc-titulo').textContent = 'Lançamento';
+  document.getElementById('pac-lanc-linha2').style.display = 'none';
   carregarDfds();
 }
 
@@ -295,7 +349,11 @@ async function salvarContrato() {
       document.getElementById('mc-msg').textContent = e.error || 'Não foi possível salvar.';
       return;
     }
-    if (!res.ok) throw new Error();
+    if (!res.ok) {
+      document.getElementById('mc-msg').style.color = '#c00';
+      document.getElementById('mc-msg').textContent = await mensagemErro(res, 'Não foi possível salvar.');
+      return;
+    }
     if (_dfdAtual.status !== 'aberto') await renderMeusPedidos();
     fecharModalContrato();
     renderItens();
@@ -342,7 +400,7 @@ async function salvarCampoItem(el) {
       toast(e.error || 'Não foi possível salvar.', 'error');
       return;
     }
-    if (!res.ok) throw new Error();
+    if (!res.ok) { toast(await mensagemErro(res, 'Erro ao salvar campo'), 'error'); return; }
     // Edição sob um pedido aprovado consome o pedido (uso único) — recarrega
     // pra refletir que a linha volta a ficar bloqueada.
     if (_dfdAtual.status !== 'aberto') { await renderMeusPedidos(); await renderItens(); }
@@ -382,8 +440,8 @@ async function excluirItem(itemId) {
       toast(e.error || 'Não foi possível excluir.', 'error');
       return;
     }
-    if (!res.ok) throw new Error();
-    renderItens();
+    if (!res.ok) { toast(await mensagemErro(res, 'Erro ao excluir item'), 'error'); return; }
+    await renderItens();
   } catch {
     toast('Erro ao excluir item', 'error');
   }

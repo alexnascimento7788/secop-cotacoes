@@ -49,10 +49,18 @@
 
   <!-- Main -->
   <main class="main">
-    <div class="page-header">
-      <div>
-        <div class="page-title">PAC — Lançamento</div>
-        <div class="page-subtitle" id="lanc-page-subtitle">Carregando...</div>
+    <div class="pac-lanc-header" id="pac-lanc-header">
+      <div class="pac-lanc-header-esq">
+        <div class="pac-lanc-linha1"><span class="pac-lanc-modulo">PAC</span> — <span id="pac-lanc-titulo">Lançamento</span></div>
+        <div class="pac-lanc-linha2" id="pac-lanc-linha2" style="display:none;"></div>
+        <div class="pac-lanc-linha3" id="pac-lanc-linha3">Carregando...</div>
+      </div>
+      <div class="pac-lanc-header-dir">
+        <div class="pac-lanc-relogio">
+          <div id="pac-lanc-hora">--:--</div>
+          <div id="pac-lanc-data">--/---/----</div>
+        </div>
+        <div class="pac-lanc-avatar" id="pac-lanc-avatar"></div>
       </div>
     </div>
 
@@ -62,8 +70,8 @@
         <div class="card-header"><span class="card-title">Documentos de Formalização de Demanda</span></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Título</th><th>Ano</th><th>Status</th><th></th></tr></thead>
-            <tbody id="dfds-tbody"><tr><td colspan="4" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
+            <thead><tr><th>Título</th><th>Ano</th><th>Status</th><th>Itens lançados</th><th></th></tr></thead>
+            <tbody id="dfds-tbody"><tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -72,16 +80,6 @@
     <!-- Itens do DFD aberto -->
     <div id="pac-dfd-itens" style="display:none;">
       <button class="btn btn-secondary btn-sm" onclick="fecharDfd()" style="margin-bottom:14px;">← Voltar aos DFDs</button>
-
-      <div class="card pac-dfd-header-card" style="margin-bottom:20px;">
-        <div style="padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-          <div>
-            <div style="font-size:15px;font-weight:700;color:var(--text);" id="lanc-dfd-titulo">—</div>
-            <span class="badge" id="lanc-dfd-badge"></span>
-          </div>
-          <span class="text-muted" id="lanc-dfd-contagem" style="font-size:12.5px;"></span>
-        </div>
-      </div>
 
       <div class="card" id="lanc-pedidos-card" style="display:none;margin-bottom:16px;">
         <div class="card-header"><span class="card-title">Meus pedidos de edição</span></div>
@@ -92,6 +90,9 @@
       </div>
 
       <div class="card" style="margin-bottom:32px;">
+        <div style="padding:10px 20px;display:flex;justify-content:flex-end;border-bottom:1px solid var(--cinza-b);">
+          <span class="text-muted" id="lanc-dfd-contagem" style="font-size:12.5px;"></span>
+        </div>
         <div class="table-wrap dfd-table-wrap">
           <table class="dfd-table" id="lanc-itens-table">
             <thead id="lanc-itens-thead"></thead>
@@ -101,6 +102,8 @@
         <div id="lanc-novo-item" style="padding:16px 20px;border-top:1px solid var(--cinza-b);background:var(--surface-2);"></div>
       </div>
     </div>
+
+    <div id="app-footer"></div>
   </main>
 </div>
 

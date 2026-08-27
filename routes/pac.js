@@ -210,15 +210,24 @@ router.get('/api/pac/colunas', pac, requireRotinaPac('ver'), (req, res) => {
 router.get('/api/pac/dfds', pac, requireRotinaPac('ver'), (req, res) => {
   let rows;
   if (temPacGestao(req)) {
-    rows = db.prepare(`SELECT * FROM dfds ORDER BY ano_base DESC, id DESC`).all();
+    // DEPLA/master: contagem de TODOS os itens do DFD (todos os setores).
+    rows = db.prepare(`
+      SELECT d.*,
+        (SELECT COUNT(*) FROM dfd_itens WHERE dfd_id = d.id AND excluido_em IS NULL) AS itens_count
+      FROM dfds d ORDER BY d.ano_base DESC, d.id DESC
+    `).all();
   } else {
     const meus = setoresDoUsuario(req.user.user_id);
     if (!meus.length) return res.json([]);
     const ph = meus.map(() => '?').join(',');
+    // Gestor de setor: contagem só dos itens do(s) próprio(s) setor(es) —
+    // mesmo filtro que GET /api/pac/dfds/:id/itens já usa.
     rows = db.prepare(`
-      SELECT DISTINCT d.* FROM dfds d JOIN dfd_setores ds ON ds.dfd_id = d.id
+      SELECT DISTINCT d.*,
+        (SELECT COUNT(*) FROM dfd_itens WHERE dfd_id = d.id AND excluido_em IS NULL AND setor_id IN (${ph})) AS itens_count
+      FROM dfds d JOIN dfd_setores ds ON ds.dfd_id = d.id
       WHERE ds.setor_id IN (${ph}) ORDER BY d.ano_base DESC, d.id DESC
-    `).all(...meus);
+    `).all(...meus, ...meus);
   }
   res.json(rows);
 });
