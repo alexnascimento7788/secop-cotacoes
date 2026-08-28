@@ -2308,7 +2308,7 @@ async function carregarMigracoes() {
           ${iconeDestino} Rodar no banco: <span style="letter-spacing:.5px;">${escHtml(banco)}</span>
           <span style="margin-left:auto;font-weight:600;font-size:11.5px;opacity:.9;">${escHtml(rotuloDestino)}</span>
         </div>
-        <pre id="mig-pre-${idEsc}" style="background:var(--surface-2);border:1px solid ${cor};border-top:none;border-radius:0 0 8px 8px;padding:12px;overflow:auto;font-size:12.5px;white-space:pre;margin:0;transition:border-color .2s ease;">${comandos}</pre>
+        <pre id="mig-pre-${idEsc}" style="background:var(--surface-2);border:1px solid ${cor};border-top:none;border-radius:0 0 8px 8px;padding:12px;overflow:auto;max-height:420px;font-size:12.5px;white-space:pre;margin:0;transition:border-color .2s ease;">${comandos}</pre>
         <div style="margin-top:8px;">
           <button class="btn btn-secondary" onclick="event.stopPropagation();copiarMigracao('${idEsc}')">📋 Copiar comandos</button>
         </div>
