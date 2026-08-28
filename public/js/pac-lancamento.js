@@ -212,19 +212,29 @@ async function renderItens() {
 
 const ICONE_CONTRATO_SIM = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--verde)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg>`;
 const ICONE_CONTRATO_NAO = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-subtle)" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
+const ICONE_CONTRATO_PENDENTE = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a15c00" stroke-width="2"><path d="M12 9v4"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L14.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 17h.01"/></svg>`;
 
-function contratoPreenchido(item, colunasContrato) {
-  return colunasContrato.some(c => {
-    const v = item.valores[c.id];
-    return v !== null && v !== undefined && v !== '';
-  });
+// "possui_contrato" (grupo B) é a fonte da verdade sobre o estado — não dá
+// mais pra inferir isso pelo preenchimento das colunas de grupo C, porque
+// "Não" deliberado e "ainda não respondido" ficavam iguais (colunas vazias
+// nos dois casos). Ver valoresContratoDoForm() pra como "Não" é gravado.
+function estadoContrato(item) {
+  const possuiCol = _dfdAtual.colunas.find(c => c.slug === 'possui_contrato');
+  const v = possuiCol ? item.valores[possuiCol.id] : null;
+  if (v === 'Sim') return 'sim';
+  if (v === 'Não') return 'nao';
+  return 'pendente';
 }
 
 function renderCelulaContrato(item, colunasContrato) {
-  const tem = contratoPreenchido(item, colunasContrato);
-  const titulo = tem ? 'Clique para ver/editar os dados do contrato' : 'Clique para informar os dados do contrato';
+  const estado = estadoContrato(item);
+  const cfg = {
+    sim: { icone: ICONE_CONTRATO_SIM, texto: 'Com contrato', titulo: 'Clique para ver/editar os dados do contrato' },
+    nao: { icone: ICONE_CONTRATO_NAO, texto: 'Sem contrato', titulo: 'Clique para ver/editar os dados do contrato' },
+    pendente: { icone: ICONE_CONTRATO_PENDENTE, texto: 'Pendente', titulo: 'Contrato ainda não informado — clique para responder' },
+  }[estado];
   return `<td data-label="Contrato" style="text-align:center;">
-    <button type="button" class="badge-contrato ${tem ? 'tem' : 'nao'}" title="${titulo}" onclick="abrirModalContrato(${item.id})">${tem ? ICONE_CONTRATO_SIM : ICONE_CONTRATO_NAO} ${tem ? 'Com contrato' : 'Sem contrato'}</button>
+    <button type="button" class="badge-contrato ${estado}" title="${cfg.titulo}" onclick="abrirModalContrato(${item.id})">${cfg.icone} ${cfg.texto}</button>
   </td>`;
 }
 
@@ -274,20 +284,25 @@ function renderInputCelula(itemId, coluna, valor) {
 /* ── Popup "Dados do contrato" (grupo C) — aberto pela coluna única Contrato ── */
 
 let _mcItemId = null;
+let _mcModoCriacao = false;
+let _mcSetorNovo = null;
 
 function abrirModalContrato(itemId) {
   const item = _itensAtuais.find(i => i.id === itemId);
   if (!item) return;
+  _mcModoCriacao = false;
+  _mcSetorNovo = null;
   _mcItemId = itemId;
   const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
   const liberado = _pedidosLiberados[itemId] || new Set();
   const editavel = _dfdAtual.status === 'aberto' || liberado.has('editar');
-  const tem = contratoPreenchido(item, colunasContrato);
+  const estado = estadoContrato(item);
 
   const selectPossui = document.getElementById('mc-possui');
-  selectPossui.value = tem ? 'sim' : 'nao';
+  selectPossui.value = estado === 'sim' ? 'sim' : 'nao';
   selectPossui.disabled = !editavel;
 
+  document.getElementById('mc-subtitulo').textContent = '';
   document.getElementById('mc-campos').innerHTML = colunasContrato.map(c => {
     const valor = item.valores[c.id];
     const campo = editavel ? renderInputCelula(itemId, c, valor) : `<div style="padding:8px 0;">${formatarValorExibicao(c, valor)}</div>`;
@@ -296,6 +311,32 @@ function abrirModalContrato(itemId) {
 
   mcAtualizarVisibilidadeCampos();
   document.getElementById('mc-salvar').style.display = editavel ? '' : 'none';
+  document.getElementById('mc-msg').textContent = '';
+  document.getElementById('modal-contrato').classList.add('open');
+}
+
+// Contrato é obrigatório antes do item existir — "+ Novo item" não cria mais
+// uma linha em branco direto; abre este popup primeiro (Sim/Não já aqui),
+// e só cria o item de fato em salvarContrato() quando o usuário confirmar.
+// Sem isso dava pra clicar "+ Novo item" e nunca mais tocar no Contrato.
+function abrirModalContratoNovoItem(setorId) {
+  _mcModoCriacao = true;
+  _mcItemId = null;
+  _mcSetorNovo = Number(setorId);
+  const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
+  const nomeSetor = (_meusSetores.find(s => s.id === _mcSetorNovo) || {}).nome;
+
+  const selectPossui = document.getElementById('mc-possui');
+  selectPossui.value = 'nao';
+  selectPossui.disabled = false;
+
+  document.getElementById('mc-subtitulo').textContent = `Novo item${nomeSetor ? ' — ' + nomeSetor : ''}`;
+  document.getElementById('mc-campos').innerHTML = colunasContrato.map(c =>
+    `<div class="form-group" style="margin-bottom:10px;"><label>${c.label}</label>${renderInputCelula('novo', c, '')}</div>`
+  ).join('') || '<p class="text-muted">Nenhuma coluna de contrato ativa neste DFD.</p>';
+
+  mcAtualizarVisibilidadeCampos();
+  document.getElementById('mc-salvar').style.display = '';
   document.getElementById('mc-msg').textContent = '';
   document.getElementById('modal-contrato').classList.add('open');
 }
@@ -311,6 +352,8 @@ function mcAtualizarVisibilidadeCampos() {
 function fecharModalContrato() {
   document.getElementById('modal-contrato').classList.remove('open');
   _mcItemId = null;
+  _mcModoCriacao = false;
+  _mcSetorNovo = null;
 }
 
 // "Possui Contrato?" (grupo B) não aparece mais como coluna própria na
@@ -328,7 +371,11 @@ function valoresContratoDoForm() {
       valores[el.dataset.coluna] = v === '' ? null : v;
     });
   } else {
-    colunasContrato.forEach(c => { valores[c.id] = null; });
+    // "Não" precisa ficar distinguível de "ainda não respondido" (ver
+    // estadoContrato) — os campos de texto/número seguem nulos, mas a coluna
+    // de data ganha uma sentinela (01/01/1900) em vez de NULL, porque
+    // "Sem contrato" é uma resposta completa e definitiva, não uma ausência.
+    colunasContrato.forEach(c => { valores[c.id] = c.tipo_input === 'data' ? '1900-01-01' : null; });
   }
   const possuiCol = _dfdAtual.colunas.find(c => c.slug === 'possui_contrato');
   if (possuiCol) valores[possuiCol.id] = sim ? 'Sim' : 'Não';
@@ -338,10 +385,15 @@ function valoresContratoDoForm() {
 async function salvarContrato() {
   const valores = valoresContratoDoForm();
   try {
-    const res = await fetch(`/api/pac/itens/${_mcItemId}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ valores }),
-    });
+    const res = _mcModoCriacao
+      ? await fetch(`/api/pac/dfds/${_dfdAtualId}/itens`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ setor_id: _mcSetorNovo, valores }),
+        })
+      : await fetch(`/api/pac/itens/${_mcItemId}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ valores }),
+        });
     if (res.status === 409) {
       const e = await res.json();
       if (e.pedeEdicao) { fecharModalContrato(); ofertarPedidoEdicao(_mcItemId); return; }
@@ -354,7 +406,7 @@ async function salvarContrato() {
       document.getElementById('mc-msg').textContent = await mensagemErro(res, 'Não foi possível salvar.');
       return;
     }
-    if (_dfdAtual.status !== 'aberto') await renderMeusPedidos();
+    if (!_mcModoCriacao && _dfdAtual.status !== 'aberto') await renderMeusPedidos();
     fecharModalContrato();
     renderItens();
   } catch {
@@ -463,7 +515,18 @@ function renderFormNovoItem() {
     ? `<select id="novo-item-setor" style="margin-right:10px;">${_meusSetores.map(s => `<option value="${s.id}">${s.nome}</option>`).join('')}</select>`
     : `<input type="hidden" id="novo-item-setor" value="${_meusSetores[0].id}" />`;
 
-  wrap.innerHTML = `${selectSetor}<button class="btn btn-primary btn-sm" onclick="criarItem()">+ Novo item</button>`;
+  wrap.innerHTML = `${selectSetor}<button class="btn btn-primary btn-sm" onclick="iniciarNovoItem()">+ Novo item</button>`;
+}
+
+// Contrato é obrigatório (ver abrirModalContratoNovoItem) — só pula direto
+// pra criarItem() quando o DFD nem tem a coluna de contrato ativada.
+function iniciarNovoItem() {
+  const temColContrato = _dfdAtual.colunas.some(c => c.grupo === 'C');
+  if (temColContrato) {
+    abrirModalContratoNovoItem(document.getElementById('novo-item-setor').value);
+  } else {
+    criarItem();
+  }
 }
 
 async function criarItem() {

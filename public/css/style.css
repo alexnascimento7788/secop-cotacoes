@@ -440,8 +440,10 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 }
 button.badge-contrato { cursor: pointer; }
 button.badge-contrato:hover { filter: brightness(0.96); border-color: var(--cinza-t); }
-.badge-contrato.tem { background: #dcfce7; color: #15803d; border-color: transparent; }
-[data-theme="dark"] .badge-contrato.tem { background: rgba(21,128,61,.22); color: #86efac; }
+.badge-contrato.sim { background: #dcfce7; color: #15803d; border-color: transparent; }
+[data-theme="dark"] .badge-contrato.sim { background: rgba(21,128,61,.22); color: #86efac; }
+.badge-contrato.pendente { background: #fef9c3; color: #854d0e; border-color: transparent; }
+[data-theme="dark"] .badge-contrato.pendente { background: rgba(202,138,4,.22); color: #fde047; }
 
 /* Cartão de cabeçalho de um DFD aberto (Lançamento/Gestão) — faixa de destaque
    no topo pra não ficar tão "sem graça" quanto um card branco comum. */

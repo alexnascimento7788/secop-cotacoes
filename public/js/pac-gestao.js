@@ -207,7 +207,7 @@ async function renderItensDfd(colunasParam) {
     <tr>
       <td>${nomeSetor(item.setor_id)}</td>
       ${colunas.map(c => `<td>${formatarValorColuna(c, c.slug === 'numero_item' ? item.numero_item : item.valores[c.id])}</td>`).join('')}
-      ${temColContrato ? celulaContratoLeitura(item, colunasContrato) : ''}
+      ${temColContrato ? celulaContratoLeitura(item, colunasContrato, todasColunas) : ''}
     </tr>
   `).join('') || `<tr><td colspan="${colunas.length + (temColContrato ? 2 : 1)}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`;
 }
@@ -233,20 +233,27 @@ function formatarValorColuna(coluna, valor) {
 
 const ICONE_CONTRATO_SIM = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--verde)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg>`;
 const ICONE_CONTRATO_NAO = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-subtle)" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
+const ICONE_CONTRATO_PENDENTE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a15c00" stroke-width="2"><path d="M12 9v4"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L14.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 17h.01"/></svg>`;
 
 // Só leitura aqui (quem edita é o gestor em Lançamento) — badge com texto
-// (Com/Sem contrato) já visível, sem depender de hover; o tooltip complementa
-// listando os dados quando preenchido.
-function celulaContratoLeitura(item, colunasContrato) {
+// já visível, sem depender de hover; o tooltip complementa listando os
+// dados quando preenchido. "possui_contrato" (grupo B) é a fonte da verdade
+// do estado — distingue "Não" deliberado de "ainda não respondido"
+// (mesma lógica de estadoContrato() em pac-lancamento.js).
+function celulaContratoLeitura(item, colunasContrato, todasColunas) {
+  const possuiCol = todasColunas.find(c => c.slug === 'possui_contrato');
+  const v = possuiCol ? item.valores[possuiCol.id] : null;
+  const estado = v === 'Sim' ? 'sim' : v === 'Não' ? 'nao' : 'pendente';
   const preenchidos = colunasContrato.filter(c => {
-    const v = item.valores[c.id];
-    return v !== null && v !== undefined && v !== '';
+    const val = item.valores[c.id];
+    return val !== null && val !== undefined && val !== '';
   });
-  const tem = !!preenchidos.length;
-  const titulo = tem
-    ? preenchidos.map(c => `${c.label}: ${formatarValorColuna(c, item.valores[c.id])}`).join(' · ')
-    : 'Este item não tem contrato';
-  return `<td style="text-align:center;"><span class="badge-contrato ${tem ? 'tem' : 'nao'}" title="${titulo}">${tem ? ICONE_CONTRATO_SIM : ICONE_CONTRATO_NAO} ${tem ? 'Com contrato' : 'Sem contrato'}</span></td>`;
+  const cfg = {
+    sim: { icone: ICONE_CONTRATO_SIM, texto: 'Com contrato', titulo: preenchidos.map(c => `${c.label}: ${formatarValorColuna(c, item.valores[c.id])}`).join(' · ') || 'Com contrato' },
+    nao: { icone: ICONE_CONTRATO_NAO, texto: 'Sem contrato', titulo: 'Este item não tem contrato' },
+    pendente: { icone: ICONE_CONTRATO_PENDENTE, texto: 'Pendente', titulo: 'O setor ainda não informou se este item tem contrato' },
+  }[estado];
+  return `<td style="text-align:center;"><span class="badge-contrato ${estado}" title="${cfg.titulo}">${cfg.icone} ${cfg.texto}</span></td>`;
 }
 
 /* ── Setores (cadastro) ──────────────────────────────────────────────────── */
