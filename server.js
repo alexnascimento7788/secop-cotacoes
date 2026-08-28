@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 const { db, anexosDb } = require('./database');
 // Peças transversais de sessão/auth usadas pelas rotas /api/auth/* abaixo —
@@ -241,7 +242,12 @@ app.use(adminRouter);
 // fica pendurada pra sempre (foi isso que deixava o indicador de versão nunca
 // aparecer: o fetch('/api/version') do front nunca resolvia).
 app.get('/api/version', (_req, res) => {
-  const { version } = require('./package.json');
+  // Lê o arquivo direto (não require()) — require() cacheia pro resto da vida
+  // do processo, então um servidor de longa duração continuaria anunciando a
+  // versão de quando ele SUBIU, mesmo depois de um git pull sem reiniciar
+  // (é justamente o tipo de coisa que confunde ao comparar prints/ambientes).
+  let version = '?';
+  try { version = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')).version; } catch {}
   res.json({ version, homolog: IS_HOMOLOG });
 });
 

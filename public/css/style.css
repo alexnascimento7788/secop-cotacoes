@@ -989,32 +989,30 @@ textarea:focus::placeholder { color: transparent; }
 
 /* ── Rodapé institucional (componente global, todas as páginas operacionais
    dos 3 módulos — ver public/components/footer.html) ─────────────────────
-   Fundo escuro fixo de propósito (não segue --surface/--cinza-bg do tema) —
-   é identidade da plataforma, não do módulo nem do tema claro/escuro; só o
-   ícone de localização usa var(--verde), que already muda por módulo. */
+   Acompanha o tema claro/escuro da página (var(--surface)/var(--cinza-b)) —
+   só o ícone de localização usa var(--verde), que já muda por módulo; isso
+   é o único toque "de identidade" que varia, o resto é neutro por design. */
 .app-footer {
   margin-top: 40px;
-  padding: 22px 24px 16px;
+  padding: 20px 24px 16px;
   border-radius: 10px;
-  background: #1a2029;
-  color: #aab2bd;
+  background: var(--surface);
+  border: 1px solid var(--cinza-b);
+  color: var(--text-muted);
   font-size: 0.8rem;
 }
-[data-theme="dark"] .app-footer { background: #12161d; border: 1px solid #232a35; }
 
 .app-footer-grid {
   display: grid;
-  grid-template-columns: 1.3fr 1fr 1fr;
+  grid-template-columns: 1.6fr 1fr;
   gap: 24px;
   align-items: start;
 }
 .app-footer-unidades { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 16px; }
 .app-footer-unidade { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .app-footer-unidade svg { flex-shrink: 0; color: var(--verde); }
-.app-footer-central { text-align: center; }
-.app-footer-central img { height: 26px; margin-bottom: 6px; }
-.app-footer-versao { font-size: 0.75rem; color: #7c8494; }
 .app-footer-credito { text-align: right; line-height: 1.6; }
+.app-footer-versao { font-size: 0.75rem; color: var(--text-subtle); margin-top: 4px; }
 
 /* ── Responsive ────────────────────────────────────────── */
 @media (max-width: 1366px) {
