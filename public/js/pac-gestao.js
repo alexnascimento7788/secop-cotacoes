@@ -20,6 +20,8 @@ document.addEventListener('DOMContentLoaded', () => {
   carregarSetores();
   popularSelectListas();
   carregarPedidos();
+  aplicarPermissaoSolicitacoes();
+  popularSelectDfdsExecucao();
 });
 
 function mudarAbaPac(aba) {
@@ -28,6 +30,23 @@ function mudarAbaPac(aba) {
   if (aba === 'setores') carregarSetores();
   if (aba === 'parametros') carregarParametros();
   if (aba === 'pedidos') carregarPedidos();
+  if (aba === 'consolidacao') carregarConsolidacaoLista();
+  if (aba === 'solicitacoes') carregarSolicitacoes();
+  if (aba === 'acompanhamento') carregarAcompanhamento();
+}
+
+// 'pac-solicitacoes' é rotina própria (independente de 'pac-gestao') — quem
+// abre esta página (já tem "ver" em pac-gestao) pode não ter acesso à aba de
+// Solicitações. O servidor já barra (403) qualquer chamada sem essa rotina;
+// aqui só escondemos a aba pra não oferecer algo que vai falhar na certa.
+async function aplicarPermissaoSolicitacoes() {
+  try {
+    const r = await fetch('/api/auth/rotinas');
+    if (!r.ok) return;
+    const { rotinas } = await r.json();
+    const sol = (rotinas || []).find(x => x.slug === 'pac-solicitacoes');
+    if (!sol || !sol.ver) document.querySelector('#pac-tabs [data-tab="solicitacoes"]')?.remove();
+  } catch {}
 }
 
 /* ── DFDs ─────────────────────────────────────────────────────────────────── */
@@ -374,6 +393,7 @@ async function toggleSetorUsuario(userId, vinculado) {
 const LISTAS_PARAMETRO = [
   ['tipo', 'Tipo'], ['subitem', 'Subitem'], ['prioridade', 'Prioridade'],
   ['fonte_pagadora', 'Fonte Pagadora'], ['unidade_medida', 'Unidade'], ['sim_nao', 'Sim/Não'],
+  ['natureza_orcamentaria', 'Natureza Orçamentária'],
 ];
 
 function popularSelectListas() {
@@ -504,4 +524,454 @@ async function responderPedido(id, status) {
   } catch (e) {
     toast('Erro: ' + e.message, 'error');
   }
+}
+
+/* ── Execução do PAC: helpers compartilhados (Consolidação/Solicitações/Acompanhamento) ── */
+
+function parseMoeda(s) {
+  if (s === null || s === undefined || s === '') return 0;
+  const v = parseFloat(String(s).replace(/[R$\s.]/g, '').replace(',', '.'));
+  return isNaN(v) ? 0 : v;
+}
+function fmtBrData(iso) {
+  if (!iso) return '—';
+  const d = String(iso).split(/[T ]/)[0].split('-');
+  if (d.length < 3) return iso;
+  return `${d[2]}/${d[1]}/${d[0]}`;
+}
+function badgeStatusExec(status) {
+  const cor = {
+    'Não Iniciado': 'fechado', 'Processado DEPLA': 'aberto', 'Fracionamento Aberto': 'analise',
+    'Processo Finalizado': 'aberto', 'Cancelado': 'fechado',
+  }[status] || 'fechado';
+  return `<span class="badge badge-${cor}">${status || '—'}</span>`;
+}
+
+// Popula os 2 seletores de "DFD (exercício)" (Solicitações e Acompanhamento) —
+// só faz sentido trabalhar execução em cima de um DFD já fechado (é quando a
+// consolidação existe), mas a lista aceita qualquer DFD: solicitação pode ser
+// registrada mesmo antes da consolidação (o vínculo é por item_id, não por
+// numero_pac — sobrevive à consolidação/recálculo que vier depois).
+async function popularSelectDfdsExecucao() {
+  if (!_dfds.length) await carregarDfds();
+  const opts = _dfds.map(d => `<option value="${d.id}">${d.titulo} (${d.ano_base})</option>`).join('');
+  const solSel = document.getElementById('sol-dfd-select');
+  const acompSel = document.getElementById('acomp-dfd-select');
+  if (solSel) solSel.innerHTML = opts;
+  if (acompSel) acompSel.innerHTML = opts;
+
+  try {
+    const [setoresRes, naturezaRes] = await Promise.all([
+      fetch('/api/pac/setores'),
+      fetch('/api/pac/parametros?lista=natureza_orcamentaria'),
+    ]);
+    const setores = setoresRes.ok ? await setoresRes.json() : [];
+    const setorSel = document.getElementById('sol-setor-select');
+    if (setorSel) setorSel.innerHTML = setores.filter(s => s.ativo).map(s => `<option value="${s.id}">${s.nome}</option>`).join('');
+    const filtroSetor = document.getElementById('acomp-filtro-setor');
+    if (filtroSetor) filtroSetor.innerHTML = `<option value="">Todos</option>` + setores.map(s => `<option value="${s.id}">${s.nome}</option>`).join('');
+
+    const naturezas = naturezaRes.ok ? await naturezaRes.json() : [];
+    const naturezaSel = document.getElementById('sol-natureza-select');
+    if (naturezaSel) {
+      naturezaSel.innerHTML = naturezas.filter(n => n.ativo).map(n => `<option value="${n.valor}">${n.valor}</option>`).join('')
+        || `<option value="">Nenhuma cadastrada em Parâmetros</option>`;
+    }
+  } catch {}
+}
+
+/* ── Consolidação ─────────────────────────────────────────────────────────── */
+
+async function carregarConsolidacaoLista() {
+  document.getElementById('consol-lista').style.display = 'block';
+  document.getElementById('consol-detalhe').style.display = 'none';
+  if (!_dfds.length) await carregarDfds();
+  const fechados = _dfds.filter(d => d.status === 'fechado');
+  const tbody = document.getElementById('consol-tbody');
+  if (!fechados.length) {
+    tbody.innerHTML = `<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum DFD fechado ainda.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = `<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
+  const linhas = await Promise.all(fechados.map(async d => {
+    const res = await fetch(`/api/pac/dfds/${d.id}/consolidado`);
+    const info = res.ok ? await res.json() : { consolidado: false };
+    return { dfd: d, info };
+  }));
+  tbody.innerHTML = linhas.map(({ dfd, info }) => `
+    <tr>
+      <td><strong>${dfd.titulo}</strong></td>
+      <td>${dfd.ano_base}</td>
+      <td>${dfd.itens_count}</td>
+      <td>${info.consolidado
+        ? `Consolidado em ${fmtBrData(info.consolidacao.consolidado_em)}`
+        : `<span class="text-muted">Não consolidado</span>`}</td>
+      <td style="text-align:right;white-space:nowrap;">
+        ${info.consolidado
+          ? `<button class="btn btn-secondary btn-sm" onclick="abrirConsolidadoDetalhe(${dfd.id},'${(dfd.titulo || '').replace(/'/g, "\\'")}',${dfd.ano_base})">Ver consolidado</button>`
+          : `<button class="btn btn-primary btn-sm" onclick="consolidarDfd(${dfd.id},'${(dfd.titulo || '').replace(/'/g, "\\'")}',${dfd.ano_base},${dfd.itens_count})">Consolidar agora</button>`}
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function consolidarDfd(dfdId, titulo, anoBase, totalItens) {
+  if (!confirm(`Isso atribuirá números PAC a todos os ${totalItens} itens do DFD "${titulo}". Deseja continuar?`)) return;
+  try {
+    const res = await fetch(`/api/pac/dfds/${dfdId}/consolidar`, { method: 'POST' });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    toast('DFD consolidado.');
+    abrirConsolidadoDetalhe(dfdId, titulo, anoBase);
+    carregarConsolidacaoLista();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+  }
+}
+
+let _consolDfdId = null;
+
+async function abrirConsolidadoDetalhe(dfdId, titulo, anoBase) {
+  _consolDfdId = dfdId;
+  document.getElementById('consol-lista').style.display = 'none';
+  document.getElementById('consol-detalhe').style.display = 'block';
+  document.getElementById('consol-det-titulo').textContent = `${titulo} (${anoBase}) — Consolidado`;
+  await renderConsolidadoDetalhe();
+}
+
+function fecharConsolidadoDetalhe() {
+  _consolDfdId = null;
+  carregarConsolidacaoLista();
+}
+
+async function renderConsolidadoDetalhe() {
+  const tbody = document.getElementById('consol-itens-tbody');
+  tbody.innerHTML = `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
+  const res = await fetch(`/api/pac/dfds/${_consolDfdId}/consolidado`);
+  const info = res.ok ? await res.json() : { itens: [] };
+  const idDescricao = colunaId('descricao_objeto');
+  const idTipo = colunaId('tipo');
+  const idValorEstimado = colunaId('valor_estimado');
+  const STATUS_OPCOES = ['Não Iniciado', 'Processado DEPLA', 'Fracionamento Aberto', 'Processo Finalizado', 'Cancelado'];
+  tbody.innerHTML = info.itens.map(item => `
+    <tr>
+      <td><strong>${item.numero_pac || '—'}</strong></td>
+      <td>${item.setor_nome}</td>
+      <td>${item.numero_item}</td>
+      <td>${item.valores[idDescricao] || '—'}</td>
+      <td>${item.valores[idTipo] || '—'}</td>
+      <td>${fmtMoeda(item.valores[idValorEstimado])}</td>
+      <td>
+        <select onchange="alterarStatusExecucao(${item.id}, this.value)">
+          ${STATUS_OPCOES.map(s => `<option value="${s}" ${s === item.status_execucao ? 'selected' : ''}>${s}</option>`).join('')}
+        </select>
+      </td>
+      <td style="text-align:right;"><button class="btn btn-danger btn-sm" onclick="excluirItemConsolidado(${item.id})">Excluir</button></td>
+    </tr>
+  `).join('') || `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item consolidado.</td></tr>`;
+}
+
+// idColunaCache: dfd_colunas_catalogo é fixo (mesmo catálogo pra todos os DFDs)
+// — resolvido 1x no carregamento da página em vez de bater no back a cada render.
+let _colunasCatalogo = null;
+function colunaId(slug) {
+  if (!_colunasCatalogo) return null; // ainda não carregado — chamadores tratam undefined normalmente
+  const c = _colunasCatalogo.find(x => x.slug === slug);
+  return c ? c.id : null;
+}
+(async () => {
+  try {
+    const res = await fetch('/api/pac/colunas');
+    _colunasCatalogo = res.ok ? await res.json() : [];
+  } catch { _colunasCatalogo = []; }
+})();
+
+async function alterarStatusExecucao(itemId, status) {
+  try {
+    const res = await fetch(`/api/pac/itens/${itemId}/status`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status_execucao: status }),
+    });
+    if (!res.ok) throw new Error();
+    toast('Status atualizado.');
+  } catch {
+    toast('Erro ao atualizar status', 'error');
+    renderConsolidadoDetalhe();
+  }
+}
+
+async function excluirItemConsolidado(itemId) {
+  if (!confirm('O número PAC dos itens seguintes será recalculado automaticamente. Excluir este item?')) return;
+  try {
+    const res = await fetch(`/api/pac/itens/${itemId}/consolidado`, { method: 'DELETE' });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    toast('Item excluído e numeração recalculada.');
+    renderConsolidadoDetalhe();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+  }
+}
+
+/* ── Solicitações de contratação ─────────────────────────────────────────── */
+
+let _solItensDoDfd = [];
+let _solEditandoId = null;
+
+async function carregarSolicitacoes() {
+  const dfdId = document.getElementById('sol-dfd-select').value;
+  if (!dfdId) return;
+  cancelarEdicaoSolicitacao();
+
+  try {
+    const itensRes = await fetch(`/api/pac/dfds/${dfdId}/itens`);
+    _solItensDoDfd = itensRes.ok ? await itensRes.json() : [];
+    const idDescricao = colunaId('descricao_objeto');
+    const itemSel = document.getElementById('sol-item-select');
+    itemSel.innerHTML = '<option value="">— selecione o item —</option>' + _solItensDoDfd.map(i =>
+      `<option value="${i.id}">${i.numero_pac || ('#' + i.numero_item)} — ${(i.valores[idDescricao] || 'sem descrição').substring(0, 60)}</option>`
+    ).join('');
+  } catch {}
+
+  try {
+    const res = await fetch(`/api/pac/dfds/${dfdId}/solicitacoes`);
+    const solicitacoes = res.ok ? await res.json() : [];
+    const contagemPorItem = {};
+    solicitacoes.filter(s => !s.sem_pac).forEach(s => { contagemPorItem[s.item_id] = (contagemPorItem[s.item_id] || 0) + 1; });
+
+    document.getElementById('sol-com-pac-tbody').innerHTML = solicitacoes.filter(s => !s.sem_pac).map(s => `
+      <tr>
+        <td><strong>${s.numero_pac || '—'}</strong>${contagemPorItem[s.item_id] > 1 ? `<span class="pac-cnt-solic">${contagemPorItem[s.item_id]}</span>` : ''}</td>
+        <td>${s.numero_movimento || '—'}</td>
+        <td>${fmtBrData(s.data_requisicao)}</td>
+        <td>${nomeSetorPac(s.setor_requisitante_id)}</td>
+        <td>${fmtMoeda(s.valor_tu_mlp)}</td>
+        <td>${fmtMoeda(s.valor_rdc)}</td>
+        <td style="text-align:right;white-space:nowrap;">
+          <button class="btn btn-secondary btn-sm" onclick="editarSolicitacao(${s.id})">Editar</button>
+          <button class="btn btn-danger btn-sm" onclick="excluirSolicitacao(${s.id})">Excluir</button>
+        </td>
+      </tr>
+    `).join('') || `<tr><td colspan="7" style="padding:16px;text-align:center;color:var(--text-subtle);">Nenhuma solicitação vinculada.</td></tr>`;
+
+    document.getElementById('sol-sem-pac-tbody').innerHTML = solicitacoes.filter(s => s.sem_pac).map(s => `
+      <tr>
+        <td>${s.numero_movimento || '—'}</td>
+        <td>${fmtBrData(s.data_requisicao)}</td>
+        <td>${nomeSetorPac(s.setor_requisitante_id)}</td>
+        <td>${s.descricao_objeto || '—'}</td>
+        <td>${fmtMoeda(s.valor_tu_mlp)}</td>
+        <td>${fmtMoeda(s.valor_rdc)}</td>
+        <td style="text-align:right;white-space:nowrap;">
+          <button class="btn btn-secondary btn-sm" onclick="editarSolicitacao(${s.id})">Editar</button>
+          <button class="btn btn-danger btn-sm" onclick="excluirSolicitacao(${s.id})">Excluir</button>
+        </td>
+      </tr>
+    `).join('') || `<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text-subtle);">Nenhuma contratação não planejada.</td></tr>`;
+
+    window._solicitacoesCache = solicitacoes;
+  } catch {
+    toast('Erro ao carregar solicitações', 'error');
+  }
+}
+
+function nomeSetorPac(id) {
+  const s = (_solSetoresCache || []).find(x => x.id === id);
+  return s ? s.nome : (id ? `#${id}` : '—');
+}
+let _solSetoresCache = [];
+(async () => {
+  try { const r = await fetch('/api/pac/setores'); _solSetoresCache = r.ok ? await r.json() : []; } catch {}
+})();
+
+function solAtualizarVinculo() {
+  const semPac = document.getElementById('sol-sem-pac').checked;
+  document.getElementById('sol-vinculo-wrap').style.display = semPac ? 'none' : '';
+  if (semPac) document.getElementById('sol-item-select').value = '';
+}
+
+function limparFormSolicitacao() {
+  document.getElementById('sol-sem-pac').checked = false;
+  solAtualizarVinculo();
+  document.getElementById('sol-item-select').value = '';
+  document.getElementById('sol-numero-movimento').value = '';
+  document.getElementById('sol-data-requisicao').value = '';
+  document.getElementById('sol-valor-tu-mlp').value = '';
+  document.getElementById('sol-valor-rdc').value = '';
+  document.getElementById('sol-descricao').value = '';
+  document.getElementById('sol-observacao').value = '';
+}
+
+function cancelarEdicaoSolicitacao() {
+  _solEditandoId = null;
+  document.getElementById('sol-btn-salvar').textContent = '+ Registrar solicitação';
+  document.getElementById('sol-btn-cancelar').style.display = 'none';
+  limparFormSolicitacao();
+  document.getElementById('sol-msg').textContent = '';
+}
+
+function editarSolicitacao(id) {
+  const s = (window._solicitacoesCache || []).find(x => x.id === id);
+  if (!s) return;
+  _solEditandoId = id;
+  document.getElementById('sol-sem-pac').checked = !s.item_id;
+  solAtualizarVinculo();
+  document.getElementById('sol-item-select').value = s.item_id || '';
+  document.getElementById('sol-numero-movimento').value = s.numero_movimento || '';
+  document.getElementById('sol-data-requisicao').value = s.data_requisicao || '';
+  document.getElementById('sol-setor-select').value = s.setor_requisitante_id || '';
+  document.getElementById('sol-natureza-select').value = s.natureza_orcamentaria || '';
+  document.getElementById('sol-valor-tu-mlp').value = s.valor_tu_mlp ? fmtMoeda(s.valor_tu_mlp).replace('R$', '').trim() : '';
+  document.getElementById('sol-valor-rdc').value = s.valor_rdc ? fmtMoeda(s.valor_rdc).replace('R$', '').trim() : '';
+  document.getElementById('sol-descricao').value = s.descricao_objeto || '';
+  document.getElementById('sol-observacao').value = s.observacao || '';
+  document.getElementById('sol-btn-salvar').textContent = 'Salvar edição';
+  document.getElementById('sol-btn-cancelar').style.display = '';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function salvarSolicitacao() {
+  const dfdId = document.getElementById('sol-dfd-select').value;
+  const msg = document.getElementById('sol-msg');
+  msg.style.color = '';
+  const semPac = document.getElementById('sol-sem-pac').checked;
+  const item_id = semPac ? null : (Number(document.getElementById('sol-item-select').value) || null);
+  if (!semPac && !item_id) { msg.style.color = '#c00'; msg.textContent = 'Selecione o item do PAC ou marque "Sem vínculo".'; return; }
+
+  const payload = {
+    item_id,
+    numero_movimento: document.getElementById('sol-numero-movimento').value.trim(),
+    data_requisicao: document.getElementById('sol-data-requisicao').value || null,
+    setor_requisitante_id: Number(document.getElementById('sol-setor-select').value) || null,
+    natureza_orcamentaria: document.getElementById('sol-natureza-select').value || null,
+    descricao_objeto: document.getElementById('sol-descricao').value.trim(),
+    valor_tu_mlp: parseMoeda(document.getElementById('sol-valor-tu-mlp').value),
+    valor_rdc: parseMoeda(document.getElementById('sol-valor-rdc').value),
+    observacao: document.getElementById('sol-observacao').value.trim(),
+  };
+
+  try {
+    const res = _solEditandoId
+      ? await fetch(`/api/pac/solicitacoes/${_solEditandoId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      : await fetch(`/api/pac/dfds/${dfdId}/solicitacoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    msg.style.color = '#2E7D32';
+    msg.textContent = _solEditandoId ? 'Solicitação atualizada.' : 'Solicitação registrada.';
+    cancelarEdicaoSolicitacao();
+    carregarSolicitacoes();
+  } catch (e) {
+    msg.style.color = '#c00'; msg.textContent = 'Erro: ' + e.message;
+  }
+}
+
+async function excluirSolicitacao(id) {
+  if (!confirm('Excluir esta solicitação?')) return;
+  try {
+    const res = await fetch(`/api/pac/solicitacoes/${id}`, { method: 'DELETE' });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    carregarSolicitacoes();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+  }
+}
+
+/* ── Acompanhamento (DEPLA — visão completa) ─────────────────────────────── */
+
+let _acompDados = null;
+
+async function carregarAcompanhamento() {
+  const dfdId = document.getElementById('acomp-dfd-select').value;
+  if (!dfdId) return;
+  document.getElementById('acomp-tbody').innerHTML = `<tr><td colspan="13" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
+  try {
+    const res = await fetch(`/api/pac/dfds/${dfdId}/acompanhamento`);
+    if (!res.ok) throw new Error();
+    _acompDados = await res.json();
+    renderTabelaAcompanhamento();
+  } catch {
+    toast('Erro ao carregar acompanhamento', 'error');
+  }
+}
+
+function renderTabelaAcompanhamento() {
+  if (!_acompDados) return;
+  const filtroSetor = document.getElementById('acomp-filtro-setor').value;
+  const filtroStatus = document.getElementById('acomp-filtro-status').value;
+  const filtroFonte = document.getElementById('acomp-filtro-fonte').value;
+
+  const itens = _acompDados.itens.filter(i =>
+    (!filtroSetor || String(i.setor_id) === filtroSetor) &&
+    (!filtroStatus || i.status_execucao === filtroStatus) &&
+    (!filtroFonte || i.fonte_pagadora === filtroFonte)
+  );
+
+  const linhaSaldo = v => v < 0 ? `<span class="pac-saldo-neg">${fmtMoeda(v)}</span>` : fmtMoeda(v);
+
+  document.getElementById('acomp-tbody').innerHTML = itens.map(item => `
+    <tr>
+      <td class="acomp-toggle" onclick="toggleAcompLinha(${item.item_id})">${item.solicitacoes.length ? '▸' : ''}</td>
+      <td><strong>${item.numero_pac || '—'}</strong></td>
+      <td>${item.setor_nome}</td>
+      <td>${item.descricao_objeto || '—'}</td>
+      <td>${item.tipo || '—'}</td>
+      <td>${fmtMoeda(item.estimado_tu_mlp)}</td>
+      <td>${fmtMoeda(item.estimado_rdc)}</td>
+      <td>${badgeStatusExec(item.status_execucao)}</td>
+      <td>${item.solicitacoes.length}</td>
+      <td>${fmtMoeda(item.realizado_tu_mlp)}</td>
+      <td>${fmtMoeda(item.realizado_rdc)}</td>
+      <td>${linhaSaldo(item.saldo_tu_mlp)}</td>
+      <td>${linhaSaldo(item.saldo_rdc)}</td>
+    </tr>
+    <tr class="acomp-sub-row hidden" id="acomp-sub-${item.item_id}">
+      <td colspan="13">
+        ${item.solicitacoes.length ? `
+          <table style="width:100%;">
+            <thead><tr><th>Movimento</th><th>Data</th><th>TU+MLP</th><th>RDC</th><th>Observação</th></tr></thead>
+            <tbody>
+              ${item.solicitacoes.map(s => `
+                <tr>
+                  <td>${s.numero_movimento || '—'}</td>
+                  <td>${fmtBrData(s.data_requisicao)}</td>
+                  <td>${fmtMoeda(s.valor_tu_mlp)}</td>
+                  <td>${fmtMoeda(s.valor_rdc)}</td>
+                  <td>${s.observacao || '—'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        ` : '<span class="text-muted">Nenhuma solicitação vinculada.</span>'}
+      </td>
+    </tr>
+  `).join('') || `<tr><td colspan="13" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item consolidado ainda para este DFD.</td></tr>`;
+
+  const t = itens.reduce((acc, i) => ({
+    estimado_tu_mlp: acc.estimado_tu_mlp + i.estimado_tu_mlp, estimado_rdc: acc.estimado_rdc + i.estimado_rdc,
+    realizado_tu_mlp: acc.realizado_tu_mlp + i.realizado_tu_mlp, realizado_rdc: acc.realizado_rdc + i.realizado_rdc,
+    saldo_tu_mlp: acc.saldo_tu_mlp + i.saldo_tu_mlp, saldo_rdc: acc.saldo_rdc + i.saldo_rdc,
+  }), { estimado_tu_mlp: 0, estimado_rdc: 0, realizado_tu_mlp: 0, realizado_rdc: 0, saldo_tu_mlp: 0, saldo_rdc: 0 });
+  document.getElementById('acomp-tfoot').innerHTML = `
+    <tr>
+      <td colspan="5">Totais (${itens.length} itens)</td>
+      <td>${fmtMoeda(t.estimado_tu_mlp)}</td><td>${fmtMoeda(t.estimado_rdc)}</td>
+      <td colspan="2"></td>
+      <td>${fmtMoeda(t.realizado_tu_mlp)}</td><td>${fmtMoeda(t.realizado_rdc)}</td>
+      <td>${linhaSaldo(t.saldo_tu_mlp)}</td><td>${linhaSaldo(t.saldo_rdc)}</td>
+    </tr>
+  `;
+
+  const semPacCard = document.getElementById('acomp-sem-pac-card');
+  const semPac = _acompDados.sem_pac || [];
+  semPacCard.style.display = semPac.length ? 'block' : 'none';
+  document.getElementById('acomp-sem-pac-tbody').innerHTML = semPac.map(s => `
+    <tr>
+      <td>${s.numero_movimento || '—'}</td>
+      <td>${fmtBrData(s.data_requisicao)}</td>
+      <td>${nomeSetorPac(s.setor_requisitante_id)}</td>
+      <td>${s.descricao_objeto || '—'}</td>
+      <td>${fmtMoeda(s.valor_tu_mlp)}</td>
+      <td>${fmtMoeda(s.valor_rdc)}</td>
+    </tr>
+  `).join('');
+}
+
+function toggleAcompLinha(itemId) {
+  document.getElementById(`acomp-sub-${itemId}`)?.classList.toggle('hidden');
 }

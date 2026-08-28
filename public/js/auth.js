@@ -80,6 +80,7 @@ async function _aplicarModulo(user) {
 const ROTINA_PAGINAS = {
   'pac-lancamento': '/pac-lancamento.html',
   'pac-gestao': '/pac-gestao.html',
+  'pac-acompanhamento': '/pac-acompanhamento.html',
 };
 
 async function _aplicarRotina(user) {

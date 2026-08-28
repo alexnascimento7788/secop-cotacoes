@@ -472,4 +472,275 @@ router.patch('/api/pac/pedidos/:id/resposta', pac, requireRotina('pac-gestao', '
   res.json({ ok: true });
 });
 
+// ── PAC: consolidação (numeração global dos itens de um DFD fechado) ─────────
+// Fluxo de execução, construído sobre o DFD já fechado (planejamento
+// congelado): o DEPLA consolida uma vez (numera globalmente), registra
+// solicitações de contratação reais ao longo do exercício e acompanha
+// realizado × planejado. numero_pac nunca é editado à mão — só nasce/muda
+// através de renumerarPac(), sempre dentro de uma consolidação já existente.
+
+function colunaId(slug) {
+  const row = db.prepare(`SELECT id FROM dfd_colunas_catalogo WHERE slug = ?`).get(slug);
+  return row ? row.id : null;
+}
+
+// Reatribui numero_pac (AAAA-NNN) a todos os itens não excluídos do DFD, na
+// ordem setores.ordem ASC → dfd_itens.numero_item ASC. Zera tudo pra NULL
+// antes de reatribuir em sequência — evita colidir com o índice único parcial
+// (dfd_id, numero_pac) no meio da renumeração (mesmo risco de "swap" já visto
+// em outras tabelas do projeto, ver memória de migrações homolog: nunca trocar
+// valores de uma coluna UNIQUE diretamente, sempre passar por um estado neutro).
+function renumerarPac(dfdId, anoBase) {
+  const itens = db.prepare(`
+    SELECT di.id FROM dfd_itens di JOIN setores s ON s.id = di.setor_id
+    WHERE di.dfd_id = ? AND di.excluido_em IS NULL
+    ORDER BY s.ordem ASC, di.numero_item ASC
+  `).all(dfdId);
+  db.prepare(`UPDATE dfd_itens SET numero_pac = NULL WHERE dfd_id = ?`).run(dfdId);
+  const upd = db.prepare(`UPDATE dfd_itens SET numero_pac = ? WHERE id = ?`);
+  itens.forEach((item, i) => upd.run(`${anoBase}-${String(i + 1).padStart(3, '0')}`, item.id));
+  return itens.length;
+}
+
+function itensConsolidados(dfdId) {
+  const itens = db.prepare(`
+    SELECT di.*, s.nome AS setor_nome FROM dfd_itens di JOIN setores s ON s.id = di.setor_id
+    WHERE di.dfd_id = ? AND di.excluido_em IS NULL ORDER BY di.numero_pac
+  `).all(dfdId);
+  const ids = itens.map(i => i.id);
+  const valoresPorItem = {};
+  if (ids.length) {
+    const ph = ids.map(() => '?').join(',');
+    db.prepare(`SELECT item_id, coluna_id, valor FROM dfd_itens_valores WHERE item_id IN (${ph})`).all(...ids)
+      .forEach(v => { (valoresPorItem[v.item_id] ??= {})[v.coluna_id] = v.valor; });
+  }
+  return itens.map(i => ({ ...i, valores: valoresPorItem[i.id] || {} }));
+}
+
+router.post('/api/pac/dfds/:id/consolidar', pac, requireRotina('pac-gestao', 'incluir'), (req, res) => {
+  const dfd = db.prepare(`SELECT id, ano_base, status FROM dfds WHERE id = ?`).get(req.params.id);
+  if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
+  if (dfd.status !== 'fechado') return res.status(400).json({ error: 'Só é possível consolidar um DFD fechado.' });
+  if (db.prepare(`SELECT 1 FROM pac_consolidacoes WHERE dfd_id = ?`).get(dfd.id)) {
+    return res.status(409).json({ error: 'Este DFD já foi consolidado.' });
+  }
+  const total = renumerarPac(dfd.id, dfd.ano_base);
+  db.prepare(`INSERT INTO pac_consolidacoes (dfd_id, consolidado_por, total_itens) VALUES (?, ?, ?)`)
+    .run(dfd.id, req.user.user_id, total);
+  registrarLog(req, 'PAC', 'CONSOLIDOU_DFD', `Consolidou o DFD #${dfd.id} (${total} itens numerados)`);
+  res.json(itensConsolidados(dfd.id));
+});
+
+router.get('/api/pac/dfds/:id/consolidado', pac, requireRotina('pac-gestao', 'ver'), (req, res) => {
+  const dfd = db.prepare(`SELECT id FROM dfds WHERE id = ?`).get(req.params.id);
+  if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
+  const consolidacao = db.prepare(`SELECT * FROM pac_consolidacoes WHERE dfd_id = ?`).get(dfd.id);
+  res.json({ consolidado: !!consolidacao, consolidacao: consolidacao || null, itens: itensConsolidados(dfd.id) });
+});
+
+// Exclusão de um item JÁ consolidado — diferente do DELETE genérico de item
+// (que só aceita DFD aberto/análise-com-pedido): aqui o DFD já está fechado
+// de propósito, então esta rota ignora requireDfdEditavel e usa seu próprio
+// pré-requisito (precisa haver uma consolidação registrada pro DFD do item).
+router.delete('/api/pac/itens/:id/consolidado', pac, requireRotina('pac-gestao', 'excluir'), (req, res) => {
+  const item = db.prepare(`SELECT id, dfd_id FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
+  if (!item) return res.status(404).json({ error: 'Item não encontrado' });
+  const dfd = db.prepare(`SELECT ano_base FROM dfds WHERE id = ?`).get(item.dfd_id);
+  const consolidacao = db.prepare(`SELECT id FROM pac_consolidacoes WHERE dfd_id = ?`).get(item.dfd_id);
+  if (!consolidacao) return res.status(400).json({ error: 'Este DFD ainda não foi consolidado.' });
+  db.prepare(`UPDATE dfd_itens SET excluido_em = datetime('now') WHERE id = ?`).run(item.id);
+  const total = renumerarPac(item.dfd_id, dfd.ano_base);
+  db.prepare(`UPDATE pac_consolidacoes SET total_itens = ? WHERE dfd_id = ?`).run(total, item.dfd_id);
+  registrarLog(req, 'PAC', 'EXCLUIU_ITEM_CONSOLIDADO', `Excluiu o item #${item.id} do consolidado (DFD #${item.dfd_id}) — números recalculados`);
+  res.json(itensConsolidados(item.dfd_id));
+});
+
+const STATUS_EXECUCAO_VALIDOS = new Set([
+  'Não Iniciado', 'Processado DEPLA', 'Fracionamento Aberto', 'Processo Finalizado', 'Cancelado',
+]);
+router.patch('/api/pac/itens/:id/status', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const { status_execucao } = req.body || {};
+  if (!STATUS_EXECUCAO_VALIDOS.has(status_execucao)) return res.status(400).json({ error: 'Status inválido' });
+  const item = db.prepare(`SELECT id, dfd_id FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
+  if (!item) return res.status(404).json({ error: 'Item não encontrado' });
+  db.prepare(`UPDATE dfd_itens SET status_execucao = ?, atualizado_em = datetime('now') WHERE id = ?`).run(status_execucao, item.id);
+  registrarLog(req, 'PAC', 'ALTEROU_STATUS_EXECUCAO', `Item #${item.id} (DFD #${item.dfd_id}) → ${status_execucao}`);
+  res.json({ ok: true });
+});
+
+// ── PAC: solicitações de contratação (execução ao longo do exercício) ────────
+// Rotina própria ('pac-solicitacoes'), independente de 'pac-gestao' — permite
+// dar esse acesso a um perfil sem dar Gestão inteira, ou vice-versa.
+
+router.get('/api/pac/dfds/:id/solicitacoes', pac, requireRotina('pac-solicitacoes', 'ver'), (req, res) => {
+  const rows = db.prepare(`
+    SELECT sol.*, di.numero_pac
+    FROM pac_solicitacoes sol LEFT JOIN dfd_itens di ON di.id = sol.item_id
+    WHERE sol.dfd_id = ? AND sol.excluido = 0
+    ORDER BY sol.data_requisicao DESC, sol.id DESC
+  `).all(req.params.id);
+  res.json(rows.map(r => ({ ...r, sem_pac: r.item_id === null })));
+});
+
+router.get('/api/pac/dfds/:id/solicitacoes/sem-pac', pac, requireRotina('pac-solicitacoes', 'ver'), (req, res) => {
+  res.json(db.prepare(`
+    SELECT * FROM pac_solicitacoes WHERE dfd_id = ? AND item_id IS NULL AND excluido = 0
+    ORDER BY data_requisicao DESC, id DESC
+  `).all(req.params.id));
+});
+
+function validarItemDaSolicitacao(item_id, dfdId) {
+  if (!item_id) return true;
+  return !!db.prepare(`SELECT 1 FROM dfd_itens WHERE id = ? AND dfd_id = ? AND excluido_em IS NULL`).get(item_id, dfdId);
+}
+
+router.post('/api/pac/dfds/:id/solicitacoes', pac, requireRotina('pac-solicitacoes', 'incluir'), (req, res) => {
+  const dfdId = Number(req.params.id);
+  const dfd = db.prepare(`SELECT id FROM dfds WHERE id = ?`).get(dfdId);
+  if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
+  const {
+    item_id, numero_movimento, data_requisicao, setor_requisitante_id,
+    natureza_orcamentaria, descricao_objeto, valor_tu_mlp, valor_rdc, observacao,
+  } = req.body || {};
+  if (!validarItemDaSolicitacao(item_id, dfdId)) return res.status(400).json({ error: 'Item do PAC inválido para este DFD.' });
+  const info = db.prepare(`
+    INSERT INTO pac_solicitacoes (
+      dfd_id, item_id, numero_movimento, data_requisicao, setor_requisitante_id,
+      natureza_orcamentaria, descricao_objeto, valor_tu_mlp, valor_rdc, observacao, criado_por
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    dfdId, item_id || null, numero_movimento ? String(numero_movimento).trim() : null, data_requisicao || null,
+    setor_requisitante_id || null, natureza_orcamentaria ? String(natureza_orcamentaria).trim() : null,
+    descricao_objeto ? String(descricao_objeto).trim() : null, Number(valor_tu_mlp) || 0, Number(valor_rdc) || 0,
+    observacao ? String(observacao).trim() : null, req.user.user_id
+  );
+  registrarLog(req, 'PAC', 'CRIOU_SOLICITACAO',
+    `Criou a solicitação #${info.lastInsertRowid} no DFD #${dfdId}${item_id ? ` (item #${item_id})` : ' (sem vínculo ao PAC)'}`);
+  res.status(201).json({ id: info.lastInsertRowid });
+});
+
+router.put('/api/pac/solicitacoes/:id', pac, requireRotina('pac-solicitacoes', 'alterar'), (req, res) => {
+  const sol = db.prepare(`SELECT * FROM pac_solicitacoes WHERE id = ? AND excluido = 0`).get(req.params.id);
+  if (!sol) return res.status(404).json({ error: 'Solicitação não encontrada' });
+  const {
+    item_id, numero_movimento, data_requisicao, setor_requisitante_id,
+    natureza_orcamentaria, descricao_objeto, valor_tu_mlp, valor_rdc, observacao,
+  } = req.body || {};
+  if (!validarItemDaSolicitacao(item_id, sol.dfd_id)) return res.status(400).json({ error: 'Item do PAC inválido para este DFD.' });
+  db.prepare(`
+    UPDATE pac_solicitacoes SET
+      item_id = ?, numero_movimento = ?, data_requisicao = ?, setor_requisitante_id = ?,
+      natureza_orcamentaria = ?, descricao_objeto = ?, valor_tu_mlp = ?, valor_rdc = ?, observacao = ?,
+      atualizado_em = datetime('now')
+    WHERE id = ?
+  `).run(
+    item_id || null, numero_movimento ? String(numero_movimento).trim() : null, data_requisicao || null,
+    setor_requisitante_id || null, natureza_orcamentaria ? String(natureza_orcamentaria).trim() : null,
+    descricao_objeto ? String(descricao_objeto).trim() : null, Number(valor_tu_mlp) || 0, Number(valor_rdc) || 0,
+    observacao ? String(observacao).trim() : null, sol.id
+  );
+  registrarLog(req, 'PAC', 'EDITOU_SOLICITACAO', `Editou a solicitação #${sol.id}`);
+  res.json({ ok: true });
+});
+
+router.delete('/api/pac/solicitacoes/:id', pac, requireRotina('pac-solicitacoes', 'excluir'), (req, res) => {
+  const sol = db.prepare(`SELECT id FROM pac_solicitacoes WHERE id = ? AND excluido = 0`).get(req.params.id);
+  if (!sol) return res.status(404).json({ error: 'Solicitação não encontrada' });
+  db.prepare(`UPDATE pac_solicitacoes SET excluido = 1, atualizado_em = datetime('now') WHERE id = ?`).run(sol.id);
+  registrarLog(req, 'PAC', 'EXCLUIU_SOLICITACAO', `Excluiu a solicitação #${sol.id}`);
+  res.json({ ok: true });
+});
+
+// ── PAC: acompanhamento (planejado × realizado) ───────────────────────────────
+// "Fonte Pagadora" do item (coluna A, lista TU/RDC/MLP — já existente) decide
+// em qual dos 2 baldes de valor estimado ele entra: TU e MLP dividem o mesmo
+// balde (valor_tu_mlp), RDC é separado — mesmo agrupamento que a planilha de
+// solicitações já usa pros valores realizados (valor_tu_mlp/valor_rdc).
+function montarAcompanhamento(dfdId, setorIds) {
+  const filtroSetor = setorIds ? ` AND di.setor_id IN (${setorIds.map(() => '?').join(',')})` : '';
+  const params = setorIds ? [dfdId, ...setorIds] : [dfdId];
+  const itens = db.prepare(`
+    SELECT di.id, di.numero_pac, di.numero_item, di.setor_id, di.status_execucao, s.nome AS setor_nome
+    FROM dfd_itens di JOIN setores s ON s.id = di.setor_id
+    WHERE di.dfd_id = ? AND di.excluido_em IS NULL${filtroSetor}
+    ORDER BY di.numero_pac IS NULL, di.numero_pac
+  `).all(...params);
+
+  const ids = itens.map(i => i.id);
+  const valoresPorItem = {};
+  if (ids.length) {
+    const ph = ids.map(() => '?').join(',');
+    db.prepare(`SELECT item_id, coluna_id, valor FROM dfd_itens_valores WHERE item_id IN (${ph})`).all(...ids)
+      .forEach(v => { (valoresPorItem[v.item_id] ??= {})[v.coluna_id] = v.valor; });
+  }
+  const idDescricao = colunaId('descricao_objeto');
+  const idTipo = colunaId('tipo');
+  const idValorEstimado = colunaId('valor_estimado');
+  const idFontePagadora = colunaId('fonte_pagadora');
+
+  const solicitacoesPorItem = {};
+  if (ids.length) {
+    const ph = ids.map(() => '?').join(',');
+    db.prepare(`SELECT * FROM pac_solicitacoes WHERE item_id IN (${ph}) AND excluido = 0 ORDER BY data_requisicao DESC, id DESC`)
+      .all(...ids).forEach(s => { (solicitacoesPorItem[s.item_id] ??= []).push(s); });
+  }
+
+  const itensMontados = itens.map(item => {
+    const v = valoresPorItem[item.id] || {};
+    const valorEstimado = Number(v[idValorEstimado]) || 0;
+    const fonte = v[idFontePagadora] || null;
+    const sols = solicitacoesPorItem[item.id] || [];
+    const realizadoTuMlp = sols.reduce((s, x) => s + (Number(x.valor_tu_mlp) || 0), 0);
+    const realizadoRdc = sols.reduce((s, x) => s + (Number(x.valor_rdc) || 0), 0);
+    const estimadoTuMlp = fonte === 'RDC' ? 0 : valorEstimado;
+    const estimadoRdc = fonte === 'RDC' ? valorEstimado : 0;
+    return {
+      item_id: item.id, numero_pac: item.numero_pac, numero_item: item.numero_item,
+      setor_id: item.setor_id, setor_nome: item.setor_nome, status_execucao: item.status_execucao,
+      descricao_objeto: v[idDescricao] ?? null, tipo: v[idTipo] ?? null, fonte_pagadora: fonte,
+      valor_estimado: valorEstimado,
+      estimado_tu_mlp: estimadoTuMlp, estimado_rdc: estimadoRdc,
+      realizado_tu_mlp: realizadoTuMlp, realizado_rdc: realizadoRdc,
+      saldo_tu_mlp: estimadoTuMlp - realizadoTuMlp, saldo_rdc: estimadoRdc - realizadoRdc,
+      solicitacoes: sols,
+    };
+  });
+
+  const totais = itensMontados.reduce((acc, i) => ({
+    estimado_tu_mlp: acc.estimado_tu_mlp + i.estimado_tu_mlp,
+    estimado_rdc: acc.estimado_rdc + i.estimado_rdc,
+    realizado_tu_mlp: acc.realizado_tu_mlp + i.realizado_tu_mlp,
+    realizado_rdc: acc.realizado_rdc + i.realizado_rdc,
+  }), { estimado_tu_mlp: 0, estimado_rdc: 0, realizado_tu_mlp: 0, realizado_rdc: 0 });
+  totais.saldo_tu_mlp = totais.estimado_tu_mlp - totais.realizado_tu_mlp;
+  totais.saldo_rdc = totais.estimado_rdc - totais.realizado_rdc;
+
+  return { itens: itensMontados, totais };
+}
+
+router.get('/api/pac/dfds/:id/acompanhamento', pac, requireRotina('pac-gestao', 'ver'), (req, res) => {
+  const dfd = db.prepare(`SELECT id FROM dfds WHERE id = ?`).get(req.params.id);
+  if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
+  const base = montarAcompanhamento(dfd.id, null);
+  const semPac = db.prepare(`
+    SELECT * FROM pac_solicitacoes WHERE dfd_id = ? AND item_id IS NULL AND excluido = 0
+    ORDER BY data_requisicao DESC, id DESC
+  `).all(dfd.id);
+  registrarLog(req, 'PAC', 'VIU_ACOMPANHAMENTO', `Visualizou o acompanhamento do DFD #${dfd.id} (visão DEPLA)`);
+  res.json({ ...base, sem_pac: semPac });
+});
+
+router.get('/api/pac/dfds/:id/acompanhamento/meu-setor', pac, requireRotina('pac-acompanhamento', 'ver'), (req, res) => {
+  const dfd = db.prepare(`SELECT id FROM dfds WHERE id = ?`).get(req.params.id);
+  if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
+  const setorIds = req.user.username === 'master'
+    ? db.prepare(`SELECT id FROM setores WHERE ativo = 1`).all().map(r => r.id)
+    : setoresDoUsuario(req.user.user_id);
+  if (!setorIds.length) {
+    return res.json({ itens: [], totais: { estimado_tu_mlp: 0, estimado_rdc: 0, realizado_tu_mlp: 0, realizado_rdc: 0, saldo_tu_mlp: 0, saldo_rdc: 0 } });
+  }
+  registrarLog(req, 'PAC', 'VIU_ACOMPANHAMENTO', `Visualizou o acompanhamento do DFD #${dfd.id} (setor)`);
+  res.json(montarAcompanhamento(dfd.id, setorIds));
+});
+
 module.exports = router;

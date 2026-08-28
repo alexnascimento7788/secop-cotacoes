@@ -31,6 +31,17 @@
     .pac-dfd-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
     .pac-grids { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
     @media (max-width: 900px) { .pac-grids { grid-template-columns: 1fr; } }
+
+    /* ── Consolidação / Solicitações / Acompanhamento (execução do PAC) ──────── */
+    .pac-filtros { display: flex; gap: 14px; flex-wrap: wrap; align-items: end; }
+    .pac-filtros .form-group { margin: 0; min-width: 160px; }
+    .pac-cnt-solic { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--cinza-b); font-size: 10.5px; font-weight: 700; color: var(--text-muted); }
+    .pac-saldo-neg { color: #c0392b; font-weight: 700; }
+    [data-theme="dark"] .pac-saldo-neg { color: #f87171; }
+    tr.acomp-sub-row td { background: var(--surface-2); padding: 10px 16px; }
+    tr.acomp-sub-row.hidden { display: none; }
+    .acomp-toggle { cursor: pointer; -webkit-user-select: none; user-select: none; }
+    tfoot td { font-weight: 700; border-top: 2px solid var(--cinza-b); }
   </style>
 </head>
 <body data-modulo="pac" data-rotina="pac-gestao">
@@ -50,6 +61,10 @@
       <a href="pac-lancamento.html" class="nav-item">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
         Lançamento
+      </a>
+      <a href="pac-acompanhamento.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
+        Acompanhamento
       </a>
       <a href="pac-gestao.html" class="nav-item active">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
@@ -80,6 +95,9 @@
 
     <div class="page-tabs" id="pac-tabs">
       <button class="page-tab active" data-tab="dfds">DFDs</button>
+      <button class="page-tab" data-tab="consolidacao">Consolidação</button>
+      <button class="page-tab" data-tab="solicitacoes">Solicitações</button>
+      <button class="page-tab" data-tab="acompanhamento">Acompanhamento</button>
       <button class="page-tab" data-tab="setores">Setores</button>
       <button class="page-tab" data-tab="parametros">Parâmetros</button>
       <button class="page-tab" data-tab="pedidos">Pedidos <span class="page-tab-count" id="pac-cnt-pedidos">0</span></button>
@@ -139,6 +157,124 @@
             </table>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- ═══ Consolidação ═══ -->
+    <div id="pane-consolidacao" class="pac-pane">
+      <div id="consol-lista">
+        <div class="pac-card">
+          <div class="pac-card-title">DFDs fechados</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Título</th><th>Ano</th><th>Itens</th><th>Consolidação</th><th></th></tr></thead>
+              <tbody id="consol-tbody"><tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div id="consol-detalhe" style="display:none;">
+        <button class="btn btn-secondary btn-sm" onclick="fecharConsolidadoDetalhe()" style="margin-bottom:14px;">← Voltar</button>
+        <div class="pac-card">
+          <div class="pac-card-title" id="consol-det-titulo">—</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Nº PAC</th><th>Setor</th><th>Nº item</th><th>Descrição</th><th>Tipo</th><th>Valor est.</th><th>Status</th><th></th></tr></thead>
+              <tbody id="consol-itens-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Solicitações ═══ -->
+    <div id="pane-solicitacoes" class="pac-pane">
+      <div class="pac-card">
+        <div class="form-group" style="max-width:280px;">
+          <label>DFD (exercício)</label>
+          <select id="sol-dfd-select" onchange="carregarSolicitacoes()"></select>
+        </div>
+      </div>
+      <div class="pac-card">
+        <div class="pac-card-title">Nova solicitação</div>
+        <div class="form-group" style="margin-bottom:12px;">
+          <label><input type="checkbox" id="sol-sem-pac" onchange="solAtualizarVinculo()" style="width:auto;margin-right:6px;vertical-align:middle;"> Sem vínculo ao PAC (contratação não planejada)</label>
+        </div>
+        <div class="form-group" id="sol-vinculo-wrap" style="margin-bottom:12px;">
+          <label>Vincular ao item do PAC</label>
+          <select id="sol-item-select"><option value="">— selecione o item —</option></select>
+        </div>
+        <div class="pac-add-form" style="grid-template-columns:1fr 1fr 1fr;">
+          <div class="form-group"><label>Nº Movimento (TOTVS)</label><input type="text" id="sol-numero-movimento" /></div>
+          <div class="form-group"><label>Data da requisição</label><input type="date" id="sol-data-requisicao" /></div>
+          <div class="form-group"><label>Setor requisitante</label><select id="sol-setor-select"></select></div>
+        </div>
+        <div class="pac-add-form" style="grid-template-columns:1fr 1fr 1fr;margin-top:12px;">
+          <div class="form-group"><label>Natureza orçamentária</label><select id="sol-natureza-select"></select></div>
+          <div class="form-group"><label>Valor TU+MLP</label><input type="text" id="sol-valor-tu-mlp" placeholder="0,00" /></div>
+          <div class="form-group"><label>Valor RDC</label><input type="text" id="sol-valor-rdc" placeholder="0,00" /></div>
+        </div>
+        <div class="form-group" style="margin-top:12px;"><label>Descrição do objeto</label><input type="text" id="sol-descricao" /></div>
+        <div class="form-group" style="margin-top:12px;"><label>Observação</label><input type="text" id="sol-observacao" /></div>
+        <div style="margin-top:14px;">
+          <button class="btn btn-primary" id="sol-btn-salvar" onclick="salvarSolicitacao()">+ Registrar solicitação</button>
+          <button class="btn btn-secondary" id="sol-btn-cancelar" onclick="cancelarEdicaoSolicitacao()" style="display:none;">Cancelar edição</button>
+        </div>
+        <div class="pac-msg" id="sol-msg"></div>
+      </div>
+      <div class="pac-card">
+        <div class="pac-card-title">Com vínculo ao PAC</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Nº PAC</th><th>Movimento</th><th>Data</th><th>Setor</th><th>TU+MLP</th><th>RDC</th><th></th></tr></thead>
+          <tbody id="sol-com-pac-tbody"></tbody>
+        </table></div>
+      </div>
+      <div class="pac-card">
+        <div class="pac-card-title">Sem vínculo ao PAC (não planejadas)</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Movimento</th><th>Data</th><th>Setor</th><th>Descrição</th><th>TU+MLP</th><th>RDC</th><th></th></tr></thead>
+          <tbody id="sol-sem-pac-tbody"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- ═══ Acompanhamento (DEPLA) ═══ -->
+    <div id="pane-acompanhamento" class="pac-pane">
+      <div class="pac-card">
+        <div class="pac-filtros">
+          <div class="form-group"><label>DFD (exercício)</label><select id="acomp-dfd-select" onchange="carregarAcompanhamento()"></select></div>
+          <div class="form-group"><label>Setor</label><select id="acomp-filtro-setor" onchange="renderTabelaAcompanhamento()"><option value="">Todos</option></select></div>
+          <div class="form-group"><label>Status</label>
+            <select id="acomp-filtro-status" onchange="renderTabelaAcompanhamento()">
+              <option value="">Todos</option>
+              <option>Não Iniciado</option><option>Processado DEPLA</option>
+              <option>Fracionamento Aberto</option><option>Processo Finalizado</option><option>Cancelado</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Fonte pagadora</label>
+            <select id="acomp-filtro-fonte" onchange="renderTabelaAcompanhamento()">
+              <option value="">Todas</option><option value="TU">TU</option><option value="RDC">RDC</option><option value="MLP">MLP</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="pac-card">
+        <div class="table-wrap"><table id="acomp-table">
+          <thead><tr>
+            <th></th><th>Nº PAC</th><th>Setor</th><th>Descrição</th><th>Tipo</th>
+            <th>Est. TU+MLP</th><th>Est. RDC</th><th>Status</th><th>Solic.</th>
+            <th>Real. TU+MLP</th><th>Real. RDC</th><th>Saldo TU+MLP</th><th>Saldo RDC</th>
+          </tr></thead>
+          <tbody id="acomp-tbody"><tr><td colspan="13" style="padding:20px;text-align:center;color:var(--text-subtle);">Selecione um DFD.</td></tr></tbody>
+          <tfoot id="acomp-tfoot"></tfoot>
+        </table></div>
+      </div>
+      <div class="pac-card" id="acomp-sem-pac-card" style="display:none;">
+        <div class="pac-card-title">Contratações não planejadas</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Movimento</th><th>Data</th><th>Setor</th><th>Descrição</th><th>TU+MLP</th><th>RDC</th></tr></thead>
+          <tbody id="acomp-sem-pac-tbody"></tbody>
+        </table></div>
       </div>
     </div>
 

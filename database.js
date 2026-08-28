@@ -423,8 +423,10 @@ function setupDb() {
       ['secop', 'fornecedores',   'Fornecedores', 4, 'ver,incluir,alterar,excluir'],
       ['secad', 'validacao',      'Validação',    1, 'ver,incluir,alterar'],
       ['secad', 'comunicados',    'Comunicados',  2, 'ver,incluir,alterar'],
-      ['pac',   'pac-lancamento', 'Lançamento',   1, 'ver,incluir,alterar,excluir'],
-      ['pac',   'pac-gestao',     'Gestão',       2, 'ver,incluir,alterar,excluir'],
+      ['pac',   'pac-lancamento',     'Lançamento',     1, 'ver,incluir,alterar,excluir'],
+      ['pac',   'pac-gestao',         'Gestão',         2, 'ver,incluir,alterar,excluir'],
+      ['pac',   'pac-solicitacoes',   'Solicitações',   3, 'ver,incluir,alterar,excluir'],
+      ['pac',   'pac-acompanhamento', 'Acompanhamento', 4, 'ver'],
     ];
     seedRotinas.forEach(([modSlug, slug, nome, ordem, flags]) => {
       if (!modIds[modSlug]) return;
@@ -497,9 +499,9 @@ function setupDb() {
     [['validacao', SOVER], ['comunicados', SOVER]]);
 
   seedPerfil('pac', 'Gestor de Área', 'Lança dados do PAC da própria área.',
-    [['pac-lancamento', RW]]);
+    [['pac-lancamento', RW], ['pac-acompanhamento', SOVER]]);
   seedPerfil('pac', 'Analista DEPLA', 'Gestão completa do PAC; acompanha lançamentos.',
-    [['pac-gestao', TUDO], ['pac-lancamento', SOVER]]);
+    [['pac-gestao', TUDO], ['pac-lancamento', SOVER], ['pac-solicitacoes', TUDO]]);
 
   try { _db.exec(`ALTER TABLE user_modulos ADD COLUMN perfil_id INTEGER REFERENCES perfis(id)`); } catch {}
   try { _db.exec(`ALTER TABLE users ADD COLUMN nome_completo TEXT`); } catch {}
@@ -758,6 +760,54 @@ function setupDb() {
 
     CREATE INDEX IF NOT EXISTS idx_dfd_itens_valores_item ON dfd_itens_valores(item_id);
     CREATE INDEX IF NOT EXISTS idx_dfd_itens_dfd_setor ON dfd_itens(dfd_id, setor_id);
+  `);
+
+  // ── PAC: consolidação e execução (após o DFD fechar) ──────────────────────────
+  // numero_pac (AAAA-NNN) só existe depois que o DEPLA consolida um DFD fechado
+  // — atribuído/recalculado por rotina em routes/pac.js, nunca escrito à mão.
+  // status_execucao acompanha o item ao longo do exercício, independente do
+  // status (aberto/análise/fechado) do DFD em si — são dois ciclos de vida
+  // sobrepostos (planejamento vs. execução).
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN numero_pac TEXT`); } catch {}
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN status_execucao TEXT NOT NULL DEFAULT 'Não Iniciado'`); } catch {}
+
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS pac_consolidacoes (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      dfd_id          INTEGER NOT NULL UNIQUE,
+      consolidado_por INTEGER REFERENCES users(id),
+      consolidado_em  DATETIME DEFAULT CURRENT_TIMESTAMP,
+      total_itens     INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (dfd_id) REFERENCES dfds(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS pac_solicitacoes (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      dfd_id                INTEGER NOT NULL,
+      item_id               INTEGER,
+      numero_movimento      TEXT,
+      data_requisicao       DATE,
+      setor_requisitante_id INTEGER,
+      natureza_orcamentaria TEXT,
+      descricao_objeto      TEXT,
+      valor_tu_mlp          REAL NOT NULL DEFAULT 0,
+      valor_rdc             REAL NOT NULL DEFAULT 0,
+      observacao            TEXT,
+      criado_por            INTEGER REFERENCES users(id),
+      criado_em             DATETIME DEFAULT CURRENT_TIMESTAMP,
+      atualizado_em         DATETIME DEFAULT CURRENT_TIMESTAMP,
+      excluido              INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (dfd_id) REFERENCES dfds(id) ON DELETE CASCADE,
+      FOREIGN KEY (item_id) REFERENCES dfd_itens(id) ON DELETE SET NULL,
+      FOREIGN KEY (setor_requisitante_id) REFERENCES setores(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pac_solicitacoes_dfd ON pac_solicitacoes(dfd_id);
+    CREATE INDEX IF NOT EXISTS idx_pac_solicitacoes_item ON pac_solicitacoes(item_id);
+    -- Único por DFD só quando atribuído (NULL antes de consolidar não conta) —
+    -- índice PARCIAL, senão dois itens nunca consolidados (ambos NULL) colidiriam.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_dfd_itens_numero_pac
+      ON dfd_itens(dfd_id, numero_pac) WHERE numero_pac IS NOT NULL;
   `);
 
   // Seed dos setores participantes do PAC (nomes exatamente como fornecidos)
