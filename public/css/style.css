@@ -176,6 +176,8 @@ button { cursor: pointer; }
   flex: 1;
   padding: 32px;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .page-header {
@@ -992,8 +994,15 @@ textarea:focus::placeholder { color: transparent; }
    Acompanha o tema claro/escuro da página (var(--surface)/var(--cinza-b)) —
    só o ícone de localização usa var(--verde), que já muda por módulo; isso
    é o único toque "de identidade" que varia, o resto é neutro por design. */
+/* O componente é injetado DENTRO de <div id="app-footer"> (a "vaga" que cada
+   página declara) — então quem é filho direto flex de .main é o #app-footer
+   (vazio, sem classe), não o .app-footer que o fragmento traz. O
+   margin-top:auto que empurra o rodapé pra base da página em telas com pouco
+   conteúdo tem que estar no id, senão o auto não tem espaço nenhum pra
+   absorver (a div vazia só abraça o próprio conteúdo). */
+#app-footer { margin-top: auto; }
+
 .app-footer {
-  margin-top: 40px;
   padding: 20px 24px 16px;
   border-radius: 10px;
   background: var(--surface);
