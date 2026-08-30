@@ -803,15 +803,16 @@
   </div>
 </div>
 
-<!-- Modal: alterar senha -->
+<!-- Modal: renovar senha (define uma nova senha, que já nasce provisória) -->
 <div class="modal-overlay" id="modal-senha">
   <div class="modal-box">
-    <h3>Alterar Senha</h3>
+    <h3>Renovar senha</h3>
     <input type="hidden" id="modal-user-id" />
     <div class="form-group" style="margin-bottom:14px;">
-      <label>Nova Senha</label>
+      <label>Nova senha</label>
       <input type="password" id="modal-nova-senha" placeholder="Nova senha" style="width:100%;padding:10px 12px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:14px;"/>
     </div>
+    <p style="font-size:11.5px;color:var(--text-subtle);margin:-6px 0 12px;">A senha atual dele deixa de funcionar; ela já nasce provisória — ele troca no 1º login.</p>
     <div style="display:flex;gap:8px;justify-content:flex-end;">
       <button class="btn btn-secondary" onclick="fecharModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="salvarSenha()">Salvar</button>
@@ -1880,8 +1881,7 @@ async function carregarUsuarios() {
         <td style="white-space:nowrap;text-align:right;">
           <button class="btn btn-secondary btn-sm" onclick="abrirModalPerfilUsuario(${u.id})">Perfil</button>
           <button class="btn btn-secondary btn-sm" onclick="editarEmail(${u.id})">Email</button>
-          <button class="btn btn-secondary btn-sm" onclick="alterarSenha(${u.id})">Senha</button>
-          <button class="btn btn-secondary btn-sm" onclick="renovarSenha(${u.id},'${u.username}')" title="Gera uma nova senha provisória aleatória">Renovar senha</button>
+          <button class="btn btn-secondary btn-sm" onclick="alterarSenha(${u.id})" title="Define uma nova senha; ela já nasce provisória, o usuário troca no 1º login">Renovar senha</button>
           <button class="btn btn-secondary btn-sm" onclick="toggleAtivo(${u.id},${u.ativo})">${u.ativo?'Desativar':'Ativar'}</button>
           <button class="btn btn-danger btn-sm" onclick="excluirUsuario(${u.id},'${u.username}')">Excluir</button>
         </td>
@@ -2265,36 +2265,15 @@ async function excluirUsuario(id, nome) {
   carregarUsuarios();
 }
 
+// Abre o modal "Renovar senha" — o admin digita a senha nova (não é gerada
+// sozinha); o PATCH com `senha` já marca senha_provisoria=1 no backend, então
+// "renovar" já tem o efeito pedido: a senha atual para de funcionar e o
+// usuário é obrigado a trocar no próximo login.
 function alterarSenha(id) {
   document.getElementById('modal-user-id').value = id;
   document.getElementById('modal-nova-senha').value = '';
   document.getElementById('modal-senha').classList.add('open');
   setTimeout(() => document.getElementById('modal-nova-senha').focus(), 50);
-}
-
-// Gera uma senha provisória aleatória e já a grava — sem precisar digitar nada
-// (o PATCH com `senha` já marca senha_provisoria=1 sozinho no backend, então
-// "renovar" tem exatamente o efeito pedido: a senha antiga para de funcionar
-// e o usuário é obrigado a trocar no próximo login).
-function _gerarSenhaProvisoria() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'; // sem 0/O/1/l/I, pra não confundir na hora de repassar
-  let s = '';
-  for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
-  return s;
-}
-
-async function renovarSenha(id, username) {
-  if (!confirm(`Gerar uma nova senha provisória para "${username}"? A senha atual dele deixa de funcionar.`)) return;
-  const senha = _gerarSenhaProvisoria();
-  try {
-    const res = await fetch(`/api/admin/users/${id}`, {
-      method:'PATCH', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ senha })
-    });
-    if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
-    prompt(`Nova senha provisória de "${username}" (copie agora — ela não é mostrada de novo):`, senha);
-    carregarUsuarios();
-  } catch(e) { toast('Erro: ' + e.message, 'error'); }
 }
 
 function fecharModal() {
