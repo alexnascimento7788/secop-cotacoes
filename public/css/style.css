@@ -598,6 +598,58 @@ textarea:focus::placeholder { color: transparent; }
 
 .form-group textarea { resize: vertical; min-height: 80px; }
 
+/* ── Seletor de telefone BR (bandeira Brasil + bandeira do estado + DDD) ────
+   Ver public/js/telefone-br.js — o <input> do número mora dentro do wrap e
+   perde a própria borda/padding, porque o wrap já se comporta como o campo
+   inteiro (mesma altura/borda/foco de qualquer .form-group input). */
+.tel-br-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1.5px solid var(--cinza-b);
+  border-radius: 6px;
+  background: var(--surface);
+  transition: border-color .15s;
+  position: relative;
+}
+.tel-br-wrap:focus-within { border-color: var(--verde); }
+
+.tel-br-flag { width: 20px; height: 14px; object-fit: cover; border-radius: 2px; flex-shrink: 0; display: block; }
+.tel-br-flag-brasil { cursor: help; }
+
+.tel-br-flag-estado-btn {
+  display: flex; align-items: center; padding: 0; border: none; background: none; cursor: pointer; flex-shrink: 0;
+}
+.tel-br-flag-estado-btn:hover .tel-br-flag { filter: brightness(0.92); }
+
+.tel-br-ddd {
+  border: none !important; background: none !important; padding: 8px 2px 8px 0 !important;
+  font-size: 13.5px; color: var(--text); outline: none; flex-shrink: 0; width: 52px;
+  border-right: 1.5px solid var(--cinza-b) !important; border-radius: 0 !important;
+}
+
+.tel-br-numero {
+  border: none !important; background: none !important; padding: 8px 0 !important;
+  flex: 1; min-width: 0;
+}
+.tel-br-numero:focus { border: none !important; }
+
+.tel-br-painel-estados {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 50;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
+  width: 260px; max-height: 260px; overflow-y: auto;
+  padding: 8px; background: var(--surface); border: 1px solid var(--cinza-b); border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.15);
+}
+.tel-br-painel-item {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 5px 2px; border: 1px solid transparent; border-radius: 6px;
+  background: none; cursor: pointer; font-size: 10px; color: var(--text-muted);
+}
+.tel-br-painel-item:hover { background: var(--surface-2); border-color: var(--cinza-b); }
+.tel-br-painel-item img { width: 26px; height: 18px; object-fit: cover; border-radius: 2px; }
+
 .form-group input:disabled,
 .form-group select:disabled,
 .form-group textarea:disabled {

@@ -3,6 +3,12 @@
 const params = new URLSearchParams(location.search);
 const processoId = params.get('processo_id');
 
+// Bandeira BR + bandeira do estado + DDD (ver public/js/telefone-br.js) —
+// widgets criados 1x (o formulário é reaproveitado entre "novo"/"editar", não
+// recriado do zero); editarFornecedor()/limparFormulario() só chamam setDDD().
+const _telWidget = iniciarTelefoneBR(document.getElementById('f-telefone'));
+const _celWidget = iniciarTelefoneBR(document.getElementById('f-celular'));
+
 function fmtBr(iso) {
   if (!iso) return '—';
   // Separador entre data e hora varia: 'T' em datas ISO, espaço em DATETIME do SQLite (criado_em)
@@ -240,6 +246,8 @@ async function editarFornecedor(id) {
     document.getElementById('f-contato').value  = f.contato  || '';
     document.getElementById('f-telefone').value = f.telefone || '';
     document.getElementById('f-celular').value  = f.celular  || '';
+    _telWidget.setDDD(f.telefone_ddd || null);
+    _celWidget.setDDD(f.celular_ddd || null);
     document.getElementById('f-email').value    = f.email    || '';
 
     // data_proposta já vem como YYYY-MM-DD do banco; suporta também DD/MM/AAAA antigo
@@ -331,6 +339,8 @@ function limparFormulario() {
    'f-prazo-ent','f-prazo-pag','f-prazo-gar','f-prop-ini','f-prop-fin'].forEach(id => {
     document.getElementById(id).value = '';
   });
+  _telWidget.setDDD(null);
+  _celWidget.setDDD(null);
   document.getElementById('f-data-proposta').value = '';
   document.getElementById('f-observacoes').value  = '';
   document.querySelectorAll('input[name="f-frete"]').forEach(r => { r.checked = false; });
@@ -643,6 +653,8 @@ async function salvarFornecedorAtual() {
     contato:          document.getElementById('f-contato').value.trim(),
     telefone:         document.getElementById('f-telefone').value.trim(),
     celular:          document.getElementById('f-celular').value.trim(),
+    telefone_ddd:     document.getElementById('f-telefone').value.trim() ? _telWidget.getDDD() : null,
+    celular_ddd:      document.getElementById('f-celular').value.trim() ? _celWidget.getDDD() : null,
     email:            document.getElementById('f-email').value.trim(),
     data_proposta:    document.getElementById('f-data-proposta').value,
     frete,

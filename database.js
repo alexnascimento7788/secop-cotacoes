@@ -129,6 +129,14 @@ function setupDb() {
   try { _db.exec(`ALTER TABLE fornecedores ADD COLUMN declinio INTEGER DEFAULT 0`); } catch {}
   try { _db.exec(`ALTER TABLE fornecedores ADD COLUMN pesquisa_compra_publica INTEGER DEFAULT 0`); } catch {}
   try { _db.exec(`ALTER TABLE fornecedores ADD COLUMN frete_termo TEXT`);         } catch {}
+  // DDD separado do número (bandeira BR + bandeira do estado + DDD no cadastro
+  // de fornecedor, ver public/js/telefone-br.js) — telefone/celular já
+  // cadastrados NÃO são migrados automaticamente (formato livre demais nos
+  // dados reais: "31997163412", "(31) 3053-0404", "31 99793-7199 - WPP", "-",
+  // etc. — um regex arriscaria corromper histórico). Ficam com ddd NULL até
+  // alguém reabrir e salvar de novo pela tela nova.
+  try { _db.exec(`ALTER TABLE fornecedores ADD COLUMN telefone_ddd TEXT`); } catch {}
+  try { _db.exec(`ALTER TABLE fornecedores ADD COLUMN celular_ddd TEXT`);  } catch {}
   try { _db.exec(`ALTER TABLE precos RENAME COLUMN preco_unitario TO preco_unitario_mes`); } catch {}
   try { _db.exec(`ALTER TABLE precos RENAME COLUMN preco_total    TO preco_total_ano`);    } catch {}
   try { _db.exec(`ALTER TABLE itens ADD COLUMN extra INTEGER DEFAULT 0`); } catch {}
