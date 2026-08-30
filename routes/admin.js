@@ -101,7 +101,43 @@ router.post('/api/admin/concessionarios-removidos/:codigo/restaurar', requireAdm
   res.json({ ok: true });
 });
 
+// ── SECAD: cidades por usuário (escopo de Comunicados) ────────────────────────
+// José só pode gerar/ver comunicados de Caratinga, Maria de todas — vínculo
+// mora no secop.db (o `cidade_id` é o id de depop.db/Cidade, mas depop.db é
+// recriado do zero em re-imports, não pode guardar nada lá que precise
+// sobreviver, mesmo motivo de concessionario_removido acima). Sem NENHUMA
+// linha pra um usuário = sem restrição (vê todas) — não quebra ninguém que já
+// usa Comunicados hoje quando esta função entra no ar.
 
+router.get('/api/admin/secad-cidades', requireAdminAny, (req, res) => {
+  res.json(depopDb.prepare(`SELECT id, descricao FROM Cidade ORDER BY descricao`).all());
+});
+
+router.get('/api/admin/usuarios/:id/secad-cidades', requireAdminAny, (req, res) => {
+  const user = db.prepare(`SELECT departamento_id FROM users WHERE id = ?`).get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+  if (req.user.role === 'admin_operacional' && req.user.username !== 'master' && user.departamento_id !== req.user.departamento_id) {
+    return res.status(403).json({ error: 'Fora do seu departamento.' });
+  }
+  res.json(db.prepare(`SELECT cidade_id FROM secad_cidade_usuarios WHERE user_id = ?`).all(req.params.id).map(r => r.cidade_id));
+});
+
+router.put('/api/admin/usuarios/:id/secad-cidades', requireAdminAny, (req, res) => {
+  const { cidade_id, concedido } = req.body || {};
+  if (cidade_id == null) return res.status(400).json({ error: 'Cidade não informada' });
+  const user = db.prepare(`SELECT username, departamento_id FROM users WHERE id = ?`).get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+  if (req.user.role === 'admin_operacional' && req.user.username !== 'master' && user.departamento_id !== req.user.departamento_id) {
+    return res.status(403).json({ error: 'Fora do seu departamento.' });
+  }
+  if (concedido) {
+    db.prepare(`INSERT OR IGNORE INTO secad_cidade_usuarios (user_id, cidade_id) VALUES (?, ?)`).run(req.params.id, cidade_id);
+  } else {
+    db.prepare(`DELETE FROM secad_cidade_usuarios WHERE user_id = ? AND cidade_id = ?`).run(req.params.id, cidade_id);
+  }
+  registrarLog(req, 'SECAD', 'CIDADE_USUARIO', `${concedido ? 'Liberou' : 'Removeu'} a cidade #${cidade_id} (Comunicados) para "${user.username}"`);
+  res.json({ ok: true });
+});
 
 // ── Configurações (parâmetros do sistema) ─────────────────────────────────────
 

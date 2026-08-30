@@ -647,6 +647,21 @@ function setupDb() {
     );
   `);
 
+  // Cidades liberadas por usuário em Comunicados (escopo dentro da rotina
+  // 'comunicados', não um perfil isolado — ver routes/secad.js cidadesPermitidas()).
+  // cidade_id é o id de depop.db/Cidade; mora aqui (secop.db) pelo mesmo motivo
+  // de concessionario_removido acima — depop.db é recriado do zero em re-imports.
+  // Sem NENHUMA linha pra um usuário = sem restrição (vê todas as cidades).
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS secad_cidade_usuarios (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id   INTEGER NOT NULL,
+      cidade_id INTEGER NOT NULL,
+      UNIQUE (user_id, cidade_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+
   // ── PAC/DEPLA: DFD (Documento de Formalização de Demanda) ────────────────────
   // Cada setor lança itens de demanda dentro de um DFD criado pelo DEPLA. Colunas
   // do DFD são configuráveis por documento (dfd_colunas_ativas escolhe, de um
