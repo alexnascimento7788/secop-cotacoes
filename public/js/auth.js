@@ -20,17 +20,26 @@ window.getCurrentUser = () => window._userPromise || (window._userPromise = (asy
   // resto nem chega a rodar.
   if (!(await _aplicarModulo(user))) return;
 
+  // Rotina da página (um nível mais fundo que módulo — ex.: dentro do PAC,
+  // "Lançamento" e "Gestão" são páginas separadas e o Perfil pode liberar só
+  // uma). Só roda se a página declarar <body data-rotina="...">; páginas que
+  // não declaram (a maioria, hoje) seguem sem essa checagem extra.
+  if (!(await _aplicarRotina(user))) return;
+
   const el = document.getElementById('sidebar-username');
   if (el) el.textContent = user.username;
-  // Configurações (e a Lixeira dentro dela) só ficam visíveis pro master ou
-  // admin com acesso_avancado — role "admin" sozinho não basta mais
-  const podeConfig = user.username === 'master' || (user.role === 'admin' && user.acesso_avancado);
-  if (!podeConfig) {
+  // Painel admin (Configurações/Lixeira e o resto) fica visível pros dois
+  // níveis de admin — master, admin_sistema e admin_operacional (esse último
+  // com escopo restrito ao próprio departamento, aplicado no servidor).
+  const podeAdminAny = user.username === 'master' || user.role === 'admin_sistema' || user.role === 'admin_operacional';
+  if (!podeAdminAny) {
     document.querySelectorAll('a.sidebar-gear[href="admin.html"]').forEach(a => a.remove());
   }
   if (user.role === 'consulta') _aplicarModoLeitura();
+  if (user.tem_foto) _injetarFoto(user);
   _injetarToggleDark();
   _injetarVersao();
+  _injetarRodape();
   _initInatividade();
 })();
 
@@ -57,19 +66,68 @@ async function _aplicarModulo(user) {
   if (pageModulo && pageModulo !== modulo_ativo) { window.location.replace(ativo.home); return false; }
 
   document.documentElement.setAttribute('data-modulo', ativo.slug);
-  _injetarModuloLabel(ativo, (modulos || []).length > 1);
+  _injetarModuloLabel(ativo, (modulos || []).length > 1, user.modulo_departamento_nome);
   return true;
 }
 
-function _injetarModuloLabel(modulo, podeTrocar) {
+/* ── Rotina ativa (um nível abaixo do módulo) ──────────────────────────────────
+   Alguns módulos têm mais de uma ROTINA em páginas HTML separadas (ex.: o PAC
+   tem "Lançamento" e "Gestão", cada uma seu próprio .html) — o Perfil do
+   usuário pode liberar "ver" só numa delas. Diferente do SECAD, que resolve
+   isso mostrando/escondendo abas DENTRO de uma página só (via caps), aqui
+   precisa barrar a página inteira se a rotina dela não estiver liberada.
+   Só entra em ação se a página declarar <body data-rotina="...">. */
+const ROTINA_PAGINAS = {
+  'pac-lancamento': '/pac-lancamento.html',
+  'pac-gestao': '/pac-gestao.html',
+  'pac-acompanhamento': '/pac-acompanhamento.html',
+};
+
+async function _aplicarRotina(user) {
+  const pageRotina = document.body.dataset.rotina;
+  if (!pageRotina) return true; // página não declara rotina — sem checagem extra
+
+  let data;
+  try {
+    const r = await fetch('/api/auth/rotinas');
+    if (!r.ok) return true; // falha transitória não bloqueia a página
+    data = await r.json();
+  } catch { return true; }
+
+  const rotinas = data.rotinas || [];
+
+  // Esconde do menu lateral os links pra rotina que o Perfil não libera —
+  // senão o usuário vê "Gestão", clica, e só é devolvido pra cá.
+  const semVer = new Set(rotinas.filter(r => !r.ver).map(r => r.slug));
+  Object.entries(ROTINA_PAGINAS).forEach(([slug, href]) => {
+    if (!semVer.has(slug)) return;
+    // arquivo (sem a barra) pega tanto o href relativo usado no HTML
+    // ("pac-gestao.html") quanto uma eventual forma absoluta ("/pac-gestao.html")
+    const arquivo = href.replace(/^\//, '');
+    document.querySelectorAll(`.sidebar nav a[href$="${arquivo}"]`).forEach(a => a.remove());
+  });
+
+  const atual = rotinas.find(r => r.slug === pageRotina);
+  if (atual && atual.ver) return true; // tem "ver" nessa rotina — segue
+
+  // Sem acesso: manda pra primeira rotina do módulo que ele PODE ver e que
+  // tenha uma página conhecida. Se não achar nenhuma, não bloqueia (evita
+  // ficar preso num loop de redirecionamento sem destino nenhum).
+  const alternativa = rotinas.find(r => r.ver && ROTINA_PAGINAS[r.slug]);
+  if (alternativa) { window.location.replace(ROTINA_PAGINAS[alternativa.slug]); return false; }
+  return true;
+}
+
+function _injetarModuloLabel(modulo, podeTrocar, departamentoNome) {
   const brand = document.querySelector('.sidebar-brand');
   if (!brand || document.getElementById('sidebar-modulo')) return;
   const wrap = document.createElement('div');
   wrap.id = 'sidebar-modulo';
-  wrap.style.cssText = 'padding:10px 20px 0;display:flex;align-items:center;gap:8px;';
+  wrap.style.cssText = 'padding:10px 20px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
   wrap.innerHTML =
     `<span style="width:9px;height:9px;border-radius:50%;background:${modulo.cor};flex-shrink:0;"></span>` +
-    `<span style="font-size:12px;font-weight:700;color:var(--text);letter-spacing:.3px;">${modulo.nome}</span>`;
+    `<span style="font-size:12px;font-weight:700;color:var(--text);letter-spacing:.3px;">${modulo.nome}</span>` +
+    (departamentoNome ? `<span style="font-size:10px;color:var(--text-subtle);letter-spacing:.4px;">${departamentoNome}</span>` : '');
   if (podeTrocar) {
     const troca = document.createElement('a');
     troca.href = '/selecionar-modulo.html';
@@ -81,6 +139,23 @@ function _injetarModuloLabel(modulo, podeTrocar) {
   brand.insertAdjacentElement('afterend', wrap);
 }
 
+// Foto de perfil (se cadastrada) ao lado do nome de usuário na sidebar —
+// mesmo <img> simples, sem placeholder/iniciais (o nome de usuário já cobre
+// esse caso quando não há foto). Pula em páginas que já têm o próprio slot
+// de avatar no cabeçalho (hoje só pac-lancamento.html) — lá o avatar mora
+// só no cabeçalho, não duplica na sidebar.
+function _injetarFoto(user) {
+  if (document.getElementById('pac-lanc-avatar')) return;
+  const el = document.getElementById('sidebar-username');
+  if (!el || document.getElementById('sidebar-foto')) return;
+  const img = document.createElement('img');
+  img.id = 'sidebar-foto';
+  img.src = `/api/usuarios/${user.id}/foto`;
+  img.alt = '';
+  img.style.cssText = 'width:22px;height:22px;border-radius:50%;object-fit:cover;flex-shrink:0;';
+  el.insertAdjacentElement('beforebegin', img);
+}
+
 async function logout() {
   try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
   localStorage.removeItem(LS_ULTIMA_ATIVIDADE);
@@ -90,12 +165,12 @@ async function logout() {
 /* ── Modo somente leitura (perfil "consulta") ──────────────────────────────────
    Intercepta chamadas de ESCRITA à API no cliente e mostra um aviso amigável,
    sem ir ao servidor (que também barra, na guarda global). Passam os poucos
-   POSTs de VISUALIZAÇÃO (abrir/ping/fechar o preview de contrato no Depop) e
+   POSTs de VISUALIZAÇÃO (abrir/ping/fechar o preview de contrato no SECAD) e
    tudo em /api/auth (login, trocar módulo, logout). É transversal: cobre todos
    os módulos sem precisar mexer em cada botão. */
 function _aplicarModoLeitura() {
   document.documentElement.setAttribute('data-readonly', '1');
-  const permit = [/\/api\/auth\//, /\/api\/depop\/contratos\/\d+\/(abrir|ping|fechar)\b/];
+  const permit = [/\/api\/auth\//, /\/api\/secad\/contratos\/\d+\/(abrir|ping|fechar)\b/];
   const _fetch = window.fetch.bind(window);
   window.fetch = (input, init = {}) => {
     const method = (init.method || (typeof input !== 'string' && input && input.method) || 'GET').toUpperCase();
@@ -234,5 +309,27 @@ async function _injetarVersao() {
     const footer = document.querySelector('.sidebar-footer');
     if (footer) sidebar.insertBefore(el, footer);
     else sidebar.appendChild(el);
+  } catch {}
+}
+
+/* ── Rodapé institucional (componente global) ─────────────────────────────
+   Só existe hoje um jeito de "incluir" HTML compartilhado no projeto, e é
+   este: fetch de um fragmento estático + innerHTML. Roda em toda página que
+   carrega auth.js, mas só faz algo se a própria página tiver o slot — é
+   assim que login/selecionar-modulo/admin/trocar-senha ficam de fora, sem
+   precisar de nenhuma lista de exclusão aqui. */
+async function _injetarRodape() {
+  const el = document.getElementById('app-footer');
+  if (!el) return;
+  try {
+    const html = await (await fetch('/components/footer.html')).text();
+    el.innerHTML = html;
+    const anoEl = el.querySelector('#footer-ano');
+    if (anoEl) anoEl.textContent = new Date().getFullYear();
+    const versaoEl = el.querySelector('#footer-versao');
+    if (versaoEl) {
+      const r = await fetch('/api/version');
+      if (r.ok) { const { version } = await r.json(); versaoEl.textContent = `CEASA CONECTA · v${version}`; }
+    }
   } catch {}
 }

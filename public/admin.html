@@ -11,7 +11,9 @@
   <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
   <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');</script>
   <style>
-    .admin-tabs { display:flex; gap:4px; margin-bottom:20px; }
+    .admin-tabs { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:20px; }
+    /* Tabela larga rola só dentro de si mesma — a página nunca rola de lado */
+    .table-wrap { overflow-x:auto; }
     .admin-tab {
       padding:8px 18px; border-radius:6px; font-size:13px; font-weight:600;
       cursor:pointer; border:1.5px solid var(--cinza-b); background:var(--surface); color:var(--cinza-t);
@@ -66,7 +68,10 @@
     .tipo-SISTEMA  { background:#ECEFF1; color:#455A64; }
     .tipo-ITEM     { background:#F3E5F5; color:#6A1B9A; }
     .tipo-DEPOP    { background:#E1F5FE; color:#0277BD; }
+    .tipo-SECAD    { background:#E1F5FE; color:#0277BD; }
     .tipo-MODULO   { background:#E0F2F1; color:#00695C; }
+    .tipo-DEPARTAMENTO { background:#EFEBE9; color:#4E342E; }
+    .tipo-PERFIL   { background:#F1F8E9; color:#558B2F; }
     .tipo-CONFIG   { background:#FFF8E1; color:#FF8F00; }
     .logs-count { font-size:12px; color:var(--text-muted); margin-bottom:10px; }
     .log-desc { color:var(--cinza-t); max-width:320px; }
@@ -148,7 +153,10 @@
     <div id="admin-content" style="display:none;">
     <div class="admin-tabs">
       <button class="admin-tab active" onclick="mudarAba('usuarios')">Usuários</button>
-      <button class="admin-tab" onclick="mudarAba('modulos')">Módulos</button>
+      <button class="admin-tab" id="tab-departamentos" onclick="mudarAba('departamentos')">Departamentos</button>
+      <button class="admin-tab" id="tab-modulos-sistema" onclick="mudarAba('modulos')">Módulos</button>
+      <button class="admin-tab" id="tab-rotinas" onclick="mudarAba('rotinas')">Rotinas</button>
+      <button class="admin-tab" id="tab-perfis" onclick="mudarAba('perfis')">Perfis</button>
       <button class="admin-tab" onclick="mudarAba('tipos')">Tipos de Contratação</button>
       <button class="admin-tab" onclick="mudarAba('extras')">Itens Extras</button>
       <button class="admin-tab" onclick="mudarAba('parametros')">Parâmetros</button>
@@ -347,7 +355,7 @@
           <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
             Chave de integração da API de consulta de CPF. Fica guardada só no
             servidor — <strong>nunca vai para o navegador</strong>. No cadastro do
-            Depop, o CPF é validado e o nome vem por ela. Se estiver em branco, a
+            SECAD, o CPF é validado e o nome vem por ela. Se estiver em branco, a
             cota acabar ou a API cair, o cadastro cai para a validação offline dos
             dígitos.
           </p>
@@ -399,10 +407,11 @@
         </div>
         <hr class="admin-divider">
         <div class="admin-section">
-          <div class="admin-section-title">Base de dados do Depop</div>
+          <div class="admin-section-title">Base de dados (depop.db)</div>
           <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
-            Arquivo <strong>depop.db</strong> (renovações), separado do secop.db.
-            Use para levar a base do Depop para a produção — não afeta os dados do SECOP.
+            Arquivo <strong>depop.db</strong> (renovações, usado pelo módulo SECAD),
+            separado do secop.db. Use para levar essa base para a produção —
+            não afeta os dados do SECOP.
           </p>
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
             <button class="btn btn-primary" onclick="exportarDepop()">
@@ -480,7 +489,10 @@
             <option value="FORNECEDOR">Fornecedor</option>
             <option value="USUARIO">Usuário</option>
             <option value="MODULO">Módulo</option>
-            <option value="DEPOP">Depop</option>
+            <option value="SECAD">SECAD</option>
+            <option value="DEPOP">Depop (histórico)</option>
+            <option value="DEPARTAMENTO">Departamento</option>
+            <option value="PERFIL">Perfil</option>
             <option value="CONFIG">Parâmetros</option>
             <option value="BANCO">Banco</option>
             <option value="SISTEMA">Sistema</option>
@@ -518,30 +530,33 @@
 
     <!-- Aba Usuários -->
     <div class="admin-pane active" id="pane-usuarios">
-      <div class="admin-card" style="max-width:700px;">
+      <div class="admin-card" style="max-width:none;">
         <div class="admin-section">
           <div class="admin-section-title">Usuários do sistema</div>
-          <table class="users-table">
-            <thead>
-              <tr>
-                <th>Usuário</th>
-                <th>Email</th>
-                <th>Perfil</th>
-                <th>Acesso avançado</th>
-                <th>Depop</th>
-                <th>Status</th>
-                <th>Criado em</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="users-tbody">
-              <tr><td colspan="7" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
-            </tbody>
-          </table>
+          <div class="table-wrap">
+            <table class="users-table">
+              <thead>
+                <tr>
+                  <th>Usuário</th>
+                  <th>Nome</th>
+                  <th>Departamento</th>
+                  <th>Perfil</th>
+                  <th>Status</th>
+                  <th>Criado em</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="users-tbody">
+                <tr><td colspan="7" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
+              </tbody>
+            </table>
+          </div>
           <p style="font-size:12px;color:var(--text-muted);margin-top:10px;line-height:1.5;">
-            <strong>Acesso avançado</strong> libera Configurações (esta área) e a
-            Lixeira pra um usuário Admin — sem ele, o Admin continua com CRUD
-            completo nas cotações, mas não entra mais aqui.
+            <strong>admin_sistema</strong> tem poderes totais no painel (usuários,
+            departamentos, módulos, rotinas, perfis). <strong>admin_operacional</strong>
+            só gerencia usuários do próprio departamento, com perfis já existentes.
+            O que cada usuário pode FAZER dentro de um módulo (SECOP/SECAD/PAC) é o
+            <strong>Perfil</strong> atribuído a ele lá na aba Módulos.
           </p>
         </div>
 
@@ -554,27 +569,33 @@
               <label>Usuário</label>
               <input type="text" id="new-username" placeholder="nome.usuario" />
             </div>
+            <div class="form-group" style="flex:1 1 170px;">
+              <label>Nome completo</label>
+              <input type="text" id="new-nome-completo" placeholder="Nome completo" />
+            </div>
             <div class="form-group" style="flex:1 1 190px;">
               <label>Email</label>
               <input type="email" id="new-email" placeholder="email@exemplo.com" />
+            </div>
+            <div class="form-group" style="flex:1 1 130px;">
+              <label>Telefone</label>
+              <input type="text" id="new-telefone" placeholder="(00) 00000-0000" />
             </div>
             <div class="form-group" style="flex:1 1 130px;">
               <label>Senha provisória</label>
               <input type="password" id="new-senha" placeholder="••••••••" />
             </div>
             <div class="form-group">
+              <label>Departamento</label>
+              <select id="new-departamento" style="padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text);"></select>
+            </div>
+            <div class="form-group">
               <label>Perfil</label>
               <select id="new-role" style="padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text);">
                 <option value="usuario" selected>Usuário</option>
-                <option value="admin">Admin</option>
+                <option value="admin_sistema">Admin do sistema</option>
+                <option value="admin_operacional">Admin do departamento</option>
                 <option value="consulta">Consulta (só leitura)</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label title="Configurações + Lixeira">Acesso avançado</label>
-              <select id="new-acesso-avancado" style="padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text);">
-                <option value="0" selected>Não</option>
-                <option value="1">Sim</option>
               </select>
             </div>
             <button class="btn btn-primary" onclick="adicionarUsuario()" style="white-space:nowrap;">
@@ -586,11 +607,78 @@
       </div>
     </div>
 
-    <!-- Aba Concessionários Removidos (Depop) -->
+    <!-- Aba Departamentos (só admin_sistema) -->
+    <div class="admin-pane" id="pane-departamentos">
+      <div class="admin-card" style="max-width:560px;">
+        <div class="admin-section">
+          <div class="admin-section-title">Departamentos</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Agrupam os módulos (ex.: DEPAD → SECOP, DEPOP → SECAD). Desativar um
+            departamento não desativa os módulos dele — isso é feito na aba Módulos.
+          </p>
+          <table class="users-table">
+            <thead><tr><th>Sigla / Nome</th><th>Ativo</th></tr></thead>
+            <tbody id="departamentos-tbody">
+              <tr><td colspan="2" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Aba Rotinas (catálogo semeado, só admin_sistema) -->
+    <div class="admin-pane" id="pane-rotinas">
+      <div class="admin-card" style="max-width:760px;">
+        <div class="admin-section">
+          <div class="admin-section-title">Rotinas</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Telas/funcionalidades de cada módulo. Não dá pra criar ou excluir
+            rotina por aqui — só ativar/desativar e ajustar quais das 4 flags
+            (ver/incluir/alterar/excluir) fazem sentido pra ela, o que muda os
+            checkboxes disponíveis na aba Perfis.
+          </p>
+          <table class="users-table">
+            <thead><tr><th>Módulo</th><th>Rotina</th><th>Ativa</th><th>Ver</th><th>Incluir</th><th>Alterar</th><th>Excluir</th></tr></thead>
+            <tbody id="rotinas-tbody">
+              <tr><td colspan="7" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Aba Perfis (só admin_sistema) -->
+    <div class="admin-pane" id="pane-perfis">
+      <div class="admin-card" style="max-width:900px;">
+        <div class="admin-section">
+          <div class="admin-section-title">Perfis</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Cada perfil é um conjunto de permissões (ver/incluir/alterar/excluir
+            por rotina) dentro de UM módulo. Escolha o módulo, veja/crie os
+            perfis dele e ajuste o grid de permissões.
+          </p>
+          <div style="display:flex;gap:10px;align-items:end;margin-bottom:16px;flex-wrap:wrap;">
+            <div class="form-group" style="margin:0;">
+              <label>Módulo</label>
+              <select id="perfis-modulo-select" onchange="carregarPerfisDoModulo(this.value)" style="padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text);"></select>
+            </div>
+            <div class="form-group" style="flex:1;min-width:180px;margin:0;">
+              <label>Novo perfil</label>
+              <input type="text" id="novo-perfil-nome" placeholder="Nome do perfil" />
+            </div>
+            <button class="btn btn-primary" onclick="criarPerfil()">+ Criar perfil</button>
+          </div>
+          <div id="perfis-lista" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;"></div>
+          <div id="perfil-grid-wrap"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Aba Concessionários Removidos (SECAD) -->
     <div class="admin-pane" id="pane-concessionarios-removidos">
       <div class="admin-card">
         <div class="admin-section">
-          <div class="admin-section-title">Remover concessionário da listagem (Depop)</div>
+          <div class="admin-section-title">Remover concessionário da listagem (SECAD)</div>
           <p style="font-size:13px;color:#666;margin-bottom:12px;line-height:1.5;">
             Não apaga nada do banco — só esconde o código da listagem de contratos, do
             dashboard e da geração de comunicados. O histórico continua intacto e pode
@@ -662,16 +750,17 @@
             Ligar/desligar um módulo afeta todos os usuários de uma vez: um módulo
             desligado some da tela de seleção e ninguém entra nele (nem o master).
           </p>
-          <table class="users-table" style="max-width:560px;">
+          <table class="users-table" style="max-width:700px;">
             <thead>
               <tr>
                 <th>Módulo</th>
                 <th>Identificador</th>
+                <th>Departamento</th>
                 <th>Ativo</th>
               </tr>
             </thead>
             <tbody id="modulos-tbody">
-              <tr><td colspan="3" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
+              <tr><td colspan="4" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
             </tbody>
           </table>
         </div>
@@ -769,6 +858,54 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-perfil-usuario">
+  <div class="modal-box" style="max-width:420px;">
+    <h3>Editar perfil do usuário</h3>
+    <input type="hidden" id="mpu-user-id" />
+    <div id="mpu-foto-linha" style="display:flex;align-items:center;gap:14px;margin-bottom:14px;">
+      <img id="mpu-foto-preview" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:var(--surface-2);flex-shrink:0;" />
+      <div style="flex:1;">
+        <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
+          Trocar foto
+          <input type="file" id="mpu-foto-input" accept="image/jpeg,image/png" style="display:none" onchange="mpuFotoSelecionada(this)">
+        </label>
+        <button class="btn btn-secondary btn-sm" onclick="mpuRemoverFoto()">Remover</button>
+      </div>
+    </div>
+
+    <!-- Cropper: arrastar pra posicionar + régua de zoom, some após confirmar -->
+    <div id="mpu-cropper" style="display:none;margin-bottom:14px;">
+      <div id="mpu-crop-viewport" style="width:220px;height:220px;margin:0 auto;border-radius:50%;overflow:hidden;background:#111;position:relative;cursor:grab;touch-action:none;"
+           onpointerdown="mpuCropIniciarDrag(event)">
+        <img id="mpu-crop-img" style="position:absolute;max-width:none;max-height:none;user-select:none;-webkit-user-drag:none;pointer-events:none;" />
+      </div>
+      <input type="range" id="mpu-crop-zoom" min="100" max="300" value="100" oninput="mpuCropZoom()" style="width:220px;display:block;margin:10px auto 0;">
+      <div style="text-align:center;font-size:11px;color:var(--text-subtle);margin-top:4px;">Arraste a foto pra posicionar · use a régua pra dar zoom</div>
+      <div style="display:flex;gap:8px;justify-content:center;margin-top:10px;">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="mpuCropCancelar()">Cancelar</button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="mpuCropConfirmar()">Confirmar posição</button>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:14px;">
+      <label>Nome completo</label>
+      <input type="text" id="mpu-nome" style="width:100%;padding:10px 12px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:14px;"/>
+    </div>
+    <div class="form-group" style="margin-bottom:14px;">
+      <label>Telefone</label>
+      <input type="text" id="mpu-telefone" style="width:100%;padding:10px 12px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:14px;"/>
+    </div>
+    <div class="form-group" style="margin-bottom:14px;">
+      <label>Módulos e perfis</label>
+      <div id="mpu-modulos" style="border:1.5px solid var(--cinza-b);border-radius:6px;padding:8px 10px;font-size:12.5px;"></div>
+    </div>
+    <div id="mpu-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin-bottom:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="fecharModalPerfilUsuario()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarPerfilUsuarioModal()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 <script src="js/pwa.js"></script>
 <script src="js/auth.js"></script>
@@ -780,12 +917,15 @@ function toast(msg, type='') {
   setTimeout(() => { el.className = ''; }, 3000);
 }
 
-const _abas = ['usuarios', 'modulos', 'tipos', 'extras', 'parametros', 'banco', 'lixeira', 'concessionarios-removidos', 'logs', 'homolog'];
+const _abas = ['usuarios', 'departamentos', 'modulos', 'rotinas', 'perfis', 'tipos', 'extras', 'parametros', 'banco', 'lixeira', 'concessionarios-removidos', 'logs', 'homolog'];
 function mudarAba(aba) {
   document.querySelectorAll('.admin-tab').forEach((t, i) => t.classList.toggle('active', _abas[i] === aba));
   _abas.forEach(a => document.getElementById(`pane-${a}`).classList.toggle('active', a === aba));
   if (aba === 'usuarios') carregarUsuarios();
+  if (aba === 'departamentos') carregarDepartamentosTab();
   if (aba === 'modulos') carregarModulos();
+  if (aba === 'rotinas') carregarRotinasTab();
+  if (aba === 'perfis') carregarPerfisTab();
   if (aba === 'tipos') carregarTipos();
   if (aba === 'extras') carregarExtras();
   if (aba === 'parametros') carregarParametros();
@@ -856,7 +996,7 @@ async function restaurarProcesso(id) {
   }
 }
 
-// ── Concessionários removidos (Depop) ───────────────────────────────────────
+// ── Concessionários removidos (SECAD) ────────────────────────────────────────
 
 async function carregarConcessionariosRemovidos() {
   try {
@@ -988,8 +1128,17 @@ async function salvarParametros() {
 
 (async () => {
   const user = await getCurrentUser();
-  const podeConfig = user && (user.username === 'master' || (user.role === 'admin' && user.acesso_avancado));
-  if (!podeConfig) { window.location.replace('/index.html'); return; }
+  const podeAdminAny = user && (user.username === 'master' || user.role === 'admin_sistema' || user.role === 'admin_operacional');
+  if (!podeAdminAny) { window.location.replace('/index.html'); return; }
+  const ehAdminSistema = user.username === 'master' || user.role === 'admin_sistema';
+  // admin_operacional não vê Departamentos/Módulos/Rotinas/Perfis — o vínculo
+  // módulo×perfil dele acontece dentro do modal "Perfil" da aba Usuários.
+  if (!ehAdminSistema) {
+    ['tab-departamentos', 'tab-modulos-sistema', 'tab-rotinas', 'tab-perfis'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+  }
   // Aba "Atualização na base": só master E só em homolog (o marcador .homolog
   // existe no servidor). Em produção o /api/version devolve homolog:false → some.
   if (user.username === 'master') {
@@ -1006,14 +1155,20 @@ async function salvarParametros() {
 // ── Módulos ──────────────────────────────────────────────────────────────────
 
 async function carregarModulos() {
-  // Catálogo de módulos (ligar/desligar)
+  // Catálogo de módulos (ligar/desligar + departamento)
   try {
-    const res = await fetch('/api/admin/modulos');
+    const [res, deps] = await Promise.all([fetch('/api/admin/modulos'), carregarDepartamentosCache()]);
     const modulos = res.ok ? await res.json() : [];
     document.getElementById('modulos-tbody').innerHTML = modulos.map(m => `
       <tr>
         <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${m.cor};margin-right:8px;vertical-align:middle;"></span><strong>${m.nome}</strong></td>
         <td style="color:var(--text-muted);">${m.slug}</td>
+        <td>
+          <select onchange="alterarDepartamentoModulo(${m.id},this.value)" style="padding:4px 6px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text);">
+            <option value="">—</option>
+            ${deps.map(d => `<option value="${d.id}"${m.departamento_id===d.id?' selected':''}>${d.nome}</option>`).join('')}
+          </select>
+        </td>
         <td>
           <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
             <input type="checkbox" ${m.ativo ? 'checked' : ''} onchange="toggleModuloAtivo(${m.id}, this)" />
@@ -1051,6 +1206,20 @@ async function carregarModulos() {
   }
 }
 
+async function alterarDepartamentoModulo(id, departamento_id) {
+  try {
+    const res = await fetch(`/api/admin/modulos/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ departamento_id: departamento_id || null })
+    });
+    if (!res.ok) throw new Error();
+    toast('Departamento do módulo atualizado', 'success');
+  } catch {
+    toast('Erro ao atualizar departamento', 'error');
+    carregarModulos();
+  }
+}
+
 async function toggleModuloAtivo(id, el) {
   const ativo = el.checked;
   try {
@@ -1081,6 +1250,203 @@ async function toggleAcesso(userId, moduloId, el) {
   } catch (e) {
     el.checked = !concedido; // reverte
     msg.style.color = 'var(--vermelho)'; msg.textContent = 'Erro: ' + (e.message || 'ao atualizar acesso');
+  }
+}
+
+// ── Departamentos ────────────────────────────────────────────────────────────
+
+async function carregarDepartamentosTab() {
+  try {
+    const res = await fetch('/api/admin/departamentos');
+    const deps = res.ok ? await res.json() : [];
+    document.getElementById('departamentos-tbody').innerHTML = deps.map(d => `
+      <tr>
+        <td><strong>${d.nome}</strong> <span style="font-size:11px;color:var(--text-muted);">(${d.slug})</span></td>
+        <td>
+          <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="checkbox" ${d.ativo?'checked':''} onchange="toggleDepartamentoAtivo(${d.id},this.checked)">
+            <span style="font-size:12px;color:var(--text-muted);">${d.ativo?'Ativo':'Inativo'}</span>
+          </label>
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan="2" style="padding:20px;text-align:center;color:#aaa;">Nenhum departamento.</td></tr>';
+  } catch {
+    toast('Erro ao carregar departamentos', 'error');
+  }
+}
+
+async function toggleDepartamentoAtivo(id, ativo) {
+  try {
+    const res = await fetch(`/api/admin/departamentos/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ativo: ativo ? 1 : 0 })
+    });
+    if (!res.ok) throw new Error();
+    toast('Departamento atualizado', 'success');
+  } catch {
+    toast('Erro ao atualizar departamento', 'error');
+    carregarDepartamentosTab();
+  }
+}
+
+// ── Rotinas (catálogo semeado) ────────────────────────────────────────────────
+
+async function carregarRotinasTab() {
+  try {
+    const res = await fetch('/api/admin/rotinas');
+    const rotinas = res.ok ? await res.json() : [];
+    const FLAGS = ['ver', 'incluir', 'alterar', 'excluir'];
+    document.getElementById('rotinas-tbody').innerHTML = rotinas.map(r => {
+      const aplicaveis = (r.flags_aplicaveis || '').split(',').map(s => s.trim());
+      const flagCols = FLAGS.map(f => `
+        <td style="text-align:center;">
+          <input type="checkbox" ${aplicaveis.includes(f)?'checked':''} onchange="alterarFlagAplicavelRotina(${r.id},'${f}',this.checked)">
+        </td>`).join('');
+      return `
+        <tr>
+          <td style="color:var(--text-muted);">${r.modulo_nome}</td>
+          <td><strong>${r.nome}</strong></td>
+          <td>
+            <input type="checkbox" ${r.ativo?'checked':''} onchange="toggleRotinaAtiva(${r.id},this.checked)">
+          </td>
+          ${flagCols}
+        </tr>`;
+    }).join('') || '<tr><td colspan="7" style="padding:20px;text-align:center;color:#aaa;">Nenhuma rotina.</td></tr>';
+    window._rotinasCache = rotinas;
+  } catch {
+    toast('Erro ao carregar rotinas', 'error');
+  }
+}
+
+async function toggleRotinaAtiva(id, ativo) {
+  try {
+    const res = await fetch(`/api/admin/rotinas/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ativo: ativo ? 1 : 0 })
+    });
+    if (!res.ok) throw new Error();
+  } catch { toast('Erro ao atualizar rotina', 'error'); carregarRotinasTab(); }
+}
+
+async function alterarFlagAplicavelRotina(id, flag, marcado) {
+  const rot = (window._rotinasCache || []).find(r => r.id === id);
+  if (!rot) return;
+  const FLAGS = ['ver', 'incluir', 'alterar', 'excluir'];
+  const atuais = new Set((rot.flags_aplicaveis || '').split(',').map(s => s.trim()).filter(Boolean));
+  if (marcado) atuais.add(flag); else atuais.delete(flag);
+  const nova = FLAGS.filter(f => atuais.has(f)).join(',');
+  try {
+    const res = await fetch(`/api/admin/rotinas/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ flags_aplicaveis: nova })
+    });
+    if (!res.ok) throw new Error();
+    rot.flags_aplicaveis = nova;
+  } catch { toast('Erro ao atualizar rotina', 'error'); carregarRotinasTab(); }
+}
+
+// ── Perfis (permissões ver/incluir/alterar/excluir por rotina) ───────────────
+
+async function carregarPerfisTab() {
+  try {
+    const res = await fetch('/api/admin/modulos');
+    const modulos = res.ok ? await res.json() : [];
+    window._modulosParaPerfil = modulos;
+    const sel = document.getElementById('perfis-modulo-select');
+    sel.innerHTML = modulos.map(m => `<option value="${m.id}">${m.nome}</option>`).join('');
+    if (modulos.length) await carregarPerfisDoModulo(modulos[0].id);
+  } catch {
+    toast('Erro ao carregar módulos', 'error');
+  }
+}
+
+async function carregarPerfisDoModulo(moduloId) {
+  moduloId = Number(moduloId);
+  document.getElementById('perfil-grid-wrap').innerHTML = '';
+  try {
+    const res = await fetch(`/api/admin/perfis?modulo_id=${moduloId}`);
+    const perfis = res.ok ? await res.json() : [];
+    window._perfisDoModulo = perfis;
+    const lista = document.getElementById('perfis-lista');
+    lista.innerHTML = perfis.map(p => `
+      <div class="btn btn-secondary btn-sm" style="cursor:pointer;display:flex;align-items:center;gap:6px;" onclick="selecionarPerfil(${p.id})">
+        ${p.nome}
+        <span onclick="event.stopPropagation();excluirPerfil(${p.id},'${p.nome.replace(/'/g,"\\'")}')" title="Excluir" style="color:#c00;font-weight:700;">×</span>
+      </div>
+    `).join('') || '<span style="color:#aaa;font-size:13px;">Nenhum perfil neste módulo ainda.</span>';
+    if (perfis.length) selecionarPerfil(perfis[0].id);
+  } catch {
+    toast('Erro ao carregar perfis', 'error');
+  }
+}
+
+async function criarPerfil() {
+  const moduloId = Number(document.getElementById('perfis-modulo-select').value);
+  const nome = document.getElementById('novo-perfil-nome').value.trim();
+  if (!nome) { toast('Informe o nome do perfil', 'error'); return; }
+  try {
+    const res = await fetch('/api/admin/perfis', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modulo_id: moduloId, nome })
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    document.getElementById('novo-perfil-nome').value = '';
+    toast('Perfil criado', 'success');
+    carregarPerfisDoModulo(moduloId);
+  } catch (e) { toast('Erro: ' + e.message, 'error'); }
+}
+
+async function excluirPerfil(id, nome) {
+  if (!confirm(`Excluir o perfil "${nome}"?`)) return;
+  try {
+    const res = await fetch(`/api/admin/perfis/${id}`, { method: 'DELETE' });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    toast('Perfil excluído', 'success');
+    const moduloId = Number(document.getElementById('perfis-modulo-select').value);
+    carregarPerfisDoModulo(moduloId);
+  } catch (e) { toast('Erro: ' + e.message, 'error'); }
+}
+
+async function selecionarPerfil(perfilId) {
+  window._perfilSelecionadoId = perfilId;
+  const wrap = document.getElementById('perfil-grid-wrap');
+  wrap.innerHTML = 'Carregando...';
+  try {
+    const res = await fetch(`/api/admin/perfis/${perfilId}/rotinas`);
+    const rotinas = res.ok ? await res.json() : [];
+    const FLAGS = ['ver', 'incluir', 'alterar', 'excluir'];
+    wrap.innerHTML = `
+      <table class="users-table">
+        <thead><tr><th>Rotina</th><th>Ver</th><th>Incluir</th><th>Alterar</th><th>Excluir</th></tr></thead>
+        <tbody>
+          ${rotinas.map(r => {
+            const aplicaveis = (r.flags_aplicaveis || '').split(',').map(s => s.trim());
+            return `<tr>
+              <td><strong>${r.nome}</strong></td>
+              ${FLAGS.map(f => `
+                <td style="text-align:center;">
+                  <input type="checkbox" ${r[f] ? 'checked' : ''} ${aplicaveis.includes(f) ? '' : 'disabled'}
+                    onchange="alterarFlagPerfil(${perfilId},${r.id},'${f}',this.checked)">
+                </td>`).join('')}
+            </tr>`;
+          }).join('') || `<tr><td colspan="5" style="padding:16px;text-align:center;color:#aaa;">Sem rotinas ativas neste módulo.</td></tr>`}
+        </tbody>
+      </table>`;
+  } catch {
+    wrap.innerHTML = '<span style="color:#c00;">Erro ao carregar permissões do perfil.</span>';
+  }
+}
+
+async function alterarFlagPerfil(perfilId, rotinaId, flag, valor) {
+  try {
+    const res = await fetch(`/api/admin/perfis/${perfilId}/rotinas`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rotina_id: rotinaId, flag, valor })
+    });
+    if (!res.ok) throw new Error();
+  } catch {
+    toast('Erro ao atualizar permissão', 'error');
+    selecionarPerfil(perfilId);
   }
 }
 
@@ -1447,47 +1813,57 @@ function fmtData(iso) {
   return `${d}/${m}/${y}`;
 }
 
+// Cache dos departamentos — só admin_sistema/master consegue listar (rota
+// requireAdminSistema); pra admin_operacional o fetch dá 403 e a lista fica
+// vazia, então a coluna Departamento cai pra texto simples (não editável) na
+// tabela — degrada graciosamente sem precisar saber o nível de quem está logado.
+window._departamentosCache = null;
+async function carregarDepartamentosCache() {
+  if (window._departamentosCache) return window._departamentosCache;
+  try {
+    const res = await fetch('/api/admin/departamentos');
+    window._departamentosCache = res.ok ? await res.json() : [];
+  } catch { window._departamentosCache = []; }
+  return window._departamentosCache;
+}
+
 async function carregarUsuarios() {
   try {
-    const res = await fetch('/api/admin/users');
+    const [res, deps] = await Promise.all([fetch('/api/admin/users'), carregarDepartamentosCache()]);
     const users = await res.json();
     window._usersCache = users;
+    const selectDept = document.getElementById('new-departamento');
+    if (selectDept && !selectDept.options.length) {
+      selectDept.innerHTML = deps.map(d => `<option value="${d.id}">${d.nome}</option>`).join('');
+    }
     document.getElementById('users-tbody').innerHTML = users.map(u => `
       <tr>
-        <td><strong>${u.username}</strong>${u.username==='master'?' <span style="font-size:10px;color:#888;">(master)</span>':''}${u.senha_provisoria?' <span title="Senha provisória — troca no 1º login" style="font-size:10px;color:#E65100;">⏳ senha provisória</span>':''}</td>
-        <td style="font-size:12px;color:var(--text-muted);">${u.email || '<span style="color:#bbb;">—</span>'}</td>
+        <td><strong>${u.username}</strong>${u.senha_provisoria?' <span title="Senha provisória — troca no 1º login" style="font-size:10px;color:#E65100;">⏳ senha provisória</span>':''}</td>
+        <td style="font-size:12px;">${u.nome_completo || '<span style="color:#bbb;">—</span>'}</td>
         <td>
-          ${u.username!=='master'?`
-            <select onchange="alterarRole(${u.id},this.value)" style="padding:4px 6px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text);">
-              <option value="usuario"${u.role==='usuario'?' selected':''}>Usuário</option>
-              <option value="admin"${u.role==='admin'?' selected':''}>Admin</option>
-              <option value="consulta"${u.role==='consulta'?' selected':''}>Consulta (só leitura)</option>
+          ${deps.length ? `
+            <select onchange="alterarDepartamento(${u.id},this.value)" style="padding:4px 6px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text);">
+              <option value="">—</option>
+              ${deps.map(d => `<option value="${d.id}"${u.departamento_id===d.id?' selected':''}>${d.nome}</option>`).join('')}
             </select>
-          `:'Admin'}
+          ` : (u.departamento_nome || '<span style="color:#bbb;">—</span>')}
         </td>
         <td>
-          ${u.role==='admin'?`
-            <select onchange="alterarAcessoAvancado(${u.id},this.value)" style="padding:4px 6px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text);">
-              <option value="0"${!u.acesso_avancado?' selected':''}>Não</option>
-              <option value="1"${u.acesso_avancado?' selected':''}>Sim</option>
-            </select>
-          `:'<span style="font-size:11px;color:#aaa;">—</span>'}
-        </td>
-        <td style="white-space:nowrap;">
-          ${u.username!=='master'?`
-            <label style="font-size:11px;margin-right:10px;cursor:pointer;" title="Pode validar contratos"><input type="checkbox" ${u.depop_valida?'checked':''} onchange="alterarDepopAcesso(${u.id},'depop_valida',this.checked)"> Validação</label>
-            <label style="font-size:11px;cursor:pointer;" title="Pode gerar comunicados"><input type="checkbox" ${u.depop_comunicados?'checked':''} onchange="alterarDepopAcesso(${u.id},'depop_comunicados',this.checked)"> Comunicados</label>
-          `:'<span style="font-size:11px;color:#aaa;">tudo</span>'}
+          <select onchange="alterarRole(${u.id},this.value)" style="padding:4px 6px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text);">
+            <option value="usuario"${u.role==='usuario'?' selected':''}>Usuário</option>
+            <option value="admin_sistema"${u.role==='admin_sistema'?' selected':''}>Admin do sistema</option>
+            <option value="admin_operacional"${u.role==='admin_operacional'?' selected':''}>Admin do departamento</option>
+            <option value="consulta"${u.role==='consulta'?' selected':''}>Consulta (só leitura)</option>
+          </select>
         </td>
         <td><span class="${u.ativo?'badge-ativo':'badge-inativo'}">${u.ativo?'Ativo':'Inativo'}</span></td>
         <td>${fmtData(u.criado_em)}</td>
         <td style="white-space:nowrap;text-align:right;">
-          ${u.username!=='master'?`
-            <button class="btn btn-secondary btn-sm" onclick="editarEmail(${u.id})">Email</button>
-            <button class="btn btn-secondary btn-sm" onclick="alterarSenha(${u.id})">Senha</button>
-            <button class="btn btn-secondary btn-sm" onclick="toggleAtivo(${u.id},${u.ativo})">${u.ativo?'Desativar':'Ativar'}</button>
-            <button class="btn btn-danger btn-sm" onclick="excluirUsuario(${u.id},'${u.username}')">Excluir</button>
-          `:'<span style="font-size:11px;color:#aaa;">protegido</span>'}
+          <button class="btn btn-secondary btn-sm" onclick="abrirModalPerfilUsuario(${u.id})">Perfil</button>
+          <button class="btn btn-secondary btn-sm" onclick="editarEmail(${u.id})">Email</button>
+          <button class="btn btn-secondary btn-sm" onclick="alterarSenha(${u.id})">Senha</button>
+          <button class="btn btn-secondary btn-sm" onclick="toggleAtivo(${u.id},${u.ativo})">${u.ativo?'Desativar':'Ativar'}</button>
+          <button class="btn btn-danger btn-sm" onclick="excluirUsuario(${u.id},'${u.username}')">Excluir</button>
         </td>
       </tr>
     `).join('');
@@ -1498,45 +1874,265 @@ async function carregarUsuarios() {
 
 async function adicionarUsuario() {
   const username = document.getElementById('new-username').value.trim();
+  const nome_completo = document.getElementById('new-nome-completo').value.trim();
   const email    = document.getElementById('new-email').value.trim();
+  const telefone = document.getElementById('new-telefone').value.trim();
   const senha    = document.getElementById('new-senha').value;
   const role     = document.getElementById('new-role').value;
-  const acesso_avancado = document.getElementById('new-acesso-avancado').value === '1';
+  const departamento_id = document.getElementById('new-departamento').value || null;
   const msg = document.getElementById('user-msg');
   msg.style.color = '';
   if (!username || !senha) { msg.style.color='#c00'; msg.textContent='Preencha usuário e senha.'; return; }
   try {
     const res = await fetch('/api/admin/users', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ username, email, senha, role, acesso_avancado })
+      body: JSON.stringify({ username, nome_completo, email, telefone, senha, role, departamento_id })
     });
     if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
     msg.style.color = '#2E7D32';
     msg.textContent = `Usuário "${username}" criado. A senha é provisória — ele troca no 1º login.`;
     document.getElementById('new-username').value = '';
+    document.getElementById('new-nome-completo').value = '';
     document.getElementById('new-email').value    = '';
+    document.getElementById('new-telefone').value = '';
     document.getElementById('new-senha').value    = '';
     document.getElementById('new-role').value     = 'usuario';
-    document.getElementById('new-acesso-avancado').value = '0';
     carregarUsuarios();
   } catch(e) {
     msg.style.color='#c00'; msg.textContent = 'Erro: ' + e.message;
   }
 }
 
-// Capacidades do usuário dentro do módulo Depop (validar / gerar comunicados).
-// Só tem efeito para quem tem o módulo Depop concedido (aba Módulos).
-async function alterarDepopAcesso(id, campo, checked) {
+async function alterarDepartamento(id, departamento_id) {
   try {
     const res = await fetch(`/api/admin/users/${id}`, {
       method:'PATCH', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ [campo]: checked })
+      body: JSON.stringify({ departamento_id: departamento_id || null })
     });
-    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || 'erro'); }
-    const u = (window._usersCache || []).find(x => x.id === id);
-    if (u) u[campo] = checked ? 1 : 0;
-    toast('Acesso Depop atualizado.', 'success');
-  } catch(e) { toast('Erro: ' + e.message, 'error'); carregarUsuarios(); }
+    if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
+    toast('Departamento atualizado', 'success');
+  } catch(e) {
+    toast('Erro: ' + e.message, 'error');
+    carregarUsuarios();
+  }
+}
+
+// ── Modal "Perfil do usuário" (nome completo, telefone, foto) ────────────────
+let _mpuFotoNova = null, _mpuFotoRemover = false;
+
+async function abrirModalPerfilUsuario(id) {
+  const u = (window._usersCache || []).find(x => x.id === id);
+  if (!u) return;
+  document.getElementById('mpu-user-id').value = id;
+  document.getElementById('mpu-nome').value = u.nome_completo || '';
+  document.getElementById('mpu-telefone').value = u.telefone || '';
+  document.getElementById('mpu-foto-preview').src = `/api/usuarios/${id}/foto?t=${Date.now()}`;
+  document.getElementById('mpu-msg').textContent = '';
+  _mpuFotoNova = null; _mpuFotoRemover = false;
+  _mpuCropState = null;
+  document.getElementById('mpu-cropper').style.display = 'none';
+  document.getElementById('mpu-foto-linha').style.display = 'flex';
+  document.getElementById('modal-perfil-usuario').classList.add('open');
+  await mpuCarregarModulos(id);
+}
+
+// Seção "Módulos e perfis" dentro do modal — permite conceder/revogar módulo e
+// escolher o perfil, sem precisar da aba Módulos (que é só admin_sistema).
+// GET /api/admin/modulos/acessos já vem escopado ao departamento de quem chama
+// (admin_operacional só vê os módulos/usuários do próprio departamento).
+async function mpuCarregarModulos(userId) {
+  const box = document.getElementById('mpu-modulos');
+  box.innerHTML = 'Carregando...';
+  try {
+    const res = await fetch('/api/admin/modulos/acessos');
+    if (!res.ok) { box.innerHTML = '<span style="color:#aaa;">Sem permissão para ver módulos.</span>'; return; }
+    const { modulos, usuarios, perfis } = await res.json();
+    const u = usuarios.find(x => x.id === userId);
+    if (!u) { box.innerHTML = '<span style="color:#aaa;">Usuário fora do seu escopo.</span>'; return; }
+    box.innerHTML = modulos.map(m => {
+      const tem = u.modulo_ids.includes(m.id);
+      const perfilAtual = (u.modulo_perfis || {})[m.id] || '';
+      const perfisModulo = perfis.filter(p => p.modulo_id === m.id);
+      return `
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--cinza-b);">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex:1;">
+            <input type="checkbox" ${tem?'checked':''} onchange="mpuToggleModulo(${userId},${m.id},this.checked)">
+            ${m.nome}
+          </label>
+          <select ${tem?'':'disabled'} onchange="mpuMudarPerfil(${userId},${m.id},this.value)" style="padding:3px 5px;border:1.5px solid var(--cinza-b);border-radius:5px;font-size:12px;background:var(--surface);color:var(--text);">
+            <option value="">Sem perfil</option>
+            ${perfisModulo.map(p => `<option value="${p.id}"${String(perfilAtual)===String(p.id)?' selected':''}>${p.nome}</option>`).join('')}
+          </select>
+        </div>`;
+    }).join('') || '<span style="color:#aaa;">Nenhum módulo disponível.</span>';
+  } catch {
+    box.innerHTML = '<span style="color:#c00;">Erro ao carregar módulos.</span>';
+  }
+}
+
+async function mpuToggleModulo(userId, moduloId, concedido) {
+  try {
+    const res = await fetch('/api/admin/modulos/acessos', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, modulo_id: moduloId, concedido })
+    });
+    if (!res.ok) throw new Error();
+  } catch { toast('Erro ao atualizar módulo', 'error'); }
+  mpuCarregarModulos(userId);
+}
+
+async function mpuMudarPerfil(userId, moduloId, perfilId) {
+  try {
+    const res = await fetch('/api/admin/modulos/acessos', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, modulo_id: moduloId, perfil_id: perfilId || null })
+    });
+    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error); }
+    toast('Perfil atualizado', 'success');
+  } catch (e) { toast('Erro: ' + (e.message||'falha'), 'error'); }
+}
+
+function fecharModalPerfilUsuario() {
+  document.getElementById('modal-perfil-usuario').classList.remove('open');
+}
+
+// Foto crua raramente já vem enquadrada certo pro avatar circular (object-fit:cover
+// corta pelo centro, cortando rosto se a foto for retrato) — em vez de subir a
+// imagem original direto, abre um cropper simples (arrastar + zoom numa régua)
+// e só gera o Blob final (já enquadrado, resolução fixa) quando o usuário confirma.
+const MPU_CROP_VIEWPORT = 220;
+let _mpuCropState = null; // { scale, minScale, nw, nh, offsetX, offsetY, dragging, ... }
+
+function mpuFotoSelecionada(input) {
+  const f = input.files[0];
+  input.value = '';
+  if (!f) return;
+  const url = URL.createObjectURL(f);
+  const img = document.getElementById('mpu-crop-img');
+  img.onload = () => { URL.revokeObjectURL(url); mpuCropIniciar(img); };
+  img.src = url;
+}
+
+function mpuCropIniciar(img) {
+  const vp = MPU_CROP_VIEWPORT;
+  const nw = img.naturalWidth, nh = img.naturalHeight;
+  const minScale = vp / Math.min(nw, nh); // escala mínima que cobre o círculo inteiro
+  const dW = nw * minScale, dH = nh * minScale;
+  _mpuCropState = {
+    minScale, scale: minScale, nw, nh, dragging: false,
+    offsetX: (vp - dW) / 2, offsetY: (vp - dH) / 2,
+  };
+  document.getElementById('mpu-crop-zoom').value = 100;
+  document.getElementById('mpu-foto-linha').style.display = 'none';
+  document.getElementById('mpu-cropper').style.display = 'block';
+  mpuCropRenderizar();
+}
+
+// Reaplica a escala/posição no <img> do cropper, sempre garantindo que ele
+// continue cobrindo o círculo inteiro (clamp do offset — nunca aparece fundo vazio).
+function mpuCropRenderizar() {
+  const st = _mpuCropState;
+  if (!st) return;
+  const vp = MPU_CROP_VIEWPORT;
+  const dW = st.nw * st.scale, dH = st.nh * st.scale;
+  st.offsetX = Math.min(0, Math.max(vp - dW, st.offsetX));
+  st.offsetY = Math.min(0, Math.max(vp - dH, st.offsetY));
+  const img = document.getElementById('mpu-crop-img');
+  img.style.width = dW + 'px';
+  img.style.height = dH + 'px';
+  img.style.left = st.offsetX + 'px';
+  img.style.top = st.offsetY + 'px';
+}
+
+// Zoom pela régua: mantém o ponto que está no centro do círculo fixo (dá zoom
+// "pro centro", não desloca a foto de forma inesperada).
+function mpuCropZoom() {
+  const st = _mpuCropState;
+  if (!st) return;
+  const vp = MPU_CROP_VIEWPORT;
+  const centroImgX = (vp / 2 - st.offsetX) / st.scale;
+  const centroImgY = (vp / 2 - st.offsetY) / st.scale;
+  st.scale = st.minScale * (Number(document.getElementById('mpu-crop-zoom').value) / 100);
+  st.offsetX = vp / 2 - centroImgX * st.scale;
+  st.offsetY = vp / 2 - centroImgY * st.scale;
+  mpuCropRenderizar();
+}
+
+function mpuCropIniciarDrag(e) {
+  const st = _mpuCropState;
+  if (!st) return;
+  st.dragging = true;
+  st.dragStartX = e.clientX; st.dragStartY = e.clientY;
+  st.dragOffsetX = st.offsetX; st.dragOffsetY = st.offsetY;
+  e.currentTarget.setPointerCapture(e.pointerId);
+}
+document.addEventListener('pointermove', e => {
+  const st = _mpuCropState;
+  if (!st || !st.dragging) return;
+  st.offsetX = st.dragOffsetX + (e.clientX - st.dragStartX);
+  st.offsetY = st.dragOffsetY + (e.clientY - st.dragStartY);
+  mpuCropRenderizar();
+});
+document.addEventListener('pointerup', () => { if (_mpuCropState) _mpuCropState.dragging = false; });
+
+function mpuCropCancelar() {
+  _mpuCropState = null;
+  document.getElementById('mpu-cropper').style.display = 'none';
+  document.getElementById('mpu-foto-linha').style.display = 'flex';
+}
+
+function mpuCropConfirmar() {
+  const st = _mpuCropState;
+  if (!st) return;
+  const vp = MPU_CROP_VIEWPORT;
+  const out = 320; // resolução final do avatar salvo
+  const sx = -st.offsetX / st.scale, sy = -st.offsetY / st.scale, sSize = vp / st.scale;
+  const canvas = document.createElement('canvas');
+  canvas.width = out; canvas.height = out;
+  canvas.getContext('2d').drawImage(document.getElementById('mpu-crop-img'), sx, sy, sSize, sSize, 0, 0, out, out);
+  canvas.toBlob(blob => {
+    if (!blob) { toast('Erro ao processar a foto', 'error'); return; }
+    _mpuFotoNova = blob; _mpuFotoRemover = false;
+    document.getElementById('mpu-foto-preview').src = URL.createObjectURL(blob);
+    _mpuCropState = null;
+    document.getElementById('mpu-cropper').style.display = 'none';
+    document.getElementById('mpu-foto-linha').style.display = 'flex';
+  }, 'image/jpeg', 0.88);
+}
+
+function mpuRemoverFoto() {
+  _mpuFotoNova = null; _mpuFotoRemover = true;
+  document.getElementById('mpu-foto-preview').src = '';
+}
+
+async function salvarPerfilUsuarioModal() {
+  const id = document.getElementById('mpu-user-id').value;
+  const msg = document.getElementById('mpu-msg');
+  msg.style.color = '';
+  try {
+    const res = await fetch(`/api/admin/users/${id}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        nome_completo: document.getElementById('mpu-nome').value.trim(),
+        telefone: document.getElementById('mpu-telefone').value.trim()
+      })
+    });
+    if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
+    if (_mpuFotoNova) {
+      const up = await fetch(`/api/admin/users/${id}/foto`, {
+        method:'POST', headers:{ 'Content-Type': _mpuFotoNova.type || 'application/octet-stream' },
+        body: _mpuFotoNova
+      });
+      if (!up.ok) { const e=await up.json(); throw new Error(e.error); }
+    } else if (_mpuFotoRemover) {
+      await fetch(`/api/admin/users/${id}/foto`, { method:'DELETE' });
+    }
+    toast('Perfil do usuário atualizado', 'success');
+    fecharModalPerfilUsuario();
+    carregarUsuarios();
+  } catch(e) {
+    msg.style.color = '#c00'; msg.textContent = 'Erro: ' + e.message;
+  }
 }
 
 async function editarEmail(id) {
@@ -1553,20 +2149,6 @@ async function editarEmail(id) {
     toast('Email atualizado', 'success');
     carregarUsuarios();
   } catch(e) { toast('Erro: ' + e.message, 'error'); }
-}
-
-async function alterarAcessoAvancado(id, valor) {
-  try {
-    const res = await fetch(`/api/admin/users/${id}`, {
-      method:'PATCH', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ acesso_avancado: valor === '1' })
-    });
-    if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
-    toast('Acesso avançado atualizado', 'success');
-  } catch(e) {
-    toast('Erro: ' + e.message, 'error');
-    carregarUsuarios();
-  }
 }
 
 async function alterarRole(id, role) {
@@ -1726,7 +2308,7 @@ async function carregarMigracoes() {
           ${iconeDestino} Rodar no banco: <span style="letter-spacing:.5px;">${escHtml(banco)}</span>
           <span style="margin-left:auto;font-weight:600;font-size:11.5px;opacity:.9;">${escHtml(rotuloDestino)}</span>
         </div>
-        <pre id="mig-pre-${idEsc}" style="background:var(--surface-2);border:1px solid ${cor};border-top:none;border-radius:0 0 8px 8px;padding:12px;overflow:auto;font-size:12.5px;white-space:pre;margin:0;transition:border-color .2s ease;">${comandos}</pre>
+        <pre id="mig-pre-${idEsc}" style="background:var(--surface-2);border:1px solid ${cor};border-top:none;border-radius:0 0 8px 8px;padding:12px;overflow:auto;max-height:420px;font-size:12.5px;white-space:pre;margin:0;transition:border-color .2s ease;">${comandos}</pre>
         <div style="margin-top:8px;">
           <button class="btn btn-secondary" onclick="event.stopPropagation();copiarMigracao('${idEsc}')">📋 Copiar comandos</button>
         </div>

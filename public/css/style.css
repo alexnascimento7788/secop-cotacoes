@@ -42,13 +42,22 @@
 }
 
 /* ── Accent por módulo (CEASA CONECTA) ─────────────────────
-   O accent verde é do SECOP (padrão). O Depop reaproveita o mesmo layout, mas
-   com accent azul — auth.js marca <html data-modulo="depop"> no módulo ativo,
-   então basta sobrescrever as variáveis de marca aqui (vale em claro e escuro). */
-:root[data-modulo="depop"] {
+   O accent verde é do SECOP (padrão). Os demais módulos reaproveitam o mesmo
+   layout, só trocando o accent — auth.js marca <html data-modulo="..."> com o
+   módulo ativo, então basta sobrescrever as variáveis de marca aqui (vale em
+   claro e escuro). */
+:root[data-modulo="secad"] {
   --verde:   #1565C0;
   --verde-l: #1976D2;
   --azul:    #1565C0;
+}
+:root[data-modulo="pac"] {
+  /* Antes #F9A800 (mesmo tom do logo) — em botões/texto ficava pálido demais
+     num fundo claro ("cor creme" na avaliação do Alex). Amber mais escuro e
+     saturado, mais contraste sem trocar a família de cor do módulo. */
+  --verde:   #C97A00;
+  --verde-l: #E08E00;
+  --azul:    #C97A00;
 }
 
 body {
@@ -167,6 +176,8 @@ button { cursor: pointer; }
   flex: 1;
   padding: 32px;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .page-header {
@@ -195,6 +206,35 @@ button { cursor: pointer; }
   overflow-wrap: break-word;
   word-break: break-word;
 }
+
+/* ── PAC Lançamento: cabeçalho fixo (sticky) com relógio + avatar ─────────
+   Some ao rolar não é aceitável aqui (o usuário perde a referência de
+   setor/DFD numa tela com tabela comprida) — position:sticky relativo ao
+   próprio scroll da página (.main não tem overflow próprio). As margens/
+   paddings negativos fazem a faixa esticar até a borda do container mesmo
+   com o padding padrão de .main, senão o sticky "flutuaria" com um respiro
+   estranho nas laterais ao colar no topo. */
+.pac-lanc-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--cinza-bg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -32px -32px 24px;
+  padding: 14px 32px 16px;
+  border-bottom: 1px solid var(--cinza-b);
+}
+.pac-lanc-header-esq { min-width: 0; }
+.pac-lanc-linha1 { font-size: 20px; font-weight: 700; color: var(--text); }
+.pac-lanc-modulo { color: var(--verde); }
+.pac-lanc-linha2 { font-size: 13px; color: var(--text-muted); margin-top: 3px; }
+.pac-lanc-linha3 { font-size: 12.5px; color: var(--text-subtle); margin-top: 3px; overflow-wrap: break-word; }
+.pac-lanc-header-dir { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+.pac-lanc-relogio { text-align: right; font-size: 12px; color: var(--text-muted); line-height: 1.35; }
+.pac-lanc-relogio div:first-child { font-size: 15px; font-weight: 700; color: var(--text); }
 
 /* ── Botões ───────────────────────────────────────────── */
 .btn {
@@ -351,6 +391,63 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 .badge-concluido{ background: #dcfce7; color: #15803d; }
 .badge-parado   { background: #fee2e2; color: #991b1b; }
 .badge-cancelado{ background: #e5e7eb; color: #4b5563; }
+
+/* PAC: status do DFD (Documento de Formalização de Demanda) */
+.badge-aberto  { background: #dbeafe; color: #1e40af; }
+.badge-analise { background: #fef9c3; color: #854d0e; }
+.badge-fechado { background: #e5e7eb; color: #4b5563; }
+[data-theme="dark"] .badge-aberto  { background: rgba(37,99,235,.2); color: #93c5fd; }
+[data-theme="dark"] .badge-analise { background: rgba(202,138,4,.22); color: #fde047; }
+[data-theme="dark"] .badge-fechado { background: rgba(100,116,139,.25); color: #cbd5e1; }
+
+/* ── PAC: tabela de itens do DFD (colunas configuráveis, potencialmente muitas) ─
+   1ª e 2ª colunas fixas (Nº / Descrição) durante o scroll horizontal. */
+.dfd-table-wrap { overflow-x: auto; position: relative; }
+.dfd-table { border-collapse: separate; border-spacing: 0; }
+.dfd-table th, .dfd-table td { white-space: nowrap; }
+.dfd-table tbody td { padding: 12px 12px; }
+.dfd-table th.dfd-col-fixa-1, .dfd-table td.dfd-col-fixa-1 { position: sticky; left: 0; z-index: 2; background: var(--surface); min-width: 56px; }
+.dfd-table th.dfd-col-fixa-2, .dfd-table td.dfd-col-fixa-2 { position: sticky; left: 56px; z-index: 2; background: var(--surface); min-width: 220px; white-space: normal; box-shadow: 2px 0 4px rgba(0,0,0,.06); }
+.dfd-table thead th.dfd-col-fixa-1, .dfd-table thead th.dfd-col-fixa-2 { z-index: 3; background: var(--surface-2); }
+
+/* Inputs/selects dentro da tabela do DFD reaproveitam a aparência de
+   .form-group, em vez do controle cru do navegador (era isso que dava a
+   sensação de "planilha Excel" no lançamento). */
+.dfd-table td select,
+.dfd-table td input,
+.dfd-table td textarea {
+  border: 1.5px solid var(--cinza-b);
+  border-radius: 6px;
+  padding: 7px 9px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface);
+  transition: border-color .15s;
+}
+.dfd-table td select:focus,
+.dfd-table td input:focus,
+.dfd-table td textarea:focus { outline: none; border-color: var(--verde); }
+.dfd-table td textarea { resize: vertical; }
+
+/* Coluna única "Contrato" (grupos B/C consolidados) — badge com texto sempre
+   visível (Com/Sem contrato), não só um ícone dependente de hover. */
+.badge-contrato {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 11px; border-radius: 20px; font-size: 11.5px; font-weight: 600;
+  border: 1px solid var(--cinza-b); background: var(--surface-2); color: var(--text-muted);
+  font-family: inherit; white-space: nowrap;
+}
+button.badge-contrato { cursor: pointer; }
+button.badge-contrato:hover { filter: brightness(0.96); border-color: var(--cinza-t); }
+.badge-contrato.sim { background: #dcfce7; color: #15803d; border-color: transparent; }
+[data-theme="dark"] .badge-contrato.sim { background: rgba(21,128,61,.22); color: #86efac; }
+.badge-contrato.pendente { background: #fef9c3; color: #854d0e; border-color: transparent; }
+[data-theme="dark"] .badge-contrato.pendente { background: rgba(202,138,4,.22); color: #fde047; }
+
+/* Cartão de cabeçalho de um DFD aberto (Lançamento/Gestão) — faixa de destaque
+   no topo pra não ficar tão "sem graça" quanto um card branco comum. */
+.pac-dfd-header-card { border-top: 3px solid var(--verde); }
 
 /* ── Abas da listagem de processos ────────────────────── */
 .page-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
@@ -894,6 +991,40 @@ textarea:focus::placeholder { color: transparent; }
 .setor-bar-fill  { height: 100%; background: var(--verde); border-radius: 4px; transition: width .35s ease; }
 .setor-count     { font-size: 12px; font-weight: 700; color: var(--text); width: 22px; text-align: right; flex-shrink: 0; }
 
+/* ── Rodapé institucional (componente global, todas as páginas operacionais
+   dos 3 módulos — ver public/components/footer.html) ─────────────────────
+   Acompanha o tema claro/escuro da página (var(--surface)/var(--cinza-b)) —
+   só o ícone de localização usa var(--verde), que já muda por módulo; isso
+   é o único toque "de identidade" que varia, o resto é neutro por design. */
+/* O componente é injetado DENTRO de <div id="app-footer"> (a "vaga" que cada
+   página declara) — então quem é filho direto flex de .main é o #app-footer
+   (vazio, sem classe), não o .app-footer que o fragmento traz. O
+   margin-top:auto que empurra o rodapé pra base da página em telas com pouco
+   conteúdo tem que estar no id, senão o auto não tem espaço nenhum pra
+   absorver (a div vazia só abraça o próprio conteúdo). */
+#app-footer { margin-top: auto; }
+
+.app-footer {
+  padding: 20px 24px 16px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--cinza-b);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.app-footer-grid {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+.app-footer-unidades { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 16px; }
+.app-footer-unidade { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.app-footer-unidade svg { flex-shrink: 0; color: var(--verde); }
+.app-footer-credito { text-align: right; line-height: 1.6; }
+.app-footer-versao { font-size: 0.75rem; color: var(--text-subtle); margin-top: 4px; }
+
 /* ── Responsive ────────────────────────────────────────── */
 @media (max-width: 1366px) {
   .cards-grid { grid-template-columns: repeat(2, 1fr); }
@@ -908,6 +1039,22 @@ textarea:focus::placeholder { color: transparent; }
   .main { margin-left: 0; padding: 20px 16px; }
   .cards-grid { grid-template-columns: 1fr 1fr; }
   .form-row.cols-3, .form-row.cols-4 { grid-template-columns: 1fr 1fr; }
+
+  /* PAC: tabela de itens do DFD vira cartões — sem 2º renderer em JS, só CSS.
+     Cada <td> já carrega data-label (o rótulo da coluna) na hora de montar o
+     HTML; ::before o exibe como rótulo do campo dentro do cartão. */
+  .dfd-table-wrap { overflow-x: visible; }
+  .dfd-table thead { display: none; }
+  .dfd-table, .dfd-table tbody, .dfd-table tr, .dfd-table td { display: block; width: 100%; }
+  .dfd-table tr { border: 1px solid var(--cinza-b); border-radius: 8px; margin-bottom: 12px; padding: 8px 12px; }
+  .dfd-table td { position: static; white-space: normal; border: none; padding: 6px 0; min-width: 0; box-shadow: none; }
+  .dfd-table td::before { content: attr(data-label); display: block; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--text-subtle); margin-bottom: 2px; }
+
+  .pac-lanc-header { margin: -20px -16px 20px; padding: 12px 16px 14px; flex-wrap: wrap; }
+
+  .app-footer-grid { grid-template-columns: 1fr; text-align: center; gap: 18px; }
+  .app-footer-unidades { grid-template-columns: repeat(2, 1fr); justify-items: center; }
+  .app-footer-credito { text-align: center; }
 }
 
 /* ── Impressão ────────────────────────────────────────── */
@@ -927,6 +1074,8 @@ textarea:focus::placeholder { color: transparent; }
   .no-print,
   .sidebar,
   .status-select,
+  .app-footer,
+  .pac-lanc-header,
   button,
   a.btn { display: none !important; }
 

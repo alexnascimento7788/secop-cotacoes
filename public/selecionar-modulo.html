@@ -32,6 +32,11 @@
     .card h2 { font-size: 17px; font-weight: 700; color: #1a2035; margin-bottom: 4px; }
     .card > p { font-size: 13px; color: #888; margin-bottom: 20px; }
     .mod-list { display: flex; flex-direction: column; gap: 12px; }
+    .dept-titulo {
+      font-size: 11px; font-weight: 700; color: #999; text-transform: uppercase;
+      letter-spacing: 1px; margin-top: 4px;
+    }
+    .dept-titulo:first-child { margin-top: 0; }
     .mod-item {
       display: flex;
       align-items: center;
@@ -69,6 +74,7 @@
     [data-theme="dark"] .card { background: #161b22; box-shadow: 0 4px 24px rgba(0,0,0,.4); }
     [data-theme="dark"] .card h2 { color: #e6edf3; }
     [data-theme="dark"] .card > p, [data-theme="dark"] .mod-sub { color: #8b949e; }
+    [data-theme="dark"] .dept-titulo { color: #6e7681; }
     [data-theme="dark"] .mod-item { background: #0d1117; border-color: #30363d; }
     [data-theme="dark"] .mod-nome { color: #e6edf3; }
   </style>
@@ -115,18 +121,36 @@ async function carregar() {
       return;
     }
     lista.innerHTML = '';
+    // Agrupa por departamento (mantendo a ordem de chegada — já vem ordenado
+    // por m.ordem do servidor); módulo sem departamento fica num grupo "solto".
+    const grupos = [];
+    const porDept = new Map();
     modulos.forEach(m => {
-      const btn = document.createElement('button');
-      btn.className = 'mod-item';
-      btn.style.setProperty('--mod-cor', m.cor);
-      btn.innerHTML = `
-        <span class="mod-badge">${iniciais(m.nome)}</span>
-        <span>
-          <span class="mod-nome">${m.nome}</span>
-        </span>
-        <svg class="mod-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>`;
-      btn.addEventListener('click', () => entrar(m.slug, btn));
-      lista.appendChild(btn);
+      const chave = m.departamento_slug || '';
+      let g = porDept.get(chave);
+      if (!g) { g = { nome: m.departamento_nome || '', itens: [] }; porDept.set(chave, g); grupos.push(g); }
+      g.itens.push(m);
+    });
+    grupos.forEach(g => {
+      if (g.nome) {
+        const titulo = document.createElement('div');
+        titulo.className = 'dept-titulo';
+        titulo.textContent = g.nome;
+        lista.appendChild(titulo);
+      }
+      g.itens.forEach(m => {
+        const btn = document.createElement('button');
+        btn.className = 'mod-item';
+        btn.style.setProperty('--mod-cor', m.cor);
+        btn.innerHTML = `
+          <span class="mod-badge">${iniciais(m.nome)}</span>
+          <span>
+            <span class="mod-nome">${m.nome}</span>
+          </span>
+          <svg class="mod-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>`;
+        btn.addEventListener('click', () => entrar(m.slug, btn));
+        lista.appendChild(btn);
+      });
     });
   } catch {
     err.textContent = 'Erro ao carregar os módulos.';

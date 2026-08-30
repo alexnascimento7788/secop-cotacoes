@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
   <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');</script>
   <style>
-    /* ── Ferramenta de validação (Depop) ─────────────────────────────────────── */
+    /* ── Ferramenta de validação (SECAD) ───────────────────────────────────── */
     .dp-pane { display: none; }
     .dp-pane.active { display: block; }
 
@@ -190,7 +190,7 @@
     }
   </style>
 </head>
-<body data-modulo="depop">
+<body data-modulo="secad">
 <div class="layout">
 
   <!-- Sidebar -->
@@ -236,12 +236,12 @@
     </div>
 
     <!-- Carregando -->
-    <div id="depop-loader" class="card">
+    <div id="secad-loader" class="card">
       <div style="padding:48px 24px;text-align:center;color:var(--text-muted);">Carregando...</div>
     </div>
 
     <!-- Gate de 1º acesso: cadastro de CPF + senha de assinatura -->
-    <div id="depop-setup" class="card" style="display:none;max-width:520px;">
+    <div id="secad-setup" class="card" style="display:none;max-width:520px;">
       <div class="card-header"><div class="card-title">Configure seu acesso</div></div>
       <div style="padding:20px 24px;">
         <p style="font-size:13px;color:var(--text-muted);margin-bottom:18px;line-height:1.5;">
@@ -264,12 +264,12 @@
           <strong>senha de login</strong> — não há uma segunda senha para lembrar.
         </p>
         <div id="dp-setup-msg" style="font-size:13px;font-weight:600;min-height:18px;margin-bottom:12px;"></div>
-        <button class="btn btn-primary" id="dp-setup-btn" onclick="salvarPerfilDepop()" style="display:none;">Confirmar — sou eu</button>
+        <button class="btn btn-primary" id="dp-setup-btn" onclick="salvarPerfilSecad()" style="display:none;">Confirmar — sou eu</button>
       </div>
     </div>
 
     <!-- Conteúdo do módulo (após cadastro) -->
-    <div id="depop-content" style="display:none;">
+    <div id="secad-content" style="display:none;">
 
      <!-- ═══ VIEW: Validação de Contratos ═══ -->
      <div id="view-validacao">
@@ -355,6 +355,7 @@
      </div><!-- /view-comunicados -->
 
     </div>
+    <div id="app-footer"></div>
   </main>
 </div>
 
@@ -489,6 +490,6 @@
 <div id="toast"></div>
 <script src="js/pwa.js"></script>
 <script src="js/auth.js"></script>
-<script src="js/depop.js"></script>
+<script src="js/secad.js"></script>
 </body>
 </html>

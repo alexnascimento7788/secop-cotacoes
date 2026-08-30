@@ -1,5 +1,5 @@
-// Módulo Depop — ferramenta de validação de contratos (Setor de Cadastro).
-// auth.js já garantiu que o módulo ativo é o Depop antes daqui.
+// Módulo SECAD — ferramenta de validação de contratos (Setor de Cadastro).
+// auth.js já garantiu que o módulo ativo é o SECAD antes daqui.
 
 // ── 1º acesso: CPF + senha de assinatura ──────────────────────────────────────
 
@@ -24,12 +24,12 @@ function mascararCpf(v) {
 }
 
 function _mostrar(id) {
-  ['depop-loader', 'depop-setup', 'depop-content'].forEach(x => {
+  ['secad-loader', 'secad-setup', 'secad-content'].forEach(x => {
     document.getElementById(x).style.display = x === id ? '' : 'none';
   });
 }
 
-async function salvarPerfilDepop() {
+async function salvarPerfilSecad() {
   const msg = document.getElementById('dp-setup-msg');
   const btn = document.getElementById('dp-setup-btn');
   const cpf = document.getElementById('dp-cpf').value;
@@ -38,13 +38,13 @@ async function salvarPerfilDepop() {
 
   btn.disabled = true; btn.textContent = 'Ativando...';
   try {
-    const res = await fetch('/api/depop/perfil', {
+    const res = await fetch('/api/secad/perfil', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cpf })
     });
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao salvar'); }
     const data = await res.json().catch(() => ({}));
-    _mostrar('depop-content'); bootApp();
+    _mostrar('secad-content'); bootApp();
     toast(data.nome ? `Acesso ativado — ${data.nome}` : 'Acesso ativado.', 'success');
   } catch (e) {
     msg.textContent = e.message;
@@ -64,19 +64,19 @@ const fmtMoeda = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFr
 const fmtNum   = v => Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtData  = iso => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }); };
 
-async function initDepop() {
+async function initSecad() {
   try {
-    const res = await fetch('/api/depop/perfil');
+    const res = await fetch('/api/secad/perfil');
     if (res.status === 401) { window.location.replace('/login.html'); return; }
     if (res.status === 403) { window.location.replace('/selecionar-modulo.html'); return; }
     const data = await res.json();
     estado.perfil = data.perfil || 'validador';
     estado.caps = data.caps || { is_master: false, pode_validar: true, pode_comunicados: false };
-    if (data.precisa_setup) { _mostrar('depop-setup'); return; }
-    _mostrar('depop-content');
+    if (data.precisa_setup) { _mostrar('secad-setup'); return; }
+    _mostrar('secad-content');
     bootApp();
   } catch {
-    _mostrar('depop-content'); bootApp();
+    _mostrar('secad-content'); bootApp();
   }
 }
 
@@ -99,7 +99,7 @@ function bootApp() {
   if (estado.perfil === 'master') document.getElementById('dp-btn-export-massa').style.display = '';
   if (podeComunicados) bootComunicados();
   window.addEventListener('beforeunload', () => {
-    if (_det && _lockMine && navigator.sendBeacon) navigator.sendBeacon(`/api/depop/contratos/${_det.id}/fechar`);
+    if (_det && _lockMine && navigator.sendBeacon) navigator.sendBeacon(`/api/secad/contratos/${_det.id}/fechar`);
   });
 
   if (podeValidar) { carregarDashboard(); carregarContratos(); }
@@ -139,7 +139,7 @@ function trocarCTab(ctab) {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 async function carregarDashboard() {
   let d;
-  try { d = await (await fetch('/api/depop/dashboard')).json(); } catch { return; }
+  try { d = await (await fetch('/api/secad/dashboard')).json(); } catch { return; }
 
   document.getElementById('dp-cards').innerHTML = `
     <div class="metric-card metric-cotacao">
@@ -198,7 +198,7 @@ async function carregarDashboard() {
 // ── Lista ─────────────────────────────────────────────────────────────────────
 async function carregarContratos() {
   let data;
-  try { data = await (await fetch('/api/depop/contratos')).json(); } catch { return; }
+  try { data = await (await fetch('/api/secad/contratos')).json(); } catch { return; }
   estado.perfil = data.perfil || estado.perfil;
   estado.contratos = data.contratos || [];
 
@@ -384,7 +384,7 @@ async function recarregar() {
 // ── Preview (Anexo I interno) ─────────────────────────────────────────────────
 async function abrirContrato(id) {
   let res, data;
-  try { res = await fetch(`/api/depop/contratos/${id}/abrir`, { method: 'POST' }); data = await res.json(); }
+  try { res = await fetch(`/api/secad/contratos/${id}/abrir`, { method: 'POST' }); data = await res.json(); }
   catch { toast('Falha ao abrir o contrato.', 'error'); return; }
   if (res.status === 409) { toast(data.error || 'Contrato em uso.', 'error'); recarregar(); return; }
   if (!res.ok) { toast(data.error || 'Erro ao abrir.', 'error'); return; }
@@ -396,7 +396,7 @@ async function abrirContrato(id) {
   document.getElementById('dp-preview').style.display = 'flex';
   document.querySelector('.dp-paper-wrap').scrollTop = 0;
 
-  if (_lockMine) { clearInterval(_pingTimer); _pingTimer = setInterval(() => fetch(`/api/depop/contratos/${_det.id}/ping`, { method: 'POST' }).catch(() => {}), 30000); }
+  if (_lockMine) { clearInterval(_pingTimer); _pingTimer = setInterval(() => fetch(`/api/secad/contratos/${_det.id}/ping`, { method: 'POST' }).catch(() => {}), 30000); }
 }
 
 function renderPreviewActions() {
@@ -437,7 +437,7 @@ function renderPreviewActions() {
 
 async function fecharPreview() {
   clearInterval(_pingTimer); _pingTimer = null;
-  if (_det && _lockMine) { try { await fetch(`/api/depop/contratos/${_det.id}/fechar`, { method: 'POST' }); } catch {} }
+  if (_det && _lockMine) { try { await fetch(`/api/secad/contratos/${_det.id}/fechar`, { method: 'POST' }); } catch {} }
   document.getElementById('dp-preview').style.display = 'none';
   _det = null; _lockMine = false;
   await recarregar();
@@ -448,7 +448,7 @@ async function reabrirContrato() {
   if (!_det) return;
   if (!confirm('Voltar este contrato para "A Validar"? A marcação de erro será removida.')) return;
   try {
-    const res = await fetch(`/api/depop/contratos/${_det.id}/reabrir`, { method: 'POST' });
+    const res = await fetch(`/api/secad/contratos/${_det.id}/reabrir`, { method: 'POST' });
     const data = await res.json();
     if (!res.ok) { toast(data.error || 'Erro ao reabrir.', 'error'); return; }
     toast('Contrato voltou para A Validar.', 'success');
@@ -557,7 +557,7 @@ async function confirmarCancelamento() {
   if (!senha) { msg.textContent = 'Informe a sua senha de login.'; return; }
   btn.disabled = true; btn.textContent = 'Cancelando...';
   try {
-    const res = await fetch(`/api/depop/contratos/${_det.id}/cancelar-validacao`, {
+    const res = await fetch(`/api/secad/contratos/${_det.id}/cancelar-validacao`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ motivo, senha })
     });
@@ -582,7 +582,7 @@ async function confirmarAssinatura() {
   if (!senha) { msg.textContent = 'Informe a sua senha de login.'; return; }
   btn.disabled = true; btn.textContent = 'Assinando...';
   try {
-    const res = await fetch(`/api/depop/contratos/${_det.id}/validar`, {
+    const res = await fetch(`/api/secad/contratos/${_det.id}/validar`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ senha })
     });
@@ -606,7 +606,7 @@ async function confirmarErro() {
   if (!solucao) { msg.textContent = 'Descreva a solução.'; return; }
   btn.disabled = true; btn.textContent = 'Salvando...';
   try {
-    const res = await fetch(`/api/depop/contratos/${_det.id}/errado`, {
+    const res = await fetch(`/api/secad/contratos/${_det.id}/errado`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ observacao: obs, solucao })
     });
@@ -639,7 +639,7 @@ async function exportarMassa() {
   if (estado.cidade) qs.set('cidade', estado.cidade);
   btn.disabled = true; const txt = btn.textContent; btn.textContent = 'Gerando...';
   try {
-    const data = await (await fetch('/api/depop/exportar?' + qs.toString())).json();
+    const data = await (await fetch('/api/secad/exportar?' + qs.toString())).json();
     if (!data.detalhes || !data.detalhes.length) { toast('Nenhum contrato no filtro atual.', 'error'); return; }
     imprimirDocs(data.detalhes);
   } catch { toast('Falha ao exportar.', 'error'); }
@@ -675,7 +675,7 @@ async function consultarCpfSetup() {
   _cpfConsultado = raw;
   status.style.color = 'var(--text-muted)'; status.textContent = 'Consultando CPF na Receita...';
   try {
-    const r = await fetch('/api/depop/consultar-cpf', {
+    const r = await fetch('/api/secad/consultar-cpf', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cpf: raw })
     });
@@ -717,7 +717,7 @@ function bootComunicados() {
 
 async function carregarComunicados() {
   try {
-    const data = await (await fetch('/api/depop/comunicados/lista')).json();
+    const data = await (await fetch('/api/secad/comunicados/lista')).json();
     comEstado.contratos = data.contratos || [];
     comEstado.urlDefinida = !!data.url_definida;
     const sel = document.getElementById('dpc-filtro-cidade');
@@ -855,7 +855,7 @@ async function gerarComunicados(qs, rotulo, alvo) {
     if (!ok) return;
   }
   try {
-    const data = await (await fetch('/api/depop/comunicados/gerar?' + qs, { method: 'POST' })).json();
+    const data = await (await fetch('/api/secad/comunicados/gerar?' + qs, { method: 'POST' })).json();
     if (data.error) { toast(data.error, 'error'); return; }
     const coms = data.comunicados || [], pulados = data.pulados || [];
     if (!coms.length) {
@@ -978,7 +978,7 @@ function protocoloPaper(c) {
 }
 
 async function _dadosComunicado(id) {
-  const data = await (await fetch(`/api/depop/comunicados/${id}/dados`)).json();
+  const data = await (await fetch(`/api/secad/comunicados/${id}/dados`)).json();
   if (!data.ok) { toast(data.label || 'Não foi possível gerar este documento.', 'error'); return null; }
   return data.comunicado;
 }
@@ -1049,7 +1049,7 @@ async function carregarComprovantes(id) {
   const box = document.getElementById('dpc-compr-lista');
   box.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">Carregando...</div>';
   try {
-    const data = await (await fetch(`/api/depop/comunicados/${id}/comprovantes`)).json();
+    const data = await (await fetch(`/api/secad/comunicados/${id}/comprovantes`)).json();
     const rows = data.comprovantes || [];
     const c = comEstado.contratos.find(x => x.id === id);
     const isMaster = !!(estado.caps && estado.caps.is_master);
@@ -1060,7 +1060,7 @@ async function carregarComprovantes(id) {
     box.innerHTML = rows.map(r => `<div class="dpc-compr-item">
       <span class="ic">${r.mime === 'application/pdf' ? '📄' : '🖼️'}</span>
       <div class="grow">
-        <a href="/api/depop/comprovante/${r.id}" target="_blank" rel="noopener">${esc(r.nome_arquivo || 'comprovante')}</a>
+        <a href="/api/secad/comprovante/${r.id}" target="_blank" rel="noopener">${esc(r.nome_arquivo || 'comprovante')}</a>
         <div class="meta">${(r.tamanho / 1024).toFixed(0)} KB · ${esc(r.enviado_por_nome || '')} · ${fmtData(r.criado_em)}</div>
       </div>
       ${podeRemover ? `<button class="btn btn-danger btn-sm" onclick="removerComprovante(${r.id})">Remover</button>` : ''}
@@ -1084,7 +1084,7 @@ async function enviarComprovante(input) {
     }
     if (blob.size > 10 * 1024 * 1024) { toast('Arquivo muito grande (máx. 10 MB).', 'error'); status.textContent = ''; return; }
     status.textContent = 'Enviando...';
-    const res = await fetch(`/api/depop/comunicados/${_comprId}/comprovante?nome=${encodeURIComponent(nome)}`, {
+    const res = await fetch(`/api/secad/comunicados/${_comprId}/comprovante?nome=${encodeURIComponent(nome)}`, {
       method: 'POST', headers: { 'Content-Type': blob.type || 'application/octet-stream' }, body: blob
     });
     const data = await res.json();
@@ -1100,7 +1100,7 @@ async function enviarComprovante(input) {
 async function removerComprovante(cid) {
   if (!confirm('Remover este comprovante?')) return;
   try {
-    const res = await fetch(`/api/depop/comprovante/${cid}`, { method: 'DELETE' });
+    const res = await fetch(`/api/secad/comprovante/${cid}`, { method: 'DELETE' });
     const data = await res.json();
     if (!res.ok) { toast(data.error || 'Erro ao remover.', 'error'); return; }
     toast('Comprovante removido.', 'success');
@@ -1161,7 +1161,7 @@ function drillLinhaComunicado(c) {
 
 async function marcarEntrega(id, enviado) {
   try {
-    const res = await fetch(`/api/depop/comunicados/${id}/enviado`, {
+    const res = await fetch(`/api/secad/comunicados/${id}/enviado`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enviado: !!enviado })
     });
     const data = await res.json();
@@ -1194,7 +1194,7 @@ async function confirmarCancelarEntrega() {
   if (!senha) { msg.textContent = 'Informe a sua senha de login.'; return; }
   btn.disabled = true; btn.textContent = 'Cancelando...';
   try {
-    const res = await fetch(`/api/depop/comunicados/${_cancelEntregaId}/cancelar-entrega`, {
+    const res = await fetch(`/api/secad/comunicados/${_cancelEntregaId}/cancelar-entrega`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ motivo, senha })
     });
     const data = await res.json();
@@ -1212,7 +1212,7 @@ async function confirmarCancelarEntrega() {
 // Parâmetros do sistema (só master).
 async function abrirParametros() {
   try {
-    const p = await (await fetch('/api/depop/parametros')).json();
+    const p = await (await fetch('/api/secad/parametros')).json();
     const u = p.url_plataforma_acesso;
     document.getElementById('dpc-param-url').value = (u && u !== 'A DEFINIR') ? u : '';
     document.getElementById('dpc-param-num').value = p.numero_comunicado || '';
@@ -1225,7 +1225,7 @@ async function salvarParametros() {
   const num = document.getElementById('dpc-param-num').value.trim();
   const msg = document.getElementById('dpc-param-msg');
   try {
-    const res = await fetch('/api/depop/parametros', {
+    const res = await fetch('/api/secad/parametros', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url_plataforma_acesso: url || 'A DEFINIR', numero_comunicado: num || '01/2026' })
     });
@@ -1244,5 +1244,5 @@ document.addEventListener('DOMContentLoaded', () => {
     clearTimeout(cpfInp._t);
     cpfInp._t = setTimeout(consultarCpfSetup, 500);
   });
-  initDepop();
+  initSecad();
 });

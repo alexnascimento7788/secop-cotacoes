@@ -1,6 +1,7 @@
-const CACHE_NAME = 'secop-shell-v32';
+const CACHE_NAME = 'secop-shell-v38';
 
 const SHELL_FILES = [
+  '/components/footer.html',
   '/login.html',
   '/trocar-senha.html',
   '/selecionar-modulo.html',
@@ -9,7 +10,10 @@ const SHELL_FILES = [
   '/novo-processo.html',
   '/cotacao.html',
   '/fornecedor.html',
-  '/depop.html',
+  '/secad.html',
+  '/pac-lancamento.html',
+  '/pac-gestao.html',
+  '/pac-acompanhamento.html',
   '/admin.html',
   '/css/style.css',
   '/js/auth.js',
@@ -18,7 +22,10 @@ const SHELL_FILES = [
   '/js/novo-processo.js',
   '/js/cotacao.js',
   '/js/fornecedor.js',
-  '/js/depop.js',
+  '/js/secad.js',
+  '/js/pac-gestao.js',
+  '/js/pac-lancamento.js',
+  '/js/pac-acompanhamento.js',
   '/js/pwa.js',
   '/js/autocomplete.js',
   '/manifest.webmanifest',

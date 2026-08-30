@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PAC — Lançamento — CEASA CONECTA</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#F9A800">
+  <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
+  <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');</script>
+</head>
+<body data-modulo="pac" data-rotina="pac-lancamento">
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" class="sidebar-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+      <div class="sidebar-logo-fallback" style="display:none;align-items:center;gap:10px;margin-bottom:8px;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="32" height="32" style="flex-shrink:0"><polygon points="20,1 1,20 20,20" fill="#1565C0"/><polygon points="20,1 39,20 20,20" fill="#F9A800"/><polygon points="39,20 20,39 20,20" fill="#1565C0"/><polygon points="1,20 20,39 20,20" fill="#1565C0"/></svg>
+        <div><div class="logo-title">CEASA CONECTA</div><div class="logo-sub">CEASAMINAS</div></div>
+      </div>
+      <div class="logo-divider"></div>
+    </div>
+    <nav>
+      <a href="pac-lancamento.html" class="nav-item active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        Lançamento
+      </a>
+      <a href="pac-acompanhamento.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
+        Acompanhamento
+      </a>
+      <a href="pac-gestao.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
+        Gestão
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <span id="sidebar-username" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;">—</span>
+      <div style="display:flex;gap:2px;flex-shrink:0;">
+        <a href="admin.html" class="sidebar-gear" title="Administração">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </a>
+        <button onclick="logout()" class="sidebar-gear" title="Sair" style="background:none;border:none;cursor:pointer;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="pac-lanc-header" id="pac-lanc-header">
+      <div class="pac-lanc-header-esq">
+        <div class="pac-lanc-linha1"><span class="pac-lanc-modulo">PAC</span> — <span id="pac-lanc-titulo">Lançamento</span></div>
+        <div class="pac-lanc-linha2" id="pac-lanc-linha2" style="display:none;"></div>
+        <div class="pac-lanc-linha3" id="pac-lanc-linha3">Carregando...</div>
+      </div>
+      <div class="pac-lanc-header-dir">
+        <div class="pac-lanc-relogio">
+          <div id="pac-lanc-hora">--:--</div>
+          <div id="pac-lanc-data">--/---/----</div>
+        </div>
+        <div class="pac-lanc-avatar" id="pac-lanc-avatar"></div>
+      </div>
+    </div>
+
+    <!-- Lista de DFDs -->
+    <div id="pac-dfd-lista">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Documentos de Formalização de Demanda</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Título</th><th>Ano</th><th>Status</th><th>Itens lançados</th><th></th></tr></thead>
+            <tbody id="dfds-tbody"><tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Itens do DFD aberto -->
+    <div id="pac-dfd-itens" style="display:none;">
+      <button class="btn btn-secondary btn-sm" onclick="fecharDfd()" style="margin-bottom:14px;">← Voltar aos DFDs</button>
+
+      <div class="card" id="lanc-pedidos-card" style="display:none;margin-bottom:16px;">
+        <div class="card-header"><span class="card-title">Meus pedidos de edição</span></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Item</th><th>Tipo</th><th>Justificativa</th><th>Status</th><th>Resposta</th></tr></thead>
+          <tbody id="lanc-pedidos-tbody"></tbody>
+        </table></div>
+      </div>
+
+      <div class="card" style="margin-bottom:32px;">
+        <div style="padding:10px 20px;display:flex;justify-content:flex-end;border-bottom:1px solid var(--cinza-b);">
+          <span class="text-muted" id="lanc-dfd-contagem" style="font-size:12.5px;"></span>
+        </div>
+        <div class="table-wrap dfd-table-wrap">
+          <table class="dfd-table" id="lanc-itens-table">
+            <thead id="lanc-itens-thead"></thead>
+            <tbody id="lanc-itens-tbody"><tr><td style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
+          </table>
+        </div>
+        <div id="lanc-novo-item" style="padding:16px 20px;border-top:1px solid var(--cinza-b);background:var(--surface-2);"></div>
+      </div>
+    </div>
+
+    <div id="app-footer"></div>
+  </main>
+</div>
+
+<!-- Dados do contrato de um item — coluna única na tabela (ícone), campos aqui -->
+<div class="modal-overlay" id="modal-contrato">
+  <div class="modal-box" style="max-width:380px;">
+    <h3>Dados do contrato</h3>
+    <p id="mc-subtitulo" class="text-muted" style="margin:-8px 0 14px;font-size:12.5px;"></p>
+    <div class="form-group" style="margin-bottom:14px;">
+      <label for="mc-possui">Este item possui contrato?</label>
+      <select id="mc-possui" title="Este item possui contrato?" onchange="mcAtualizarVisibilidadeCampos()">
+        <option value="nao">Não</option>
+        <option value="sim">Sim</option>
+      </select>
+    </div>
+    <div id="mc-campos"></div>
+    <div id="mc-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin:4px 0 8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button type="button" class="btn btn-secondary" onclick="fecharModalContrato()">Fechar</button>
+      <button type="button" class="btn btn-primary" id="mc-salvar" onclick="salvarContrato()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="js/pwa.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/pac-lancamento.js"></script>
+</body>
+</html>
