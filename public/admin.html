@@ -898,6 +898,11 @@
       <label>Módulos e perfis</label>
       <div id="mpu-modulos" style="border:1.5px solid var(--cinza-b);border-radius:6px;padding:8px 10px;font-size:12.5px;"></div>
     </div>
+    <div class="form-group" style="margin-bottom:14px;display:none;" id="mpu-cidades-wrap">
+      <label>Cidades liberadas (Comunicados — SECAD)</label>
+      <div id="mpu-cidades" style="border:1.5px solid var(--cinza-b);border-radius:6px;padding:8px 10px;font-size:12.5px;max-height:160px;overflow-y:auto;"></div>
+      <div style="font-size:11px;color:var(--text-subtle);margin-top:4px;">Nenhuma marcada = enxerga todas as cidades.</div>
+    </div>
     <div id="mpu-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin-bottom:8px;"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;">
       <button class="btn btn-secondary" onclick="fecharModalPerfilUsuario()">Cancelar</button>
@@ -1965,9 +1970,55 @@ async function mpuCarregarModulos(userId) {
           </select>
         </div>`;
     }).join('') || '<span style="color:#aaa;">Nenhum módulo disponível.</span>';
+
+    // Cidades (Comunicados) só faz sentido pra quem tem o módulo SECAD —
+    // some pra qualquer outro usuário, sem lista vazia confusa.
+    const secadModulo = modulos.find(m => m.slug === 'secad');
+    if (secadModulo && u.modulo_ids.includes(secadModulo.id)) {
+      await mpuCarregarCidades(userId);
+    } else {
+      document.getElementById('mpu-cidades-wrap').style.display = 'none';
+    }
   } catch {
     box.innerHTML = '<span style="color:#c00;">Erro ao carregar módulos.</span>';
   }
+}
+
+// Cidades liberadas em Comunicados (escopo dentro da rotina, não um perfil
+// separado — José só Caratinga, Maria todas). Nenhuma marcada = sem restrição.
+async function mpuCarregarCidades(userId) {
+  const wrap = document.getElementById('mpu-cidades-wrap');
+  const box = document.getElementById('mpu-cidades');
+  wrap.style.display = 'block';
+  box.innerHTML = 'Carregando...';
+  try {
+    const [catRes, selRes] = await Promise.all([
+      fetch('/api/admin/secad-cidades'),
+      fetch(`/api/admin/usuarios/${userId}/secad-cidades`),
+    ]);
+    if (!catRes.ok || !selRes.ok) { box.innerHTML = '<span style="color:#c00;">Erro ao carregar cidades.</span>'; return; }
+    const cidades = await catRes.json();
+    const selecionadas = new Set(await selRes.json());
+    box.innerHTML = cidades.map(c => `
+      <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;">
+        <input type="checkbox" ${selecionadas.has(c.id) ? 'checked' : ''} onchange="mpuToggleCidade(${userId},${c.id},this.checked)">
+        ${c.descricao}
+      </label>
+    `).join('') || '<span style="color:#aaa;">Nenhuma cidade cadastrada.</span>';
+  } catch {
+    box.innerHTML = '<span style="color:#c00;">Erro ao carregar cidades.</span>';
+  }
+}
+
+async function mpuToggleCidade(userId, cidadeId, concedido) {
+  try {
+    const res = await fetch(`/api/admin/usuarios/${userId}/secad-cidades`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cidade_id: cidadeId, concedido }),
+    });
+    if (!res.ok) throw new Error();
+    toast('Cidades atualizadas', 'success');
+  } catch { toast('Erro ao atualizar cidades', 'error'); }
 }
 
 async function mpuToggleModulo(userId, moduloId, concedido) {

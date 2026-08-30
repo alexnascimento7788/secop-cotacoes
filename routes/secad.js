@@ -197,6 +197,48 @@ function codigosRemovidos() {
   return db.prepare(`SELECT codigo FROM concessionario_removido`).all().map(r => r.codigo);
 }
 
+// ── Cidades liberadas por usuário em Comunicados (secad_cidade_usuarios) ──────
+// José só pode gerar/ver comunicados de Caratinga, Maria de todas — escopo
+// DENTRO da rotina 'comunicados' (não é uma rotina/perfil separado, pra não
+// inchar o cadastro de usuários — pedido explícito do Alex). null = sem
+// restrição (master, consulta, ou usuário sem nenhuma linha configurada —
+// mesmo "sem linha = permissivo" já usado em vários lugares do projeto, pra
+// não quebrar quem já usa Comunicados no dia em que isso entra no ar).
+function cidadesPermitidas(user) {
+  if (user.username === 'master' || user.role === 'consulta') return null;
+  const rows = db.prepare(`SELECT cidade_id FROM secad_cidade_usuarios WHERE user_id = ?`).all(user.user_id);
+  return rows.length ? new Set(rows.map(r => r.cidade_id)) : null;
+}
+
+// Middleware pras rotas /comunicados/:id/... — barra quando o contrato existe
+// mas a cidade dele está fora do escopo do usuário (mesma mensagem/padrão do
+// "Você não pertence a este setor/item" já usado no PAC).
+function requireCidadeDoContrato(req, res, next) {
+  const permitidas = cidadesPermitidas(req.user);
+  if (!permitidas) return next();
+  const row = depopDb.prepare(`SELECT id_cidade FROM AvaliacaoAreaRenovacao WHERE id = ?`).get(parseInt(req.params.id, 10));
+  if (!row || !permitidas.has(row.id_cidade)) {
+    return res.status(403).json({ error: 'Você não tem acesso a este contrato (fora das cidades liberadas para você).' });
+  }
+  next();
+}
+
+// Mesma checagem, mas pras rotas de comprovante (/comprovante/:cid) — o
+// parâmetro é o id do comprovante (anexos.db), não o do contrato; resolve
+// id_avaliacao primeiro. Comprovante inexistente passa direto (o handler
+// original devolve o 404 "Comprovante não encontrado").
+function requireCidadeDoComprovante(req, res, next) {
+  const permitidas = cidadesPermitidas(req.user);
+  if (!permitidas) return next();
+  const c = anexosDb.prepare(`SELECT id_avaliacao FROM comprovante_entrega WHERE id = ?`).get(parseInt(req.params.cid, 10));
+  if (!c) return next();
+  const row = depopDb.prepare(`SELECT id_cidade FROM AvaliacaoAreaRenovacao WHERE id = ?`).get(c.id_avaliacao);
+  if (!row || !permitidas.has(row.id_cidade)) {
+    return res.status(403).json({ error: 'Você não tem acesso a este contrato (fora das cidades liberadas para você).' });
+  }
+  next();
+}
+
 // Detalhe completo de um contrato: resumo (do concessionário) + linhas de tarifa
 // + estado de validação. Lê o depop.db (referência) e o secop.db (validação).
 function montarDetalhe(idAvaliacao) {
@@ -625,15 +667,18 @@ function montarComunicado(idAvaliacao) {
 // tentaria casar "lista"/"gerar" como se fossem o valor de :id.
 router.get('/api/secad/comunicados/lista', secad, requireRotina('comunicados', 'ver'), (req, res) => {
   const removidos = new Set(codigosRemovidos());
+  const permitidas = cidadesPermitidas(req.user);
   const avals = depopDb.prepare(`
-    SELECT a.id, a.codigo, a.numero_ccu, a.data_vencimento, a.endereco AS area,
+    SELECT a.id, a.codigo, a.numero_ccu, a.data_vencimento, a.endereco AS area, a.id_cidade,
            cli.cliente, c.descricao AS cidade,
            CASE WHEN x.codigo IS NULL THEN 0 ELSE 1 END AS tem_credencial
     FROM AvaliacaoAreaRenovacao a
     LEFT JOIN ClienteConcessionario cli ON cli.codigo = a.codigo
     LEFT JOIN Cidade c ON c.id = a.id_cidade
     LEFT JOIN concessionario_acess x ON x.codigo = a.codigo
-    ORDER BY c.descricao, cli.cliente, a.numero_ccu`).all().filter(a => !removidos.has(a.codigo));
+    ORDER BY c.descricao, cli.cliente, a.numero_ccu`).all()
+    .filter(a => !removidos.has(a.codigo))
+    .filter(a => !permitidas || permitidas.has(a.id_cidade));
   const gmap = new Map(db.prepare(`SELECT id_avaliacao, geracoes, ultima_geracao, enviado, dt_envio FROM comunicado_gerado`)
     .all().map(r => [r.id_avaliacao, r]));
   const vmap = new Map(db.prepare(`SELECT id_avaliacao, status FROM validacao_contrato`)
@@ -678,21 +723,25 @@ router.get('/api/secad/comunicados/lista', secad, requireRotina('comunicados', '
 router.post('/api/secad/comunicados/gerar', secad, requireRotina('comunicados', 'incluir'), (req, res) => {
   const { cidade, codigo, codigos } = req.query;
   const removidos = new Set(codigosRemovidos());
+  const permitidas = cidadesPermitidas(req.user);
   let rows;
   if (codigo) {
-    rows = depopDb.prepare(`SELECT id, codigo FROM AvaliacaoAreaRenovacao WHERE codigo = ? ORDER BY numero_ccu`).all(parseInt(codigo, 10));
+    rows = depopDb.prepare(`SELECT id, codigo, id_cidade FROM AvaliacaoAreaRenovacao WHERE codigo = ? ORDER BY numero_ccu`).all(parseInt(codigo, 10));
   } else if (codigos) {
     const lista = String(codigos).split(',').map(s => parseInt(s.trim(), 10)).filter(Boolean);
     if (!lista.length) return res.status(400).json({ error: 'Nenhum concessionário selecionado.' });
     const ph = lista.map(() => '?').join(',');
-    rows = depopDb.prepare(`SELECT id, codigo FROM AvaliacaoAreaRenovacao WHERE codigo IN (${ph}) ORDER BY codigo, numero_ccu`).all(...lista);
+    rows = depopDb.prepare(`SELECT id, codigo, id_cidade FROM AvaliacaoAreaRenovacao WHERE codigo IN (${ph}) ORDER BY codigo, numero_ccu`).all(...lista);
   } else if (cidade) {
-    rows = depopDb.prepare(`SELECT a.id, a.codigo FROM AvaliacaoAreaRenovacao a LEFT JOIN Cidade c ON c.id = a.id_cidade
+    rows = depopDb.prepare(`SELECT a.id, a.codigo, a.id_cidade FROM AvaliacaoAreaRenovacao a LEFT JOIN Cidade c ON c.id = a.id_cidade
                             WHERE c.descricao = ? ORDER BY a.numero_ccu`).all(String(cidade));
   } else {
     return res.status(400).json({ error: 'Informe cidade, concessionário ou seleção.' });
   }
-  rows = rows.filter(r => !removidos.has(r.codigo));
+  // Filtra por cidade ANTES de checar "nenhum resultado" — um código/seleção
+  // que caia fora do escopo do usuário simplesmente não sai (mesmo efeito de
+  // não existir pra ele), sem vazar que o contrato existe fora da sua área.
+  rows = rows.filter(r => !removidos.has(r.codigo) && (!permitidas || permitidas.has(r.id_cidade)));
 
   // Entrega finalizada trava a geração: comunicado entregue não sai de novo.
   // Só o master libera (cancelar-entrega). Fica em `pulados` com motivo 'entregue'.
@@ -740,7 +789,7 @@ router.post('/api/secad/comunicados/gerar', secad, requireRotina('comunicados', 
 });
 
 // Controle de entrega (manual, separado da geração). Só marca quem já foi gerado.
-router.post('/api/secad/comunicados/:id/enviado', secad, requireRotina('comunicados', 'alterar'), (req, res) => {
+router.post('/api/secad/comunicados/:id/enviado', secad, requireRotina('comunicados', 'alterar'), requireCidadeDoContrato, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const enviado = !!(req.body && req.body.enviado);
   const row = db.prepare(`SELECT geracoes FROM comunicado_gerado WHERE id_avaliacao = ?`).get(id);
@@ -754,7 +803,7 @@ router.post('/api/secad/comunicados/:id/enviado', secad, requireRotina('comunica
 // Cancelar a entrega (só supervisor/master): desfaz a entrega finalizada,
 // removendo os comprovantes e liberando o comunicado para gerar/imprimir de novo.
 // Igual ao cancelar assinatura — exige a senha de login do master e um motivo.
-router.post('/api/secad/comunicados/:id/cancelar-entrega', secad, requireRotina('comunicados', 'alterar'), (req, res) => {
+router.post('/api/secad/comunicados/:id/cancelar-entrega', secad, requireRotina('comunicados', 'alterar'), requireCidadeDoContrato, (req, res) => {
   if (perfilFerramenta(req) !== 'master') return res.status(403).json({ error: 'Apenas o supervisor pode cancelar a entrega.' });
   const id = parseInt(req.params.id, 10);
   const { senha, motivo } = req.body || {};
@@ -780,7 +829,7 @@ router.post('/api/secad/comunicados/:id/cancelar-entrega', secad, requireRotina(
 // Dados de UM comunicado (para reimprimir o comunicado ou o protocolo de entrega
 // de um contrato específico, fora do fluxo de geração em massa). Devolve o mesmo
 // objeto de montarComunicado (ok:false + motivo quando não é gerável).
-router.get('/api/secad/comunicados/:id/dados', secad, requireRotina('comunicados', 'ver'), (req, res) => {
+router.get('/api/secad/comunicados/:id/dados', secad, requireRotina('comunicados', 'ver'), requireCidadeDoContrato, (req, res) => {
   const id = parseInt(req.params.id, 10);
   res.json(montarComunicado(id));
 });
@@ -794,6 +843,7 @@ const COMPROVANTE_MAX = 10 * 1024 * 1024; // 10 MB por anexo (pós-compressão n
 
 router.post('/api/secad/comunicados/:id/comprovante', secad,
   requireRotina('comunicados', 'incluir'),
+  requireCidadeDoContrato,
   express.raw({ type: '*/*', limit: '12mb' }),
   (req, res) => {
     const id = parseInt(req.params.id, 10);
@@ -827,7 +877,7 @@ router.post('/api/secad/comunicados/:id/comprovante', secad,
 );
 
 // Lista os comprovantes de um contrato (metadados, sem o BLOB).
-router.get('/api/secad/comunicados/:id/comprovantes', secad, requireRotina('comunicados', 'ver'), (req, res) => {
+router.get('/api/secad/comunicados/:id/comprovantes', secad, requireRotina('comunicados', 'ver'), requireCidadeDoContrato, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const rows = anexosDb.prepare(`
     SELECT id, nome_arquivo, mime, tamanho, enviado_por_nome, criado_em
@@ -836,7 +886,7 @@ router.get('/api/secad/comunicados/:id/comprovantes', secad, requireRotina('comu
 });
 
 // Baixa/visualiza um comprovante (o BLOB). GET → consulta também pode ver.
-router.get('/api/secad/comprovante/:cid', secad, requireRotina('comunicados', 'ver'), (req, res) => {
+router.get('/api/secad/comprovante/:cid', secad, requireRotina('comunicados', 'ver'), requireCidadeDoComprovante, (req, res) => {
   const cid = parseInt(req.params.cid, 10);
   const row = anexosDb.prepare(`SELECT nome_arquivo, mime, conteudo FROM comprovante_entrega WHERE id = ?`).get(cid);
   if (!row) return res.status(404).json({ error: 'Comprovante não encontrado.' });
@@ -847,7 +897,7 @@ router.get('/api/secad/comprovante/:cid', secad, requireRotina('comunicados', 'v
 
 // Remove um comprovante. Se sobrar nenhum no contrato, desmarca a entrega.
 // Entrega finalizada (enviado=1) só o master mexe — o comum usa o supervisor.
-router.delete('/api/secad/comprovante/:cid', secad, requireRotina('comunicados', 'alterar'), (req, res) => {
+router.delete('/api/secad/comprovante/:cid', secad, requireRotina('comunicados', 'alterar'), requireCidadeDoComprovante, (req, res) => {
   const cid = parseInt(req.params.cid, 10);
   const row = anexosDb.prepare(`SELECT id_avaliacao, nome_arquivo FROM comprovante_entrega WHERE id = ?`).get(cid);
   if (!row) return res.status(404).json({ error: 'Comprovante não encontrado.' });
