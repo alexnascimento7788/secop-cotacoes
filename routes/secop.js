@@ -153,12 +153,12 @@ router.post('/api/processos/:id/duplicar', secop, (req, res) => {
 
   const fornecedores = db.prepare(`SELECT * FROM fornecedores WHERE processo_id = ? ORDER BY ordem`).all(req.params.id);
   const insertForn = db.prepare(`
-    INSERT INTO fornecedores (processo_id, ordem, nome, contato, telefone, celular, email,
+    INSERT INTO fornecedores (processo_id, ordem, nome, contato, telefone, celular, telefone_ddd, celular_ddd, email,
       prazo_pagamento, prazo_entrega, prazo_garantia, frete, frete_termo,
       pesquisa_internet, pesquisa_compra_publica, declinio)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  fornecedores.forEach(f => insertForn.run(novoId, f.ordem, f.nome, f.contato, f.telefone, f.celular, f.email,
+  fornecedores.forEach(f => insertForn.run(novoId, f.ordem, f.nome, f.contato, f.telefone, f.celular, f.telefone_ddd, f.celular_ddd, f.email,
     f.prazo_pagamento, f.prazo_entrega, f.prazo_garantia, f.frete, f.frete_termo,
     f.pesquisa_internet, f.pesquisa_compra_publica, f.declinio));
 
@@ -212,7 +212,7 @@ router.get('/api/fornecedores/:id', secop, (req, res) => {
 });
 
 router.post('/api/processos/:id/fornecedores', secop, requireEditProcesso(req => req.params.id), (req, res) => {
-  const { nome, contato, telefone, celular, email, data_proposta,
+  const { nome, contato, telefone, celular, telefone_ddd, celular_ddd, email, data_proposta,
           prazo_pagamento, prazo_entrega, prazo_garantia, frete, frete_termo,
           proposta_inicial, proposta_final, observacoes, pesquisa_internet, pesquisa_compra_publica, declinio } = req.body;
 
@@ -220,11 +220,11 @@ router.post('/api/processos/:id/fornecedores', secop, requireEditProcesso(req =>
   const ordem = (countRow.c || 0) + 1;
 
   const info = db.prepare(`
-    INSERT INTO fornecedores (processo_id, ordem, nome, contato, telefone, celular, email,
+    INSERT INTO fornecedores (processo_id, ordem, nome, contato, telefone, celular, telefone_ddd, celular_ddd, email,
       data_proposta, prazo_pagamento, prazo_entrega, prazo_garantia, frete, frete_termo,
       proposta_inicial, proposta_final, observacoes, pesquisa_internet, pesquisa_compra_publica, declinio)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(req.params.id, ordem, n(nome), n(contato), n(telefone), n(celular), n(email),
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(req.params.id, ordem, n(nome), n(contato), n(telefone), n(celular), n(telefone_ddd), n(celular_ddd), n(email),
          n(data_proposta), n(prazo_pagamento), n(prazo_entrega), n(prazo_garantia), n(frete), n(frete_termo),
          n(proposta_inicial), n(proposta_final), n(observacoes), pesquisa_internet ? 1 : 0, pesquisa_compra_publica ? 1 : 0, declinio ? 1 : 0);
 
@@ -235,16 +235,16 @@ router.post('/api/processos/:id/fornecedores', secop, requireEditProcesso(req =>
 });
 
 router.put('/api/fornecedores/:id', secop, requireEditProcesso(req => processoIdDoFornecedor(req.params.id)), (req, res) => {
-  const { nome, contato, telefone, celular, email, data_proposta,
+  const { nome, contato, telefone, celular, telefone_ddd, celular_ddd, email, data_proposta,
           prazo_pagamento, prazo_entrega, prazo_garantia, frete, frete_termo,
           proposta_inicial, proposta_final, observacoes, pesquisa_internet, pesquisa_compra_publica, declinio } = req.body;
 
   db.prepare(`
-    UPDATE fornecedores SET nome=?, contato=?, telefone=?, celular=?, email=?,
+    UPDATE fornecedores SET nome=?, contato=?, telefone=?, celular=?, telefone_ddd=?, celular_ddd=?, email=?,
       data_proposta=?, prazo_pagamento=?, prazo_entrega=?, prazo_garantia=?, frete=?, frete_termo=?,
       proposta_inicial=?, proposta_final=?, observacoes=?, pesquisa_internet=?, pesquisa_compra_publica=?, declinio=?
     WHERE id=?
-  `).run(n(nome), n(contato), n(telefone), n(celular), n(email), n(data_proposta), n(prazo_pagamento),
+  `).run(n(nome), n(contato), n(telefone), n(celular), n(telefone_ddd), n(celular_ddd), n(email), n(data_proposta), n(prazo_pagamento),
          n(prazo_entrega), n(prazo_garantia), n(frete), n(frete_termo), n(proposta_inicial), n(proposta_final), n(observacoes),
          pesquisa_internet ? 1 : 0, pesquisa_compra_publica ? 1 : 0, declinio ? 1 : 0, req.params.id);
 
