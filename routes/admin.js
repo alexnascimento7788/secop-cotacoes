@@ -235,7 +235,7 @@ router.delete('/api/tipos-extra/:id', requireAdminSistema, (req, res) => {
 router.get('/api/admin/users', requireAdminAny, (req, res) => {
   const souOperacional = req.user.role === 'admin_operacional' && req.user.username !== 'master';
   const base = `
-    SELECT u.id, u.username, u.email, u.nome_completo, u.telefone, u.role, u.ativo,
+    SELECT u.id, u.username, u.email, u.nome_completo, u.telefone, u.telefone_ddd, u.role, u.ativo,
            u.acesso_avancado, u.senha_provisoria, u.criado_em, u.departamento_id,
            dep.nome AS departamento_nome
     FROM users u LEFT JOIN departamentos dep ON dep.id = u.departamento_id
@@ -247,7 +247,7 @@ router.get('/api/admin/users', requireAdminAny, (req, res) => {
 });
 
 router.post('/api/admin/users', requireAdminAny, (req, res) => {
-  const { username, senha, email, role, acesso_avancado, nome_completo, telefone } = req.body;
+  const { username, senha, email, role, acesso_avancado, nome_completo, telefone, telefone_ddd } = req.body;
   if (!username || !senha) return res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
 
   let roleFinal = role || 'usuario';
@@ -269,9 +269,10 @@ router.post('/api/admin/users', requireAdminAny, (req, res) => {
     // senha_provisoria = 1: o admin define uma senha inicial e o usuário é
     // obrigado a trocá-la no 1º login.
     const info = db.prepare(
-      "INSERT INTO users (username, senha_hash, salt, role, ativo, acesso_avancado, email, senha_provisoria, nome_completo, telefone, departamento_id) VALUES (?, ?, ?, ?, 1, ?, ?, 1, ?, ?, ?)"
+      "INSERT INTO users (username, senha_hash, salt, role, ativo, acesso_avancado, email, senha_provisoria, nome_completo, telefone, telefone_ddd, departamento_id) VALUES (?, ?, ?, ?, 1, ?, ?, 1, ?, ?, ?, ?)"
     ).run(username, hash, salt, roleFinal, acessoVal, email ? String(email).trim() : null,
-          nome_completo ? String(nome_completo).trim() : null, telefone ? String(telefone).trim() : null, deptFinal);
+          nome_completo ? String(nome_completo).trim() : null, telefone ? String(telefone).trim() : null,
+          telefone && telefone_ddd ? String(telefone_ddd).trim() : null, deptFinal);
     registrarLog(req, 'USUARIO', 'CRIOU', `Criou usuário "${username}"`);
     // Acesso padrão ao SECOP (com o perfil "Acesso Total") pro novo usuário não
     // nascer bloqueado nem sem permissão de escrita — o admin ajusta depois.
@@ -290,7 +291,7 @@ router.post('/api/admin/users', requireAdminAny, (req, res) => {
 });
 
 router.patch('/api/admin/users/:id', requireAdminAny, (req, res) => {
-  const { ativo, senha, email, role, acesso_avancado, nome_completo, telefone, departamento_id } = req.body;
+  const { ativo, senha, email, role, acesso_avancado, nome_completo, telefone, telefone_ddd, departamento_id } = req.body;
   const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
   if (!user) return res.status(404).json({ error: 'Não encontrado' });
 
@@ -308,7 +309,8 @@ router.patch('/api/admin/users/:id', requireAdminAny, (req, res) => {
     registrarLog(req, 'USUARIO', 'PERFIL_USUARIO', `Alterou o nome completo de "${user.username}"`);
   }
   if (telefone !== undefined) {
-    db.prepare("UPDATE users SET telefone = ? WHERE id = ?").run(telefone ? String(telefone).trim() : null, req.params.id);
+    db.prepare("UPDATE users SET telefone = ?, telefone_ddd = ? WHERE id = ?")
+      .run(telefone ? String(telefone).trim() : null, telefone && telefone_ddd ? String(telefone_ddd).trim() : null, req.params.id);
     registrarLog(req, 'USUARIO', 'PERFIL_USUARIO', `Alterou o telefone de "${user.username}"`);
   }
   if (departamento_id !== undefined) {

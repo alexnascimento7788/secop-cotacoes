@@ -563,46 +563,7 @@
         <hr class="admin-divider">
 
         <div class="admin-section">
-          <div class="admin-section-title">Adicionar usuário</div>
-          <div class="add-user-form" style="display:flex;flex-wrap:wrap;gap:10px;align-items:end;">
-            <div class="form-group" style="flex:1 1 150px;">
-              <label>Usuário</label>
-              <input type="text" id="new-username" placeholder="nome.usuario" />
-            </div>
-            <div class="form-group" style="flex:1 1 170px;">
-              <label>Nome completo</label>
-              <input type="text" id="new-nome-completo" placeholder="Nome completo" />
-            </div>
-            <div class="form-group" style="flex:1 1 190px;">
-              <label>Email</label>
-              <input type="email" id="new-email" placeholder="email@exemplo.com" />
-            </div>
-            <div class="form-group" style="flex:1 1 130px;">
-              <label>Telefone</label>
-              <input type="text" id="new-telefone" placeholder="(00) 00000-0000" />
-            </div>
-            <div class="form-group" style="flex:1 1 130px;">
-              <label>Senha provisória</label>
-              <input type="password" id="new-senha" placeholder="••••••••" />
-            </div>
-            <div class="form-group">
-              <label>Departamento</label>
-              <select id="new-departamento" style="padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text);"></select>
-            </div>
-            <div class="form-group">
-              <label>Perfil</label>
-              <select id="new-role" style="padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text);">
-                <option value="usuario" selected>Usuário</option>
-                <option value="admin_sistema">Admin do sistema</option>
-                <option value="admin_operacional">Admin do departamento</option>
-                <option value="consulta">Consulta (só leitura)</option>
-              </select>
-            </div>
-            <button class="btn btn-primary" onclick="adicionarUsuario()" style="white-space:nowrap;">
-              + Adicionar
-            </button>
-          </div>
-          <div id="user-msg" style="margin-top:10px;font-size:13px;font-weight:600;min-height:18px;"></div>
+          <button class="btn btn-primary" onclick="abrirModalCadastrarUsuario()">+ Cadastrar usuário</button>
         </div>
       </div>
     </div>
@@ -858,6 +819,52 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-cadastrar-usuario">
+  <div class="modal-box" style="max-width:440px;">
+    <h3>Cadastrar usuário</h3>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>Usuário</label>
+      <input type="text" id="new-username" placeholder="nome.usuario" style="width:100%;padding:10px 12px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:14px;"/>
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>Nome completo</label>
+      <input type="text" id="new-nome-completo" placeholder="Nome completo" style="width:100%;padding:10px 12px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:14px;"/>
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>Email</label>
+      <input type="email" id="new-email" placeholder="email@exemplo.com" style="width:100%;padding:10px 12px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:14px;"/>
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>Telefone</label>
+      <input type="text" id="new-telefone" placeholder="00000-0000" />
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>Senha provisória</label>
+      <input type="password" id="new-senha" placeholder="••••••••" style="width:100%;padding:10px 12px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:14px;"/>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <div class="form-group" style="margin-bottom:12px;flex:1;">
+        <label>Departamento</label>
+        <select id="new-departamento" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text);"></select>
+      </div>
+      <div class="form-group" style="margin-bottom:12px;flex:1;">
+        <label>Perfil</label>
+        <select id="new-role" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text);">
+          <option value="usuario" selected>Usuário</option>
+          <option value="admin_sistema">Admin do sistema</option>
+          <option value="admin_operacional">Admin do departamento</option>
+          <option value="consulta">Consulta (só leitura)</option>
+        </select>
+      </div>
+    </div>
+    <div id="user-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin-bottom:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="fecharModalCadastrarUsuario()">Cancelar</button>
+      <button class="btn btn-primary" onclick="adicionarUsuario()">Cadastrar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-perfil-usuario">
   <div class="modal-box" style="max-width:420px;">
     <h3>Editar perfil do usuário</h3>
@@ -892,7 +899,7 @@
     </div>
     <div class="form-group" style="margin-bottom:14px;">
       <label>Telefone</label>
-      <input type="text" id="mpu-telefone" style="width:100%;padding:10px 12px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:14px;"/>
+      <input type="text" id="mpu-telefone" placeholder="00000-0000" />
     </div>
     <div class="form-group" style="margin-bottom:14px;">
       <label>Módulos e perfis</label>
@@ -914,7 +921,14 @@
 <div id="toast"></div>
 <script src="js/pwa.js"></script>
 <script src="js/auth.js"></script>
+<script src="js/telefone-br.js"></script>
 <script>
+// Bandeira BR + bandeira do estado + DDD (ver public/js/telefone-br.js) — os 2
+// modais existem estáticos no HTML (só alternam a classe "open"), então os
+// widgets são criados 1x aqui, igual ao padrão já usado em fornecedor.js.
+const _newUserTelWidget = iniciarTelefoneBR(document.getElementById('new-telefone'));
+const _mpuTelWidget = iniciarTelefoneBR(document.getElementById('mpu-telefone'));
+
 function toast(msg, type='') {
   const el = document.getElementById('toast');
   el.textContent = msg;
@@ -1867,6 +1881,7 @@ async function carregarUsuarios() {
           <button class="btn btn-secondary btn-sm" onclick="abrirModalPerfilUsuario(${u.id})">Perfil</button>
           <button class="btn btn-secondary btn-sm" onclick="editarEmail(${u.id})">Email</button>
           <button class="btn btn-secondary btn-sm" onclick="alterarSenha(${u.id})">Senha</button>
+          <button class="btn btn-secondary btn-sm" onclick="renovarSenha(${u.id},'${u.username}')" title="Gera uma nova senha provisória aleatória">Renovar senha</button>
           <button class="btn btn-secondary btn-sm" onclick="toggleAtivo(${u.id},${u.ativo})">${u.ativo?'Desativar':'Ativar'}</button>
           <button class="btn btn-danger btn-sm" onclick="excluirUsuario(${u.id},'${u.username}')">Excluir</button>
         </td>
@@ -1877,11 +1892,34 @@ async function carregarUsuarios() {
   }
 }
 
+async function abrirModalCadastrarUsuario() {
+  document.getElementById('new-username').value = '';
+  document.getElementById('new-nome-completo').value = '';
+  document.getElementById('new-email').value = '';
+  document.getElementById('new-telefone').value = '';
+  _newUserTelWidget.setDDD(null);
+  document.getElementById('new-senha').value = '';
+  document.getElementById('new-role').value = 'usuario';
+  await carregarDepartamentosCache(); // garante que o <select> já tem opções antes de abrir
+  const selectDept = document.getElementById('new-departamento');
+  if (!selectDept.options.length) {
+    selectDept.innerHTML = (window._departamentosCache || []).map(d => `<option value="${d.id}">${d.nome}</option>`).join('');
+  }
+  document.getElementById('user-msg').textContent = '';
+  document.getElementById('modal-cadastrar-usuario').classList.add('open');
+  setTimeout(() => document.getElementById('new-username').focus(), 50);
+}
+
+function fecharModalCadastrarUsuario() {
+  document.getElementById('modal-cadastrar-usuario').classList.remove('open');
+}
+
 async function adicionarUsuario() {
   const username = document.getElementById('new-username').value.trim();
   const nome_completo = document.getElementById('new-nome-completo').value.trim();
   const email    = document.getElementById('new-email').value.trim();
   const telefone = document.getElementById('new-telefone').value.trim();
+  const telefone_ddd = telefone ? _newUserTelWidget.getDDD() : null;
   const senha    = document.getElementById('new-senha').value;
   const role     = document.getElementById('new-role').value;
   const departamento_id = document.getElementById('new-departamento').value || null;
@@ -1891,17 +1929,11 @@ async function adicionarUsuario() {
   try {
     const res = await fetch('/api/admin/users', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ username, nome_completo, email, telefone, senha, role, departamento_id })
+      body: JSON.stringify({ username, nome_completo, email, telefone, telefone_ddd, senha, role, departamento_id })
     });
     if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
-    msg.style.color = '#2E7D32';
-    msg.textContent = `Usuário "${username}" criado. A senha é provisória — ele troca no 1º login.`;
-    document.getElementById('new-username').value = '';
-    document.getElementById('new-nome-completo').value = '';
-    document.getElementById('new-email').value    = '';
-    document.getElementById('new-telefone').value = '';
-    document.getElementById('new-senha').value    = '';
-    document.getElementById('new-role').value     = 'usuario';
+    toast(`Usuário "${username}" criado. A senha é provisória — ele troca no 1º login.`, 'success');
+    fecharModalCadastrarUsuario();
     carregarUsuarios();
   } catch(e) {
     msg.style.color='#c00'; msg.textContent = 'Erro: ' + e.message;
@@ -1931,6 +1963,7 @@ async function abrirModalPerfilUsuario(id) {
   document.getElementById('mpu-user-id').value = id;
   document.getElementById('mpu-nome').value = u.nome_completo || '';
   document.getElementById('mpu-telefone').value = u.telefone || '';
+  _mpuTelWidget.setDDD(u.telefone_ddd || null);
   document.getElementById('mpu-foto-preview').src = `/api/usuarios/${id}/foto?t=${Date.now()}`;
   document.getElementById('mpu-msg').textContent = '';
   _mpuFotoNova = null; _mpuFotoRemover = false;
@@ -2165,7 +2198,8 @@ async function salvarPerfilUsuarioModal() {
       method:'PATCH', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         nome_completo: document.getElementById('mpu-nome').value.trim(),
-        telefone: document.getElementById('mpu-telefone').value.trim()
+        telefone: document.getElementById('mpu-telefone').value.trim(),
+        telefone_ddd: document.getElementById('mpu-telefone').value.trim() ? _mpuTelWidget.getDDD() : null
       })
     });
     if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
@@ -2236,6 +2270,31 @@ function alterarSenha(id) {
   document.getElementById('modal-nova-senha').value = '';
   document.getElementById('modal-senha').classList.add('open');
   setTimeout(() => document.getElementById('modal-nova-senha').focus(), 50);
+}
+
+// Gera uma senha provisória aleatória e já a grava — sem precisar digitar nada
+// (o PATCH com `senha` já marca senha_provisoria=1 sozinho no backend, então
+// "renovar" tem exatamente o efeito pedido: a senha antiga para de funcionar
+// e o usuário é obrigado a trocar no próximo login).
+function _gerarSenhaProvisoria() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'; // sem 0/O/1/l/I, pra não confundir na hora de repassar
+  let s = '';
+  for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+
+async function renovarSenha(id, username) {
+  if (!confirm(`Gerar uma nova senha provisória para "${username}"? A senha atual dele deixa de funcionar.`)) return;
+  const senha = _gerarSenhaProvisoria();
+  try {
+    const res = await fetch(`/api/admin/users/${id}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ senha })
+    });
+    if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
+    prompt(`Nova senha provisória de "${username}" (copie agora — ela não é mostrada de novo):`, senha);
+    carregarUsuarios();
+  } catch(e) { toast('Erro: ' + e.message, 'error'); }
 }
 
 function fecharModal() {
