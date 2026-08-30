@@ -514,6 +514,10 @@ function setupDb() {
   try { _db.exec(`ALTER TABLE user_modulos ADD COLUMN perfil_id INTEGER REFERENCES perfis(id)`); } catch {}
   try { _db.exec(`ALTER TABLE users ADD COLUMN nome_completo TEXT`); } catch {}
   try { _db.exec(`ALTER TABLE users ADD COLUMN telefone TEXT`); } catch {}
+  // DDD separado do número, mesmo padrão de fornecedores.telefone_ddd/celular_ddd
+  // (ver public/js/telefone-br.js) — usuários cadastrados/editados antes disso
+  // continuam com o telefone inteiro (com ou sem DDD) só no campo `telefone`.
+  try { _db.exec(`ALTER TABLE users ADD COLUMN telefone_ddd TEXT`); } catch {}
   try { _db.exec(`ALTER TABLE users ADD COLUMN departamento_id INTEGER REFERENCES departamentos(id)`); } catch {}
   try { _db.exec(`ALTER TABLE sessions ADD COLUMN perfil_id INTEGER REFERENCES perfis(id)`); } catch {}
 
