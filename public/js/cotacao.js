@@ -30,6 +30,18 @@ function fmtFrete(f) {
   return partes.length ? partes.join(' — ') : '—';
 }
 
+// Telefones cadastrados pela tela nova (ver telefone-br.js) guardam o DDD
+// separado (f.telefone_ddd/celular_ddd); os já existentes antes disso não
+// foram migrados e continuam com o DDD embutido no próprio texto — por isso
+// só prefixa "(DDD)" quando o campo _ddd existir, senão mostra a string como
+// já estava (sem duplicar/perder nada do dado antigo).
+function fmtTelefoneDdd(f, campo) {
+  const numero = f[campo];
+  if (!numero) return null;
+  const ddd = f[campo + '_ddd'];
+  return ddd ? `(${ddd}) ${numero}` : numero;
+}
+
 function fmtMoeda(v) {
   if (v === null || v === undefined || v === '' || isNaN(Number(v))) return '';
   return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -360,6 +372,7 @@ function renderFornecedoresInfo() {
         // ci > 0: coberto pelo rowspan — sem <td>
       } else {
         const val = c.key === 'frete' ? fmtFrete(f)
+          : (c.key === 'telefone' || c.key === 'celular') ? (fmtTelefoneDdd(f, c.key) || '—')
           : c.fmt ? (c.fmt(f[c.key]) || '—') : (f[c.key] || '—');
         html += `<td class="${cls}">${val}</td>`;
       }
@@ -611,7 +624,9 @@ function atualizarPrintBlock() {
           }
           // demais linhas cobertas pelo rowspan — sem <td>
         } else {
-          let fv = rf.key === 'frete' ? fmtFrete(f) : (f[rf.key] || '—');
+          let fv = rf.key === 'frete' ? fmtFrete(f)
+            : (rf.key === 'telefone' || rf.key === 'celular') ? (fmtTelefoneDdd(f, rf.key) || '—')
+            : (f[rf.key] || '—');
           if (rf.fmt) fv = rf.fmt(fv) || '—';
           h += `<td class="${cls}" colspan="2">${rf.label}: ${fv}</td>`;
         }
