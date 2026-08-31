@@ -1498,6 +1498,7 @@ async function alterarFlagPerfil(perfilId, rotinaId, flag, valor) {
     // isso, 403/404/500 caem todos no mesmo toast genérico e escondem a causa
     // real (mesma classe de bug já corrigida no PAC, ver pac-lancamento.js).
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao atualizar permissão'); }
+    toast('Salvo', 'success');
   } catch (e) {
     toast('Erro: ' + e.message, 'error');
     selecionarPerfil(perfilId);
