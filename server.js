@@ -23,8 +23,14 @@ app.use(express.static(path.join(__dirname, 'public')));
 // selecionar-modulo.html (efeito "fica indo e voltando"). Rotas que querem
 // cache de propósito (ex.: foto de usuário) sobrescrevem isso depois, já que
 // setam o header mais tarde na própria resposta.
+// `Vary: Cookie` é defesa extra: mesmo se algum cache no meio do caminho
+// ignorar `no-store` (proxy mal configurado), isso ainda diz que a resposta
+// depende do cookie de sessão — sem isso, um cache que chaveia só pela URL
+// pode servir a resposta de UM usuário pra outro (foi o caso relatado: logout
+// e login com usuário diferente mostrando a sessão do usuário anterior).
 app.use('/api', (req, res, next) => {
   res.set('Cache-Control', 'no-store');
+  res.set('Vary', 'Cookie');
   next();
 });
 
