@@ -172,7 +172,10 @@ async function carregar() {
     } catch { tiposExtra = []; }
 
     const user = await getCurrentUser();
-    podeEditarForn = !!user && (user.role === 'admin' || data.criado_por_id === user.id);
+    // 'admin' é role antigo (pré-v4.0.0, ver [[project_secop_departamento_perfil]]) —
+    // faltava admin_sistema/admin_operacional aqui, mesmo bug encontrado e
+    // corrigido em processos.js (podeEditar).
+    podeEditarForn = !!user && (['admin', 'admin_sistema', 'admin_operacional'].includes(user.role) || data.criado_por_id === user.id);
 
     document.getElementById('bread-processo').textContent =
       `Processo ${processo.numero_processo} — ${processo.objeto}`;
