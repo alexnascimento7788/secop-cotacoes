@@ -30,7 +30,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { db, depopDb, anexosDb, setupDb, setupDepop, setupAnexos, depopFilePath, anexosFilePath } = require('../database');
-const { n, registrarLog, requireAdminAny, requireAdminSistema, getLixeiraDias } = require('../middleware');
+const { n, registrarLog, requireAdminAny, requireAdminSistema, getLixeiraDias, ROTINA_FLAGS_VALIDAS } = require('../middleware');
 
 const router = express.Router();
 
@@ -397,6 +397,24 @@ router.delete('/api/admin/users/:id/foto', requireAdminAny, (req, res) => {
 
 router.get('/api/admin/departamentos', requireAdminSistema, (req, res) => {
   res.json(db.prepare(`SELECT id, slug, nome, ordem, ativo FROM departamentos ORDER BY ordem`).all());
+});
+
+// Cria um departamento "solto" (sem módulo nenhum ainda) — até agora só existia
+// via seed em database.js; o pedido foi poder preparar o departamento ANTES de
+// ter um módulo pra ligar nele. Slug é derivado do nome (minúsculo, sem acento),
+// igual ao padrão dos que já existem hoje (depad/depop/depla).
+router.post('/api/admin/departamentos', requireAdminSistema, (req, res) => {
+  const nome = String(req.body?.nome || '').trim();
+  if (!nome) return res.status(400).json({ error: 'Nome é obrigatório' });
+  const slug = nome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!slug) return res.status(400).json({ error: 'Nome inválido' });
+  if (db.prepare(`SELECT id FROM departamentos WHERE slug = ?`).get(slug)) {
+    return res.status(400).json({ error: 'Já existe um departamento com esse nome' });
+  }
+  const ordem = (db.prepare(`SELECT COALESCE(MAX(ordem), 0) AS m FROM departamentos`).get().m) + 1;
+  const info = db.prepare(`INSERT INTO departamentos (slug, nome, ordem, ativo) VALUES (?, ?, ?, 1)`).run(slug, nome, ordem);
+  registrarLog(req, 'DEPARTAMENTO', 'CRIOU', `Criou o departamento "${nome}"`);
+  res.status(201).json({ id: info.lastInsertRowid, slug });
 });
 
 router.patch('/api/admin/departamentos/:id', requireAdminSistema, (req, res) => {
