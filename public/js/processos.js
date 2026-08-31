@@ -28,6 +28,10 @@ let statusList = [];
 let currentUser = null;
 let abaAtual   = 'andamento';
 let cfgAlertas = { laranja: 5, vermelho: 10 };
+// Parâmetro em Configurações → Parâmetros ("Edição de processos") — quando
+// ligado, qualquer usuário edita qualquer processo, não só admin/dono. Default
+// desligado (comportamento histórico), ver [[project_secop_role_admin_legado]].
+let edicaoLivre = false;
 
 // Em qual aba o processo aparece, conforme o status
 function abaDoProcesso(p) {
@@ -49,6 +53,7 @@ async function carregarConfig() {
     const cfg = await res.json();
     cfgAlertas.laranja  = parseInt(cfg.alerta_dias_laranja)  || cfgAlertas.laranja;
     cfgAlertas.vermelho = parseInt(cfg.alerta_dias_vermelho) || cfgAlertas.vermelho;
+    edicaoLivre = cfg.secop_edicao_livre === '1';
   } catch {}
 }
 
@@ -61,6 +66,7 @@ async function carregarConfig() {
 // aqui: o perfil/rotina do SECOP não influencia essa decisão, só o role.
 function podeEditar(p) {
   if (!currentUser) return false;
+  if (edicaoLivre) return true;
   if (['admin', 'admin_sistema', 'admin_operacional'].includes(currentUser.role)) return true;
   return p.criado_por_id === currentUser.id;
 }

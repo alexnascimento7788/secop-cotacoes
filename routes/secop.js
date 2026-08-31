@@ -12,7 +12,7 @@
 // propósito, pra admin.html gerenciar de qualquer módulo ativo).
 const express = require('express');
 const { db, gerarNumeroProcesso } = require('../database');
-const { n, registrarLog, requireModulo, getLixeiraDias } = require('../middleware');
+const { n, registrarLog, requireModulo, getLixeiraDias, getSecopEdicaoLivre } = require('../middleware');
 
 // Dicionário geral de português (já vem ordenado por frequência de uso do
 // idioma) — recorte das mais comuns, apoia o autocomplete quando o histórico
@@ -24,9 +24,10 @@ const DICIONARIO_PT = require('an-array-of-portuguese-words')
 const router = express.Router();
 const secop = requireModulo('secop');
 
-// ── Permissões de cotação (dono ou admin) ──────────────────────────────────────
+// ── Permissões de cotação (dono ou admin, ou liberado pra todos via parâmetro) ──
 
 function podeEditarProcesso(user, processoId) {
+  if (getSecopEdicaoLivre()) return true;
   if (user.role === 'admin' || user.role === 'admin_sistema' || user.role === 'admin_operacional') return true;
   const proc = db.prepare('SELECT criado_por_id FROM processos WHERE id = ?').get(processoId);
   return !!proc && proc.criado_por_id === user.user_id;

@@ -48,7 +48,14 @@ async function carregarProcessoParaEdicao() {
     const p = await res.json();
 
     const user = await getCurrentUser();
-    if (user && user.role !== 'admin' && p.criado_por_id !== user.id) {
+    // 'admin' é role antigo (pré-v4.0.0) — mesmo bug corrigido em processos.js/
+    // cotacao.js/fornecedor.js, ver [[project_secop_role_admin_legado]].
+    // edicaoLivre é o parâmetro de Configurações → Parâmetros que libera
+    // edição pra qualquer usuário, não só admin/dono.
+    let edicaoLivre = false;
+    try { const cfg = await (await fetch('/api/config')).json(); edicaoLivre = cfg.secop_edicao_livre === '1'; } catch {}
+    const podeAdmin = edicaoLivre || (user && ['admin', 'admin_sistema', 'admin_operacional'].includes(user.role));
+    if (user && !podeAdmin && p.criado_por_id !== user.id) {
       toast('Você não tem permissão para editar esta cotação.', 'error');
       setTimeout(() => { window.location.href = 'processos.html'; }, 1200);
       return;
