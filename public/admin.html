@@ -317,6 +317,19 @@
           <div id="param-msg" style="margin-top:10px;font-size:13px;font-weight:600;min-height:18px;"></div>
         </div>
         <div class="admin-section" style="margin-top:24px;">
+          <div class="admin-section-title">Edição de processos (SECOP)</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Por padrão, só quem criou o processo (ou um admin do sistema/
+            departamento) pode editar. Ligando isto, <strong>qualquer usuário
+            com acesso ao SECOP passa a editar qualquer processo</strong>,
+            independente de quem criou.
+          </p>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13.5px;">
+            <input type="checkbox" id="cfg-edicao-livre" onchange="salvarEdicaoLivre(this.checked)" />
+            Qualquer usuário pode editar qualquer processo
+          </label>
+        </div>
+        <div class="admin-section" style="margin-top:24px;">
           <div class="admin-section-title">Timeout por inatividade</div>
           <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
             Depois de ficar parado (sem clicar, digitar ou rolar a tela) por mais
@@ -1090,6 +1103,7 @@ async function carregarParametros() {
     document.getElementById('cfg-dias-vermelho').value = cfg.alerta_dias_vermelho || 10;
     document.getElementById('cfg-inatividade').value   = cfg.inatividade_minutos  || 30;
     document.getElementById('cfg-lixeira-dias').value  = cfg.lixeira_dias         || 60;
+    document.getElementById('cfg-edicao-livre').checked = cfg.secop_edicao_livre === '1';
     const lixeiraTxt = document.getElementById('lixeira-dias-txt');
     if (lixeiraTxt) lixeiraTxt.textContent = cfg.lixeira_dias || 60;
   } catch {}
@@ -1120,6 +1134,20 @@ async function salvarChaveCpf() {
     toast('Chave da API salva!', 'success');
     carregarParametros();
   } catch { toast('Erro ao salvar a chave.', 'error'); }
+}
+
+async function salvarEdicaoLivre(ligado) {
+  try {
+    const res = await fetch('/api/admin/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secop_edicao_livre: ligado ? '1' : '0' })
+    });
+    if (!res.ok) throw new Error();
+    toast(ligado ? 'Qualquer usuário já pode editar qualquer processo' : 'Edição voltou a ser restrita a admin/dono', 'success');
+  } catch {
+    toast('Erro ao salvar', 'error');
+    carregarParametros();
+  }
 }
 
 async function salvarParametros() {

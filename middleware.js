@@ -28,6 +28,15 @@ function getLixeiraDias() {
   return dias > 0 ? dias : 60;
 }
 
+// Parâmetro em Configurações → Parâmetros ("Edição de processos"). Default
+// desligado: preserva a regra histórica (admin ou o próprio criador editam).
+// Ligado, qualquer usuário com acesso ao SECOP edita qualquer processo — ver
+// [[project_secop_role_admin_legado]] pro histórico dessa decisão.
+function getSecopEdicaoLivre() {
+  const row = db.prepare(`SELECT valor FROM config WHERE chave = 'secop_edicao_livre'`).get();
+  return row?.valor === '1';
+}
+
 // Empurra o vencimento da sessão pra frente a cada requisição autenticada —
 // o cookie em si dura bastante (ver /api/auth/login), quem controla o timeout
 // de verdade é sessions.expires, rolando conforme uso real
@@ -182,7 +191,7 @@ function getCpfHubKey() {
 }
 
 module.exports = {
-  n, getCookie, getInatividadeMinutos, getLixeiraDias, renovarSessao, SESSAO_SQL, requireAuth,
+  n, getCookie, getInatividadeMinutos, getLixeiraDias, getSecopEdicaoLivre, renovarSessao, SESSAO_SQL, requireAuth,
   resolverPerfilId, modulosDoUsuario, registrarLog, CONSULTA_POST_OK,
   requireAdminAny, requireAdminSistema, requireModulo, ROTINA_FLAGS_VALIDAS,
   requireRotina, getCpfHubKey,
