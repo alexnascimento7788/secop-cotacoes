@@ -576,7 +576,17 @@
           <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
             Agrupam os módulos (ex.: DEPAD → SECOP, DEPOP → SECAD). Desativar um
             departamento não desativa os módulos dele — isso é feito na aba Módulos.
+            Dá pra criar um departamento antes mesmo de ter um módulo pra ligar
+            nele — a ligação é feita depois, na aba Módulos.
           </p>
+          <div style="display:flex;gap:10px;align-items:end;margin-bottom:16px;">
+            <div class="form-group" style="flex:1;margin:0;">
+              <label>Novo departamento</label>
+              <input type="text" id="novo-dept-nome" placeholder="ex.: DEPTI" />
+            </div>
+            <button class="btn btn-primary" onclick="criarDepartamento()">+ Criar departamento</button>
+          </div>
+          <div id="dept-msg" style="font-size:13px;font-weight:600;min-height:18px;margin-bottom:8px;"></div>
           <table class="users-table">
             <thead><tr><th>Sigla / Nome</th><th>Ativo</th></tr></thead>
             <tbody id="departamentos-tbody">
@@ -1295,6 +1305,27 @@ async function carregarDepartamentosTab() {
   }
 }
 
+async function criarDepartamento() {
+  const nome = document.getElementById('novo-dept-nome').value.trim();
+  const msg = document.getElementById('dept-msg');
+  msg.style.color = '';
+  if (!nome) { msg.style.color = '#c00'; msg.textContent = 'Informe o nome do departamento.'; return; }
+  try {
+    const res = await fetch('/api/admin/departamentos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome })
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao criar departamento.'); }
+    msg.style.color = '#2E7D32';
+    msg.textContent = `Departamento "${nome}" criado.`;
+    document.getElementById('novo-dept-nome').value = '';
+    window._departamentosCache = null; // força recarregar em qualquer outra aba que use o cache (Usuários, Perfis)
+    carregarDepartamentosTab();
+  } catch (e) {
+    msg.style.color = '#c00'; msg.textContent = 'Erro: ' + e.message;
+  }
+}
+
 async function toggleDepartamentoAtivo(id, ativo) {
   try {
     const res = await fetch(`/api/admin/departamentos/${id}`, {
@@ -1463,9 +1494,12 @@ async function alterarFlagPerfil(perfilId, rotinaId, flag, valor) {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rotina_id: rotinaId, flag, valor })
     });
-    if (!res.ok) throw new Error();
-  } catch {
-    toast('Erro ao atualizar permissão', 'error');
+    // Lê o corpo em QUALQUER erro (não só quando dá pra prever o status) — sem
+    // isso, 403/404/500 caem todos no mesmo toast genérico e escondem a causa
+    // real (mesma classe de bug já corrigida no PAC, ver pac-lancamento.js).
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao atualizar permissão'); }
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
     selecionarPerfil(perfilId);
   }
 }
