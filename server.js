@@ -15,6 +15,19 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Nenhuma resposta de /api/ pode ser cacheada por um proxy/CDN no meio do
+// caminho (produção fica atrás de um reverse proxy em webservice2.ceasa.mg.
+// gov.br) — sem isso, GETs como /api/auth/modulos podiam voltar cacheados
+// com o `modulo_ativo` de ANTES de escolher o módulo, e a página bem
+// recém-carregada lia esse valor velho e mandava de volta pra
+// selecionar-modulo.html (efeito "fica indo e voltando"). Rotas que querem
+// cache de propósito (ex.: foto de usuário) sobrescrevem isso depois, já que
+// setam o header mais tarde na própria resposta.
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+
 // Protege todas as rotas /api/ exceto /api/auth/*
 app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/auth/')) return next();
