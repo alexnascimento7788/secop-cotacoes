@@ -52,8 +52,17 @@ async function carregarConfig() {
   } catch {}
 }
 
+// Espelha exatamente podeEditarProcesso() em routes/secop.js — só existe aqui
+// pra decidir se MOSTRA o botão "Editar"; quem garante de verdade é o servidor
+// (requireEditProcesso). 'admin' é o role antigo, de antes da v4.0.0 (ver
+// [[project_secop_departamento_perfil]]) — não existe mais usuário com esse
+// valor, mas manter o mesmo check do servidor evita os dois lados divergirem
+// de novo no futuro. O bug real era faltar admin_sistema/admin_operacional
+// aqui: o perfil/rotina do SECOP não influencia essa decisão, só o role.
 function podeEditar(p) {
-  return currentUser && (currentUser.role === 'admin' || p.criado_por_id === currentUser.id);
+  if (!currentUser) return false;
+  if (['admin', 'admin_sistema', 'admin_operacional'].includes(currentUser.role)) return true;
+  return p.criado_por_id === currentUser.id;
 }
 
 async function carregarStatus() {

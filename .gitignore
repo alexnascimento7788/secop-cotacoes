@@ -44,3 +44,9 @@ coverage/
 # Marcador de ambiente homolog (nunca em producao)
 .homolog
 migracoes-homolog.json
+
+# Scripts/arquivos descartáveis de QA (sessões Claude) — nunca fazem parte do
+# projeto, só existem pra testar via curl/node -e sem tocar dado real.
+_qa_*
+_commit_msg_tmp.txt
+_cookies.txt
