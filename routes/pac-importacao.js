@@ -386,6 +386,35 @@ router.post('/api/pac/importacao/acompanhamento', pac, requireAdminGlobal, (req,
 const BANCOS = { secop: db, depop: depopDb, anexos: anexosDb };
 const DML_BLOQUEADO_DEPOP = /^\s*(insert|update|delete|drop|alter|create)\b/i;
 
+// Árvore de estrutura do banco (tabelas/views/índices/triggers + colunas) —
+// pra alimentar o painel lateral do Console SQL. `sqlite_master` e
+// `PRAGMA table_info` já são suficientes, sem precisar de nenhuma lib nova.
+// Nome de tabela/view aqui vem sempre do próprio sqlite_master (nunca de
+// entrada do usuário), então interpolar no PRAGMA com aspas duplicadas é
+// seguro — não dá pra usar parâmetro (`?`) dentro de um PRAGMA.
+router.get('/api/pac/importacao/console-sql/schema', pac, requireAdminGlobal, (req, res) => {
+  const banco = req.query.banco;
+  if (!BANCOS[banco]) return res.status(400).json({ error: 'Banco inválido' });
+  const conexao = BANCOS[banco];
+
+  const objetos = conexao.prepare(`
+    SELECT type, name, tbl_name FROM sqlite_master
+    WHERE name NOT LIKE 'sqlite_%'
+    ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'view' THEN 1 WHEN 'index' THEN 2 WHEN 'trigger' THEN 3 ELSE 4 END, name COLLATE NOCASE
+  `).all();
+
+  const colunas = {};
+  objetos.filter(o => o.type === 'table' || o.type === 'view').forEach(o => {
+    try {
+      const ident = '"' + o.name.replace(/"/g, '""') + '"';
+      colunas[o.name] = conexao.prepare(`PRAGMA table_info(${ident})`).all()
+        .map(c => ({ nome: c.name, tipo: c.type, pk: !!c.pk, notnull: !!c.notnull }));
+    } catch { colunas[o.name] = []; }
+  });
+
+  res.json({ objetos, colunas });
+});
+
 router.post('/api/pac/importacao/console-sql', pac, requireAdminGlobal, (req, res) => {
   const { banco, sql } = req.body || {};
   if (!BANCOS[banco]) return res.status(400).json({ error: 'Banco inválido' });

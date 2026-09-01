@@ -44,13 +44,55 @@
     [data-theme="dark"] .imp-banner-amarelo  { background: rgba(202,138,4,.22); color: #fde047; }
     [data-theme="dark"] .imp-banner-vermelho { background: rgba(185,28,28,.22); color: #fca5a5; }
     #imp-mapa-tbody select, #imp-mapa-tbody-2 select { padding: 4px 6px; font-size: 12px; }
-    .console-sql-textarea {
-      width: 100%; min-height: 160px; resize: vertical; font-family: ui-monospace, Menlo, Consolas, monospace;
-      font-size: 13px; padding: 10px 12px; border: 1.5px solid var(--cinza-b); border-radius: 6px;
-      background: var(--surface); color: var(--text);
-    }
     .console-sql-aviso { background: #fef9c3; color: #854d0e; padding: 8px 12px; border-radius: 6px; font-size: 12.5px; margin-bottom: 10px; }
     [data-theme="dark"] .console-sql-aviso { background: rgba(202,138,4,.22); color: #fde047; }
+
+    /* Editor com highlight: técnica de <pre> colorido embaixo de um
+       <textarea> transparente por cima, sincronizados no scroll/digitação —
+       sem CodeMirror/Ace, zero dependência nova. */
+    .console-sql-wrap { position: relative; height: 200px; resize: vertical; overflow: hidden; border: 1.5px solid var(--cinza-b); border-radius: 6px; }
+    .console-sql-surface {
+      position: absolute; inset: 0; margin: 0; padding: 10px 12px; box-sizing: border-box;
+      font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.5;
+      white-space: pre-wrap; word-wrap: break-word; overflow: auto; border: none; border-radius: 6px;
+    }
+    #sql-editor-highlight { background: var(--surface); color: var(--text); pointer-events: none; z-index: 1; }
+    #sql-editor-highlight code { font: inherit; }
+    #sql-editor { background: transparent; color: transparent; caret-color: var(--text); z-index: 2; resize: none; }
+    .tok-keyword { color: #1565C0; font-weight: 700; }
+    .tok-string  { color: #2E7D32; }
+    .tok-number  { color: #B45309; }
+    .tok-comment { color: var(--text-muted); font-style: italic; }
+    [data-theme="dark"] .tok-keyword { color: #82AAFF; }
+    [data-theme="dark"] .tok-string  { color: #A6E22E; }
+    [data-theme="dark"] .tok-number  { color: #FFAB70; }
+
+    /* Painel de estrutura do banco (árvore de tabelas/colunas) */
+    .sql-console-layout { display: flex; gap: 16px; align-items: flex-start; }
+    .sql-console-layout > .sql-console-main { flex: 1; min-width: 0; }
+    #sql-schema-card { width: 260px; flex-shrink: 0; max-height: 620px; overflow-y: auto; }
+    @media (max-width: 900px) {
+      .sql-console-layout { flex-direction: column; }
+      #sql-schema-card { width: 100%; max-height: 260px; }
+    }
+    #sql-schema-filtro {
+      width: 100%; margin-bottom: 10px; padding: 6px 8px; font-size: 12.5px; box-sizing: border-box;
+      border: 1px solid var(--cinza-b); border-radius: 6px; background: var(--surface); color: var(--text);
+    }
+    .sql-tree-grupo { margin-bottom: 12px; }
+    .sql-tree-grupo-titulo { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); margin-bottom: 4px; }
+    .sql-tree-tabela { display: flex; align-items: center; gap: 4px; padding: 3px 4px; border-radius: 4px; cursor: pointer; }
+    .sql-tree-tabela:hover { background: var(--surface-2); }
+    .sql-tree-seta { width: 10px; font-size: 10px; color: var(--text-muted); }
+    .sql-tree-nome { flex: 1; cursor: pointer; }
+    .sql-tree-nome:hover { text-decoration: underline; }
+    .sql-tree-count { font-size: 10.5px; color: var(--text-muted); }
+    .sql-tree-colunas { margin-left: 18px; }
+    .sql-tree-coluna { padding: 2px 4px; cursor: pointer; border-radius: 4px; color: var(--text-muted); }
+    .sql-tree-coluna:hover { background: var(--surface-2); color: var(--text); }
+    .sql-tree-tipo { font-size: 10.5px; color: var(--text-muted); }
+    .sql-tree-simples { padding: 3px 4px; cursor: pointer; border-radius: 4px; color: var(--text-muted); }
+    .sql-tree-simples:hover { background: var(--surface-2); color: var(--text); }
   </style>
 </head>
 <body data-modulo="pac">
@@ -299,28 +341,43 @@
 
       <!-- ═══ Console SQL ═══ -->
       <div id="top-console" class="pac-pane">
-        <div class="pac-card">
-          <div class="form-group" style="max-width:320px;">
-            <label>Banco</label>
-            <select id="sql-banco-select" onchange="sqlMudarBanco()">
-              <option value="secop">secop.db (banco operacional da plataforma)</option>
-              <option value="depop">depop.db (banco de referência — somente leitura)</option>
-              <option value="anexos">anexos.db (banco de anexos)</option>
-            </select>
+        <div class="sql-console-layout">
+          <div class="pac-card" id="sql-schema-card">
+            <div class="pac-card-title" style="display:flex;justify-content:space-between;align-items:center;">
+              <span>Estrutura do banco</span>
+              <button type="button" onclick="sqlCarregarSchema()" title="Atualizar" style="background:none;border:none;cursor:pointer;font-size:14px;line-height:1;">🔄</button>
+            </div>
+            <input type="text" id="sql-schema-filtro" placeholder="Filtrar tabelas...">
+            <div id="sql-schema-tree"><div style="color:var(--text-muted);font-size:12.5px;">Carregando...</div></div>
           </div>
-          <div id="sql-aviso-depop" class="console-sql-aviso" style="display:none;">
-            ⚠️ Este banco é somente leitura por convenção — alterações feitas aqui podem ser perdidas na próxima reimportação do SQL Server.
-          </div>
-          <div class="form-group" style="margin-top:12px;">
-            <label>SQL</label>
-            <textarea id="sql-editor" class="console-sql-textarea" placeholder="SELECT * FROM ..." spellcheck="false"></textarea>
-          </div>
-          <div style="margin-top:10px;display:flex;gap:8px;">
-            <button class="btn btn-primary" id="sql-btn-executar" onclick="sqlExecutar()">Executar (Ctrl+Enter)</button>
-            <button class="btn btn-secondary" onclick="sqlLimpar()">Limpar</button>
+          <div class="sql-console-main">
+            <div class="pac-card">
+              <div class="form-group" style="max-width:320px;">
+                <label>Banco</label>
+                <select id="sql-banco-select" onchange="sqlMudarBanco()">
+                  <option value="secop">secop.db (banco operacional da plataforma)</option>
+                  <option value="depop">depop.db (banco de referência — somente leitura)</option>
+                  <option value="anexos">anexos.db (banco de anexos)</option>
+                </select>
+              </div>
+              <div id="sql-aviso-depop" class="console-sql-aviso" style="display:none;">
+                ⚠️ Este banco é somente leitura por convenção — alterações feitas aqui podem ser perdidas na próxima reimportação do SQL Server.
+              </div>
+              <div class="form-group" style="margin-top:12px;">
+                <label>SQL</label>
+                <div class="console-sql-wrap">
+                  <pre id="sql-editor-highlight" class="console-sql-surface"><code></code></pre>
+                  <textarea id="sql-editor" class="console-sql-surface" placeholder="SELECT * FROM ..." spellcheck="false"></textarea>
+                </div>
+              </div>
+              <div style="margin-top:10px;display:flex;gap:8px;">
+                <button class="btn btn-primary" id="sql-btn-executar" onclick="sqlExecutar()">Executar (Ctrl+Enter)</button>
+                <button class="btn btn-secondary" onclick="sqlLimpar()">Limpar</button>
+              </div>
+            </div>
+            <div id="sql-resultados"></div>
           </div>
         </div>
-        <div id="sql-resultados"></div>
       </div>
     </div>
     <div id="app-footer"></div>
