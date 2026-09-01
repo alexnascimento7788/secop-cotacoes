@@ -244,6 +244,13 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
   let importados = 0, comAlertas = 0, comErro = 0;
   const log = [];
 
+  // Inferência: planilhas reais (ex.: DEFIN) não têm a coluna "Possui
+  // Contrato?" — só o Nº Contrato preenchido já implica "Sim". Só entra se
+  // a coluna existir nesse DFD e não tiver vindo mapeada/preenchida na
+  // linha (senão prevalece o que a planilha realmente disse).
+  const colunaPossuiContrato = colunasAtivas.find(c => c.slug === 'possui_contrato');
+  const colunaNumeroContrato = colunasAtivas.find(c => c.slug === 'numero_contrato');
+
   registrarLog(req, 'PAC', 'IMPORTACAO_INICIOU',
     `Iniciou importação de lançamentos (Fase 1) — DFD "${dfd.titulo}" (${dfd.ano_base}), setor "${setor.nome}", ${linhas.length} linha(s), modo "${modo}"`);
 
@@ -282,6 +289,12 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
       } else {
         valoresFinal[coluna.id] = String(bruto).trim();
       }
+    }
+
+    if (!erroLinha && colunaPossuiContrato && colunaNumeroContrato
+      && !valoresFinal[colunaPossuiContrato.id] && valoresFinal[colunaNumeroContrato.id]) {
+      valoresFinal[colunaPossuiContrato.id] = 'Sim';
+      alertasLinha.push(`Possui Contrato?: inferido "Sim" a partir do Nº Contrato preenchido (coluna não veio na planilha)`);
     }
 
     if (erroLinha) {
