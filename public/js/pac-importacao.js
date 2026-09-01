@@ -25,14 +25,57 @@ function normalizarTextoJs(s) {
   return String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
 }
 
-// Fuzzy match simples: igualdade normalizada primeiro, "contém" como fallback.
+// ── Fuzzy match de cabeçalho de planilha × rótulo do sistema ───────────────────
+// Achado testando com a planilha real do DEFIN: o match por SUBSTRING bruta
+// (versão anterior) errava feio em cabeçalho oficial longo — "Descrição
+// sucinta do objeto" não "contém" nem é "contido em" "Descrição do Objeto"
+// como string única, mesmo sendo obviamente a mesma coisa pra um humano. E
+// pior: "Item" batia por ACIDENTE com "Subitem" só porque "item" é substring
+// de "subitem". Trocado por match PALAVRA a palavra: quebra os dois textos em
+// palavras (removendo stopword tipo "do"/"da"/"para"), casa se toda palavra
+// do rótulo do sistema aparece entre as palavras do cabeçalho (igual ou por
+// prefixo, ex. "Est." casa com "Estimativa").
+const STOPWORDS_MAPEAMENTO = new Set(['de', 'da', 'do', 'das', 'dos', 'a', 'o', 'as', 'os', 'e', 'ou', 'com', 'para', 'por', 'em', 'no', 'na', 'nos', 'nas', 'um', 'uma', 'ao', 'aos']);
+const SINONIMOS_MAPEAMENTO = { qtd: 'quantidade', qtde: 'quantidade' };
+
+// "Nº"/"N°" expande pra "numero" antes de tokenizar — senão o "N" solto vira
+// lixo colado na palavra seguinte ("Nº Contrato" normalizava pra "ncontrato",
+// que não bate com "numerodocontrato" de jeito nenhum).
+function expandirAbreviacoesMapeamento(s) {
+  return String(s || '').replace(/\bn[º°]\.?/gi, 'numero ');
+}
+
+function palavrasSignificativas(texto) {
+  return expandirAbreviacoesMapeamento(texto)
+    .split(/[^A-Za-zÀ-ÿ0-9]+/)
+    .map(normalizarTextoJs)
+    .filter(p => p.length >= 2 && !STOPWORDS_MAPEAMENTO.has(p))
+    .map(p => SINONIMOS_MAPEAMENTO[p] || p);
+}
+
+function palavrasCasam(a, b) {
+  if (a === b) return true;
+  if (a.length >= 3 && b.length >= 3) return a.startsWith(b) || b.startsWith(a);
+  return false;
+}
+
 function melhorMatch(headerBruto, candidatos) {
   const alvo = normalizarTextoJs(headerBruto);
   if (!alvo) return null;
-  let exato = candidatos.find(c => normalizarTextoJs(c.label) === alvo);
+  const exato = candidatos.find(c => normalizarTextoJs(c.label) === alvo);
   if (exato) return exato.slug;
-  let parcial = candidatos.find(c => normalizarTextoJs(c.label).includes(alvo) || alvo.includes(normalizarTextoJs(c.label)));
-  return parcial ? parcial.slug : null;
+
+  const palavrasHeader = palavrasSignificativas(headerBruto);
+  if (!palavrasHeader.length) return null;
+
+  let melhor = null, melhorPontuacao = 0;
+  candidatos.forEach(c => {
+    const palavrasLabel = palavrasSignificativas(c.label);
+    if (!palavrasLabel.length) return;
+    const todasCasaram = palavrasLabel.every(pl => palavrasHeader.some(ph => palavrasCasam(pl, ph)));
+    if (todasCasaram && palavrasLabel.length > melhorPontuacao) { melhor = c; melhorPontuacao = palavrasLabel.length; }
+  });
+  return melhor ? melhor.slug : null;
 }
 
 // ── Acesso (master/admin_sistema apenas — não é Perfil/Rotina, ver
