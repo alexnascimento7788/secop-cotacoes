@@ -105,9 +105,14 @@ async function inicializar() {
     });
   });
 
-  document.getElementById('sql-editor').addEventListener('keydown', e => {
+  const editor = document.getElementById('sql-editor');
+  editor.addEventListener('keydown', e => {
     if (e.ctrlKey && e.key === 'Enter') sqlExecutar();
   });
+  editor.addEventListener('input', sqlAtualizarHighlight);
+  editor.addEventListener('scroll', sqlSincronizarScrollHighlight);
+  sqlAtualizarHighlight();
+  sqlCarregarSchema();
 }
 
 function f1MudarDfd() {
@@ -465,14 +470,149 @@ function f2ImportarOutra() {
 // ═══════════════════════════════════════════════════════════════════════════
 // Console SQL
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ── Highlight de sintaxe ────────────────────────────────────────────────────
+// Sem CodeMirror/Ace (zero dependência nova): <textarea> com texto
+// transparente por cima de um <pre> colorido, sincronizados a cada tecla e a
+// cada scroll. Tokenizador simples via regex — não é um parser SQL de
+// verdade, só reconhece comentário/string/número/palavra-chave o bastante
+// pra ajudar a ler a query.
+const SQL_KEYWORDS = new Set([
+  'select', 'from', 'where', 'insert', 'into', 'values', 'update', 'set', 'delete',
+  'create', 'table', 'alter', 'drop', 'add', 'column', 'primary', 'key', 'foreign',
+  'references', 'not', 'null', 'default', 'and', 'or', 'as', 'join', 'left', 'right',
+  'inner', 'outer', 'on', 'group', 'by', 'order', 'having', 'limit', 'offset',
+  'distinct', 'count', 'sum', 'avg', 'min', 'max', 'like', 'in', 'is', 'between',
+  'case', 'when', 'then', 'else', 'end', 'union', 'all', 'exists', 'begin',
+  'transaction', 'commit', 'rollback', 'pragma', 'index', 'view', 'trigger', 'if',
+  'unique', 'check', 'cascade', 'constraint', 'autoincrement', 'asc', 'desc', 'true', 'false',
+]);
+
+function escaparHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function highlightSql(sql) {
+  const re = /(--[^\n]*)|('(?:[^']|'')*')|(\b\d+\.?\d*\b)|(\b[A-Za-z_][A-Za-z0-9_]*\b)/g;
+  let out = '', last = 0, m;
+  while ((m = re.exec(sql))) {
+    out += escaparHtml(sql.slice(last, m.index));
+    if (m[1]) out += `<span class="tok-comment">${escaparHtml(m[1])}</span>`;
+    else if (m[2]) out += `<span class="tok-string">${escaparHtml(m[2])}</span>`;
+    else if (m[3]) out += `<span class="tok-number">${escaparHtml(m[3])}</span>`;
+    else if (m[4]) out += SQL_KEYWORDS.has(m[4].toLowerCase())
+      ? `<span class="tok-keyword">${escaparHtml(m[4])}</span>` : escaparHtml(m[4]);
+    last = re.lastIndex;
+  }
+  out += escaparHtml(sql.slice(last));
+  return out + '\n'; // linha extra pra scrollHeight bater com o textarea
+}
+
+function sqlAtualizarHighlight() {
+  const texto = document.getElementById('sql-editor').value;
+  document.querySelector('#sql-editor-highlight code').innerHTML = highlightSql(texto);
+}
+
+function sqlSincronizarScrollHighlight() {
+  const ta = document.getElementById('sql-editor');
+  const pre = document.getElementById('sql-editor-highlight');
+  pre.scrollTop = ta.scrollTop;
+  pre.scrollLeft = ta.scrollLeft;
+}
+
+function sqlInserirNoEditor(texto) {
+  const ta = document.getElementById('sql-editor');
+  const inicio = ta.selectionStart, fim = ta.selectionEnd;
+  ta.value = ta.value.slice(0, inicio) + texto + ta.value.slice(fim);
+  const pos = inicio + texto.length;
+  ta.focus();
+  ta.setSelectionRange(pos, pos);
+  sqlAtualizarHighlight();
+}
+
+// ── Árvore de estrutura do banco ────────────────────────────────────────────
+let _sqlSchemaAtual = null;
+
+async function sqlCarregarSchema() {
+  const banco = document.getElementById('sql-banco-select').value;
+  const tree = document.getElementById('sql-schema-tree');
+  tree.innerHTML = '<div style="color:var(--text-muted);font-size:12.5px;">Carregando...</div>';
+  try {
+    const res = await fetch(`/api/pac/importacao/console-sql/schema?banco=${banco}`);
+    const dados = await res.json();
+    if (!res.ok) throw new Error(dados.error || 'Erro ao carregar estrutura');
+    _sqlSchemaAtual = dados;
+    sqlRenderSchemaTree(dados);
+    document.getElementById('sql-schema-filtro').value = '';
+  } catch (e) {
+    tree.innerHTML = `<div style="color:#b91c1c;font-size:12.5px;">${e.message}</div>`;
+  }
+}
+
+const SQL_TIPO_ROTULO = { table: 'Tabelas', view: 'Views', index: 'Índices', trigger: 'Triggers' };
+const SQL_TIPO_ORDEM = ['table', 'view', 'index', 'trigger'];
+
+function sqlRenderSchemaTree(dados) {
+  const grupos = {};
+  dados.objetos.forEach(o => { (grupos[o.type] || (grupos[o.type] = [])).push(o); });
+
+  const tipos = [...SQL_TIPO_ORDEM, ...Object.keys(grupos).filter(t => !SQL_TIPO_ORDEM.includes(t))];
+  let html = '';
+  tipos.forEach(tipo => {
+    const lista = grupos[tipo];
+    if (!lista || !lista.length) return;
+    html += `<div class="sql-tree-grupo"><div class="sql-tree-grupo-titulo">${SQL_TIPO_ROTULO[tipo] || tipo} (${lista.length})</div>`;
+    lista.forEach(o => {
+      const nomeAttr = o.name.replace(/'/g, "\\'");
+      if (tipo === 'table' || tipo === 'view') {
+        const cols = dados.colunas[o.name] || [];
+        html += `
+          <div class="sql-tree-item" data-nome="${normalizarTextoJs(o.name)}">
+            <div class="sql-tree-tabela" onclick="sqlToggleTabela(this)">
+              <span class="sql-tree-seta">▸</span>
+              <span class="sql-tree-nome" onclick="event.stopPropagation();sqlInserirNoEditor('SELECT * FROM ${nomeAttr} LIMIT 100;\\n')" title="Inserir SELECT no editor">${o.name}</span>
+              <span class="sql-tree-count">${cols.length}</span>
+            </div>
+            <div class="sql-tree-colunas" style="display:none;">
+              ${cols.map(c => `<div class="sql-tree-coluna" onclick="sqlInserirNoEditor('${c.nome.replace(/'/g, "\\'")}')" title="Inserir nome da coluna">${c.pk ? '🔑 ' : ''}${c.nome} <span class="sql-tree-tipo">${c.tipo || ''}</span></div>`).join('')}
+            </div>
+          </div>`;
+      } else {
+        html += `<div class="sql-tree-item sql-tree-simples" data-nome="${normalizarTextoJs(o.name)}" onclick="sqlInserirNoEditor('${nomeAttr}')" title="Inserir nome no editor">${o.name}${o.tbl_name && o.tbl_name !== o.name ? ` <span class="sql-tree-tipo">(${o.tbl_name})</span>` : ''}</div>`;
+      }
+    });
+    html += `</div>`;
+  });
+  document.getElementById('sql-schema-tree').innerHTML = html || '<div style="color:var(--text-muted);font-size:12.5px;">Nenhum objeto encontrado.</div>';
+}
+
+function sqlToggleTabela(el) {
+  const colunas = el.nextElementSibling;
+  const aberto = colunas.style.display !== 'none';
+  colunas.style.display = aberto ? 'none' : 'block';
+  el.querySelector('.sql-tree-seta').textContent = aberto ? '▸' : '▾';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const filtro = document.getElementById('sql-schema-filtro');
+  if (filtro) filtro.addEventListener('input', () => {
+    const termo = normalizarTextoJs(filtro.value);
+    document.querySelectorAll('#sql-schema-tree .sql-tree-item').forEach(item => {
+      item.style.display = !termo || (item.dataset.nome || '').includes(termo) ? '' : 'none';
+    });
+  });
+});
+
 function sqlMudarBanco() {
   const banco = document.getElementById('sql-banco-select').value;
   document.getElementById('sql-aviso-depop').style.display = banco === 'depop' ? 'block' : 'none';
+  sqlCarregarSchema();
 }
 
 function sqlLimpar() {
   document.getElementById('sql-editor').value = '';
   document.getElementById('sql-resultados').innerHTML = '';
+  sqlAtualizarHighlight();
 }
 
 async function sqlExecutar() {
@@ -489,6 +629,9 @@ async function sqlExecutar() {
     const r = await res.json();
     if (!res.ok) throw new Error(r.error || 'Erro ao executar');
     sqlRenderResultados(r.resultados);
+    // DDL (CREATE/ALTER/DROP) pode ter mudado a estrutura — mantém a árvore
+    // sempre refletindo o banco de verdade em vez de ficar visualmente velha.
+    sqlCarregarSchema();
   } catch (e) {
     toast('Erro: ' + e.message, 'error');
   } finally {
@@ -517,6 +660,7 @@ function abrirSqlNoConsole(resultado) {
   document.getElementById('sql-banco-select').value = 'secop';
   sqlMudarBanco();
   document.getElementById('sql-editor').value = resultado.sql_gerado;
+  sqlAtualizarHighlight();
   mudarAbaTopo('console');
 }
 
