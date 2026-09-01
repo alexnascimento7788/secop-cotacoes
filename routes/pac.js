@@ -599,17 +599,18 @@ router.post('/api/pac/dfds/:id/solicitacoes', pac, requireRotina('pac-solicitaco
   const dfd = db.prepare(`SELECT id FROM dfds WHERE id = ?`).get(dfdId);
   if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
   const {
-    item_id, numero_movimento, data_requisicao, setor_requisitante_id,
+    item_id, numero_movimento, numero_sei, data_requisicao, setor_requisitante_id,
     natureza_orcamentaria, descricao_objeto, valor_tu_mlp, valor_rdc, observacao,
   } = req.body || {};
   if (!validarItemDaSolicitacao(item_id, dfdId)) return res.status(400).json({ error: 'Item do PAC inválido para este DFD.' });
   const info = db.prepare(`
     INSERT INTO pac_solicitacoes (
-      dfd_id, item_id, numero_movimento, data_requisicao, setor_requisitante_id,
+      dfd_id, item_id, numero_movimento, numero_sei, data_requisicao, setor_requisitante_id,
       natureza_orcamentaria, descricao_objeto, valor_tu_mlp, valor_rdc, observacao, criado_por
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    dfdId, item_id || null, numero_movimento ? String(numero_movimento).trim() : null, data_requisicao || null,
+    dfdId, item_id || null, numero_movimento ? String(numero_movimento).trim() : null,
+    numero_sei ? String(numero_sei).trim() : null, data_requisicao || null,
     setor_requisitante_id || null, natureza_orcamentaria ? String(natureza_orcamentaria).trim() : null,
     descricao_objeto ? String(descricao_objeto).trim() : null, Number(valor_tu_mlp) || 0, Number(valor_rdc) || 0,
     observacao ? String(observacao).trim() : null, req.user.user_id
@@ -623,18 +624,19 @@ router.put('/api/pac/solicitacoes/:id', pac, requireRotina('pac-solicitacoes', '
   const sol = db.prepare(`SELECT * FROM pac_solicitacoes WHERE id = ? AND excluido = 0`).get(req.params.id);
   if (!sol) return res.status(404).json({ error: 'Solicitação não encontrada' });
   const {
-    item_id, numero_movimento, data_requisicao, setor_requisitante_id,
+    item_id, numero_movimento, numero_sei, data_requisicao, setor_requisitante_id,
     natureza_orcamentaria, descricao_objeto, valor_tu_mlp, valor_rdc, observacao,
   } = req.body || {};
   if (!validarItemDaSolicitacao(item_id, sol.dfd_id)) return res.status(400).json({ error: 'Item do PAC inválido para este DFD.' });
   db.prepare(`
     UPDATE pac_solicitacoes SET
-      item_id = ?, numero_movimento = ?, data_requisicao = ?, setor_requisitante_id = ?,
+      item_id = ?, numero_movimento = ?, numero_sei = ?, data_requisicao = ?, setor_requisitante_id = ?,
       natureza_orcamentaria = ?, descricao_objeto = ?, valor_tu_mlp = ?, valor_rdc = ?, observacao = ?,
       atualizado_em = datetime('now')
     WHERE id = ?
   `).run(
-    item_id || null, numero_movimento ? String(numero_movimento).trim() : null, data_requisicao || null,
+    item_id || null, numero_movimento ? String(numero_movimento).trim() : null,
+    numero_sei ? String(numero_sei).trim() : null, data_requisicao || null,
     setor_requisitante_id || null, natureza_orcamentaria ? String(natureza_orcamentaria).trim() : null,
     descricao_objeto ? String(descricao_objeto).trim() : null, Number(valor_tu_mlp) || 0, Number(valor_rdc) || 0,
     observacao ? String(observacao).trim() : null, sol.id

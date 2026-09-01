@@ -247,6 +247,10 @@ app.use(require('./routes/secad'));
 // Rotas do PAC/DEPLA (DFD) — ver routes/pac.js
 app.use(require('./routes/pac'));
 
+// Motor de importação de planilhas + Console SQL do PAC (master/admin_sistema
+// só) — ver routes/pac-importacao.js
+app.use(require('./routes/pac-importacao'));
+
 // Rotas de Admin (usuários/departamentos/rotinas/perfis/módulos/backup/logs +
 // catálogos transversais) — ver routes/admin.js. Exporta IS_HOMOLOG também
 // (só esse arquivo precisa saber se está em homolog, mas /api/version — logo

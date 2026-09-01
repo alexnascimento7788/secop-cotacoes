@@ -837,6 +837,11 @@ function setupDb() {
       ON dfd_itens(dfd_id, numero_pac) WHERE numero_pac IS NOT NULL;
   `);
 
+  // Nº SEI — só esse era realmente novo. numero_movimento já existia rotulado
+  // "Nº Movimento (TOTVS)" na tela de Solicitações, então TOTVS é reaproveitado
+  // (só o rótulo virou "Nº TOTVS"), sem coluna duplicada.
+  try { _db.exec(`ALTER TABLE pac_solicitacoes ADD COLUMN numero_sei TEXT`); } catch {}
+
   // Seed dos setores participantes do PAC (nomes exatamente como fornecidos)
   [
     'Depop', 'Dereh', 'Detin', 'Depla', 'Depad', 'Audin', 'Defin', 'Deuni',

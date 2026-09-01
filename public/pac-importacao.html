@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PAC — Importação — CEASA CONECTA</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#F9A800">
+  <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
+  <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');</script>
+  <style>
+    /* ── PAC/Importação — reaproveita as classes de pac-gestao.html (mesmo
+       módulo), zero CSS novo no style.css. ─────────────────────────────────── */
+    .pac-pane { display: none; }
+    .pac-pane.active { display: block; }
+    .pac-card { background: var(--surface); border: 1px solid var(--cinza-b); border-radius: 10px; padding: 20px 22px; margin-bottom: 18px; }
+    .pac-card-title { font-size: 14px; font-weight: 700; margin-bottom: 14px; color: var(--text); }
+    .pac-add-form { display: grid; grid-template-columns: 1fr 120px auto; gap: 10px; align-items: end; margin-top: 14px; }
+    .pac-add-form .form-group { margin: 0; }
+    .pac-msg { margin-top: 10px; font-size: 13px; font-weight: 600; min-height: 18px; }
+
+    .imp-passo { display: none; }
+    .imp-passo.active { display: block; }
+    .imp-dropzone {
+      border: 2px dashed var(--cinza-b); border-radius: 10px; padding: 28px; text-align: center;
+      cursor: pointer; color: var(--text-muted); font-size: 13px; transition: border-color .15s;
+    }
+    .imp-dropzone.drag-over { border-color: var(--verde); color: var(--text); }
+    .imp-contadores { display: flex; gap: 18px; margin: 14px 0; flex-wrap: wrap; }
+    .imp-contador { font-size: 13px; font-weight: 700; }
+    .imp-log-linha { padding: 4px 8px; font-size: 12.5px; border-radius: 4px; margin-bottom: 2px; }
+    .imp-log-sucesso { color: #2E7D32; }
+    .imp-log-alerta  { background: #fef9c3; color: #854d0e; }
+    .imp-log-erro    { background: #fde8e8; color: #b91c1c; }
+    [data-theme="dark"] .imp-log-alerta { background: rgba(202,138,4,.18); color: #fde047; }
+    [data-theme="dark"] .imp-log-erro   { background: rgba(185,28,28,.18); color: #fca5a5; }
+    .imp-banner { padding: 14px 16px; border-radius: 8px; font-weight: 600; margin-bottom: 14px; }
+    .imp-banner-verde    { background: #dcfce7; color: #166534; }
+    .imp-banner-amarelo  { background: #fef9c3; color: #854d0e; }
+    .imp-banner-vermelho { background: #fde8e8; color: #b91c1c; }
+    [data-theme="dark"] .imp-banner-verde    { background: rgba(22,101,52,.25); color: #86efac; }
+    [data-theme="dark"] .imp-banner-amarelo  { background: rgba(202,138,4,.22); color: #fde047; }
+    [data-theme="dark"] .imp-banner-vermelho { background: rgba(185,28,28,.22); color: #fca5a5; }
+    #imp-mapa-tbody select, #imp-mapa-tbody-2 select { padding: 4px 6px; font-size: 12px; }
+    .console-sql-textarea {
+      width: 100%; min-height: 160px; resize: vertical; font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size: 13px; padding: 10px 12px; border: 1.5px solid var(--cinza-b); border-radius: 6px;
+      background: var(--surface); color: var(--text);
+    }
+    .console-sql-aviso { background: #fef9c3; color: #854d0e; padding: 8px 12px; border-radius: 6px; font-size: 12.5px; margin-bottom: 10px; }
+    [data-theme="dark"] .console-sql-aviso { background: rgba(202,138,4,.22); color: #fde047; }
+  </style>
+</head>
+<body data-modulo="pac">
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" class="sidebar-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+      <div class="sidebar-logo-fallback" style="display:none;align-items:center;gap:10px;margin-bottom:8px;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="32" height="32" style="flex-shrink:0"><polygon points="20,1 1,20 20,20" fill="#1565C0"/><polygon points="20,1 39,20 20,20" fill="#F9A800"/><polygon points="39,20 20,39 20,20" fill="#1565C0"/><polygon points="1,20 20,39 20,20" fill="#1565C0"/></svg>
+        <div><div class="logo-title">CEASA CONECTA</div><div class="logo-sub">CEASAMINAS</div></div>
+      </div>
+      <div class="logo-divider"></div>
+    </div>
+    <nav>
+      <a href="pac-lancamento.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        Lançamento
+      </a>
+      <a href="pac-acompanhamento.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
+        Acompanhamento
+      </a>
+      <a href="pac-gestao.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
+        Gestão
+      </a>
+      <a href="pac-importacao.html" class="nav-item active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Importação
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <span id="sidebar-username" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;">—</span>
+      <div style="display:flex;gap:2px;flex-shrink:0;">
+        <a href="admin.html" class="sidebar-gear" title="Administração">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </a>
+        <button onclick="logout()" class="sidebar-gear" title="Sair" style="background:none;border:none;cursor:pointer;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1-2 2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">PAC — Importação / Console SQL</div>
+        <div class="page-subtitle">Ferramenta administrativa — master e admin do sistema</div>
+      </div>
+    </div>
+
+    <div id="imp-sem-acesso" class="pac-card" style="display:none;">
+      <div class="pac-card-title">Acesso restrito</div>
+      <p style="font-size:13px;color:var(--text-muted);">Esta página é restrita a master e administrador do sistema.</p>
+    </div>
+
+    <div id="imp-conteudo" style="display:none;">
+      <div class="page-tabs" id="imp-tabs-topo">
+        <button class="page-tab active" data-top="importacao">Importação de Planilhas</button>
+        <button class="page-tab" data-top="console">Console SQL</button>
+      </div>
+
+      <!-- ═══ Importação de Planilhas ═══ -->
+      <div id="top-importacao" class="pac-pane active">
+        <div class="page-tabs" id="imp-tabs-fase">
+          <button class="page-tab active" data-fase="1">Fase 1 — Lançamentos DFD</button>
+          <button class="page-tab" data-fase="2">Fase 2 — Acompanhamento</button>
+        </div>
+
+        <!-- ── Fase 1 ── -->
+        <div id="fase-1" class="pac-pane active">
+          <!-- Passo 1 -->
+          <div id="f1-passo-1" class="imp-passo active">
+            <div class="pac-card">
+              <div class="pac-card-title">1. Configuração</div>
+              <div class="pac-add-form" style="grid-template-columns:1fr 1fr;">
+                <div class="form-group">
+                  <label>DFD de destino</label>
+                  <select id="f1-dfd-select" onchange="f1MudarDfd()"></select>
+                </div>
+                <div class="form-group">
+                  <label>Setor do arquivo</label>
+                  <select id="f1-setor-select"></select>
+                </div>
+              </div>
+              <div id="f1-novo-dfd-wrap" style="display:none;margin-top:12px;" class="pac-add-form">
+                <div class="form-group"><label>Ano base</label><input type="number" id="f1-novo-ano" placeholder="2026" /></div>
+                <div class="form-group" style="grid-column:span 2;"><label>Título</label><input type="text" id="f1-novo-titulo" placeholder="Ex: DFD 2026" /></div>
+              </div>
+              <div class="form-group" style="margin-top:14px;">
+                <label>Arquivo (.xlsx, .xls ou .csv)</label>
+                <div class="imp-dropzone" id="f1-dropzone" onclick="document.getElementById('f1-file-input').click()">
+                  <span id="f1-dropzone-texto">Clique ou arraste o arquivo aqui</span>
+                  <input type="file" id="f1-file-input" accept=".xlsx,.xls,.csv" style="display:none" onchange="f1ArquivoSelecionado(this.files[0])">
+                </div>
+              </div>
+              <div class="pac-msg" id="f1-msg-passo1"></div>
+              <div style="margin-top:14px;"><button class="btn btn-primary" id="f1-btn-pre" onclick="f1PreVisualizar()" disabled>Pré-visualizar</button></div>
+            </div>
+          </div>
+
+          <!-- Passo 2 -->
+          <div id="f1-passo-2" class="imp-passo">
+            <div class="pac-card">
+              <div class="pac-card-title">2. Pré-visualização e mapeamento</div>
+              <div class="table-wrap"><table><thead><tr id="f1-preview-thead"></tr></thead><tbody id="f1-preview-tbody"></tbody></table></div>
+              <div class="pac-card-title" style="margin-top:18px;">Mapeamento das colunas</div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Coluna do arquivo</th><th>Campo do sistema</th></tr></thead>
+                  <tbody id="f1-mapa-tbody"></tbody>
+                </table>
+              </div>
+              <div class="imp-contadores">
+                <span class="imp-contador">Total de linhas: <span id="f1-cnt-total">0</span></span>
+                <span class="imp-contador">Reconhecidas: <span id="f1-cnt-reconhecidas">0</span></span>
+                <span class="imp-contador" style="color:#b91c1c;">Pendentes: <span id="f1-cnt-pendentes">0</span></span>
+              </div>
+              <div class="pac-msg" id="f1-msg-obrigatorias" style="color:#b91c1c;"></div>
+              <div id="f1-modo-existentes" class="form-group" style="display:none;margin-top:10px;">
+                <label id="f1-modo-aviso" style="color:#854d0e;"></label>
+                <div style="display:flex;gap:16px;margin-top:6px;">
+                  <label style="font-weight:400;"><input type="radio" name="f1-modo" value="substituir" checked> Substituir itens existentes</label>
+                  <label style="font-weight:400;"><input type="radio" name="f1-modo" value="adicionar"> Adicionar aos existentes</label>
+                </div>
+              </div>
+              <div style="margin-top:16px;display:flex;gap:8px;">
+                <button class="btn btn-secondary" onclick="f1Voltar()">← Voltar</button>
+                <button class="btn btn-primary" id="f1-btn-importar" onclick="f1Importar()">Importar agora</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Passo 3 -->
+          <div id="f1-passo-3" class="imp-passo">
+            <div class="pac-card">
+              <div class="pac-card-title">3. Progresso</div>
+              <div id="f1-banner"></div>
+              <div class="imp-contadores">
+                <span class="imp-contador">✅ Importados: <span id="f1-cnt-importados">0</span></span>
+                <span class="imp-contador">⚠️ Com alertas: <span id="f1-cnt-alertas">0</span></span>
+                <span class="imp-contador">❌ Com erro: <span id="f1-cnt-erros">0</span></span>
+              </div>
+              <details><summary style="cursor:pointer;font-size:13px;font-weight:600;">Ver detalhes</summary>
+                <div id="f1-log" style="margin-top:10px;max-height:300px;overflow-y:auto;"></div>
+              </details>
+              <div id="f1-sql-wrap" class="pac-card" style="margin-top:16px;background:var(--surface-2);">
+                <div class="pac-card-title">📦 SQL gerado — pronto para aplicar</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <button class="btn btn-secondary" onclick="abrirSqlNoConsole(_f1Resultado)">Abrir no Console SQL</button>
+                  <button class="btn btn-secondary" onclick="baixarSql(_f1Resultado, 'importacao-fase1.sql')">Baixar .sql</button>
+                </div>
+              </div>
+              <div style="margin-top:16px;display:flex;gap:8px;">
+                <a class="btn btn-secondary" href="pac-gestao.html">Ver itens importados</a>
+                <button class="btn btn-primary" onclick="f1ImportarOutroSetor()">Importar outro setor</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Fase 2 ── -->
+        <div id="fase-2" class="pac-pane">
+          <!-- Passo 1 -->
+          <div id="f2-passo-1" class="imp-passo active">
+            <div class="pac-card">
+              <div class="pac-card-title">1. Configuração</div>
+              <div class="form-group" style="max-width:340px;">
+                <label>DFD de destino</label>
+                <select id="f2-dfd-select"></select>
+              </div>
+              <div class="form-group" style="margin-top:14px;">
+                <label>Arquivo de acompanhamento (.xlsx, .xls)</label>
+                <div class="imp-dropzone" id="f2-dropzone" onclick="document.getElementById('f2-file-input').click()">
+                  <span id="f2-dropzone-texto">Clique ou arraste o arquivo aqui</span>
+                  <input type="file" id="f2-file-input" accept=".xlsx,.xls" style="display:none" onchange="f2ArquivoSelecionado(this.files[0])">
+                </div>
+              </div>
+              <div class="form-group" style="margin-top:14px;display:none;" id="f2-aba-wrap">
+                <label>Aba da planilha</label>
+                <select id="f2-aba-select" onchange="f2MudarAba()"></select>
+              </div>
+              <div class="pac-msg" id="f2-msg-passo1"></div>
+              <div style="margin-top:14px;"><button class="btn btn-primary" id="f2-btn-pre" onclick="f2PreVisualizar()" disabled>Pré-visualizar</button></div>
+            </div>
+          </div>
+
+          <!-- Passo 2 -->
+          <div id="f2-passo-2" class="imp-passo">
+            <div class="pac-card">
+              <div class="pac-card-title">2. Pré-visualização e mapeamento</div>
+              <div class="table-wrap"><table><thead><tr id="f2-preview-thead"></tr></thead><tbody id="f2-preview-tbody"></tbody></table></div>
+              <div class="pac-card-title" style="margin-top:18px;">Mapeamento das colunas</div>
+              <p style="font-size:12px;color:var(--text-muted);margin-top:-8px;margin-bottom:10px;">Nº PAC é obrigatório (coluna de vínculo).</p>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Coluna do arquivo</th><th>Campo do sistema</th></tr></thead>
+                  <tbody id="f2-mapa-tbody"></tbody>
+                </table>
+              </div>
+              <div class="imp-contadores">
+                <span class="imp-contador">Total de linhas: <span id="f2-cnt-total">0</span></span>
+                <span class="imp-contador">Nº PAC reconhecido: <span id="f2-cnt-reconhecidas">0</span></span>
+                <span class="imp-contador">Sem vínculo ("Não tem"/vazio): <span id="f2-cnt-sem-vinculo">0</span></span>
+              </div>
+              <div class="pac-msg" id="f2-msg-obrigatorias" style="color:#b91c1c;"></div>
+              <div style="margin-top:16px;display:flex;gap:8px;">
+                <button class="btn btn-secondary" onclick="f2Voltar()">← Voltar</button>
+                <button class="btn btn-primary" id="f2-btn-importar" onclick="f2Importar()">Importar agora</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Passo 3 -->
+          <div id="f2-passo-3" class="imp-passo">
+            <div class="pac-card">
+              <div class="pac-card-title">3. Progresso</div>
+              <div id="f2-banner"></div>
+              <div class="imp-contadores">
+                <span class="imp-contador">✅ Atualizados: <span id="f2-cnt-atualizados">0</span></span>
+                <span class="imp-contador">✅ Solicitações criadas: <span id="f2-cnt-solicitacoes">0</span></span>
+                <span class="imp-contador">❌ Com erro: <span id="f2-cnt-erros">0</span></span>
+              </div>
+              <details><summary style="cursor:pointer;font-size:13px;font-weight:600;">Ver detalhes</summary>
+                <div id="f2-log" style="margin-top:10px;max-height:300px;overflow-y:auto;"></div>
+              </details>
+              <div id="f2-sql-wrap" class="pac-card" style="margin-top:16px;background:var(--surface-2);">
+                <div class="pac-card-title">📦 SQL gerado — pronto para aplicar</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <button class="btn btn-secondary" onclick="abrirSqlNoConsole(_f2Resultado)">Abrir no Console SQL</button>
+                  <button class="btn btn-secondary" onclick="baixarSql(_f2Resultado, 'importacao-fase2.sql')">Baixar .sql</button>
+                </div>
+              </div>
+              <div style="margin-top:16px;display:flex;gap:8px;">
+                <a class="btn btn-secondary" href="pac-gestao.html">Ver solicitações</a>
+                <button class="btn btn-primary" onclick="f2ImportarOutra()">Importar outra planilha</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ Console SQL ═══ -->
+      <div id="top-console" class="pac-pane">
+        <div class="pac-card">
+          <div class="form-group" style="max-width:320px;">
+            <label>Banco</label>
+            <select id="sql-banco-select" onchange="sqlMudarBanco()">
+              <option value="secop">secop.db (banco operacional da plataforma)</option>
+              <option value="depop">depop.db (banco de referência — somente leitura)</option>
+              <option value="anexos">anexos.db (banco de anexos)</option>
+            </select>
+          </div>
+          <div id="sql-aviso-depop" class="console-sql-aviso" style="display:none;">
+            ⚠️ Este banco é somente leitura por convenção — alterações feitas aqui podem ser perdidas na próxima reimportação do SQL Server.
+          </div>
+          <div class="form-group" style="margin-top:12px;">
+            <label>SQL</label>
+            <textarea id="sql-editor" class="console-sql-textarea" placeholder="SELECT * FROM ..." spellcheck="false"></textarea>
+          </div>
+          <div style="margin-top:10px;display:flex;gap:8px;">
+            <button class="btn btn-primary" id="sql-btn-executar" onclick="sqlExecutar()">Executar (Ctrl+Enter)</button>
+            <button class="btn btn-secondary" onclick="sqlLimpar()">Limpar</button>
+          </div>
+        </div>
+        <div id="sql-resultados"></div>
+      </div>
+    </div>
+    <div id="app-footer"></div>
+  </main>
+</div>
+
+<div id="toast"></div>
+<script src="js/pwa.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/pac-importacao.js"></script>
+</body>
+</html>
