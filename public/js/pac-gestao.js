@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
   popularSelectListas();
   carregarPedidos();
   aplicarPermissaoSolicitacoes();
+  aplicarAcessoImportacao();
   popularSelectDfdsExecucao();
 });
 
@@ -46,6 +47,18 @@ async function aplicarPermissaoSolicitacoes() {
     const { rotinas } = await r.json();
     const sol = (rotinas || []).find(x => x.slug === 'pac-solicitacoes');
     if (!sol || !sol.ver) document.querySelector('#pac-tabs [data-tab="solicitacoes"]')?.remove();
+  } catch {}
+}
+
+// Link "Importação" da sidebar — acesso é só por role (master/admin_sistema),
+// não Perfil/Rotina (ver routes/pac-importacao.js), então essa checagem é à
+// parte de aplicarPermissaoSolicitacoes() acima.
+async function aplicarAcessoImportacao() {
+  try {
+    const user = await window.getCurrentUser();
+    if (user && (user.username === 'master' || user.role === 'admin_sistema')) {
+      document.getElementById('nav-pac-importacao').style.display = '';
+    }
   } catch {}
 }
 
@@ -740,6 +753,7 @@ async function carregarSolicitacoes() {
       <tr>
         <td><strong>${s.numero_pac || '—'}</strong>${contagemPorItem[s.item_id] > 1 ? `<span class="pac-cnt-solic">${contagemPorItem[s.item_id]}</span>` : ''}</td>
         <td>${s.numero_movimento || '—'}</td>
+        <td>${s.numero_sei || '—'}</td>
         <td>${fmtBrData(s.data_requisicao)}</td>
         <td>${nomeSetorPac(s.setor_requisitante_id)}</td>
         <td>${fmtMoeda(s.valor_tu_mlp)}</td>
@@ -749,11 +763,12 @@ async function carregarSolicitacoes() {
           <button class="btn btn-danger btn-sm" onclick="excluirSolicitacao(${s.id})">Excluir</button>
         </td>
       </tr>
-    `).join('') || `<tr><td colspan="7" style="padding:16px;text-align:center;color:var(--text-subtle);">Nenhuma solicitação vinculada.</td></tr>`;
+    `).join('') || `<tr><td colspan="8" style="padding:16px;text-align:center;color:var(--text-subtle);">Nenhuma solicitação vinculada.</td></tr>`;
 
     document.getElementById('sol-sem-pac-tbody').innerHTML = solicitacoes.filter(s => s.sem_pac).map(s => `
       <tr>
         <td>${s.numero_movimento || '—'}</td>
+        <td>${s.numero_sei || '—'}</td>
         <td>${fmtBrData(s.data_requisicao)}</td>
         <td>${nomeSetorPac(s.setor_requisitante_id)}</td>
         <td>${s.descricao_objeto || '—'}</td>
@@ -764,7 +779,7 @@ async function carregarSolicitacoes() {
           <button class="btn btn-danger btn-sm" onclick="excluirSolicitacao(${s.id})">Excluir</button>
         </td>
       </tr>
-    `).join('') || `<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text-subtle);">Nenhuma contratação não planejada.</td></tr>`;
+    `).join('') || `<tr><td colspan="7" style="padding:16px;text-align:center;color:var(--text-subtle);">Nenhuma contratação não planejada.</td></tr>`;
 
     window._solicitacoesCache = solicitacoes;
   } catch {
@@ -792,6 +807,7 @@ function limparFormSolicitacao() {
   solAtualizarVinculo();
   document.getElementById('sol-item-select').value = '';
   document.getElementById('sol-numero-movimento').value = '';
+  document.getElementById('sol-numero-sei').value = '';
   document.getElementById('sol-data-requisicao').value = '';
   document.getElementById('sol-valor-tu-mlp').value = '';
   document.getElementById('sol-valor-rdc').value = '';
@@ -815,6 +831,7 @@ function editarSolicitacao(id) {
   solAtualizarVinculo();
   document.getElementById('sol-item-select').value = s.item_id || '';
   document.getElementById('sol-numero-movimento').value = s.numero_movimento || '';
+  document.getElementById('sol-numero-sei').value = s.numero_sei || '';
   document.getElementById('sol-data-requisicao').value = s.data_requisicao || '';
   document.getElementById('sol-setor-select').value = s.setor_requisitante_id || '';
   document.getElementById('sol-natureza-select').value = s.natureza_orcamentaria || '';
@@ -838,6 +855,7 @@ async function salvarSolicitacao() {
   const payload = {
     item_id,
     numero_movimento: document.getElementById('sol-numero-movimento').value.trim(),
+    numero_sei: document.getElementById('sol-numero-sei').value.trim(),
     data_requisicao: document.getElementById('sol-data-requisicao').value || null,
     setor_requisitante_id: Number(document.getElementById('sol-setor-select').value) || null,
     natureza_orcamentaria: document.getElementById('sol-natureza-select').value || null,
@@ -963,6 +981,7 @@ function renderTabelaAcompanhamento() {
   document.getElementById('acomp-sem-pac-tbody').innerHTML = semPac.map(s => `
     <tr>
       <td>${s.numero_movimento || '—'}</td>
+      <td>${s.numero_sei || '—'}</td>
       <td>${fmtBrData(s.data_requisicao)}</td>
       <td>${nomeSetorPac(s.setor_requisitante_id)}</td>
       <td>${s.descricao_objeto || '—'}</td>
