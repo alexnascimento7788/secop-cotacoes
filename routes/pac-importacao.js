@@ -66,6 +66,51 @@ router.get('/api/pac/importacao/dfds/:id/itens-existentes', pac, requireAdminGlo
   res.json({ total: n });
 });
 
+router.get('/api/pac/importacao/dfds/:id/consolidado', pac, requireAdminGlobal, (req, res) => {
+  const consolidacao = db.prepare(`SELECT total_itens, consolidado_em FROM pac_consolidacoes WHERE dfd_id = ?`).get(req.params.id);
+  res.json({ consolidado: !!consolidacao, consolidacao: consolidacao || null });
+});
+
+// Reatribui numero_pac a todos os itens do DFD e registra a consolidação —
+// MESMA lógica de negócio de renumerarPac()/POST /dfds/:id/consolidar em
+// routes/pac.js, duplicada aqui de propósito (não importada) pelo mesmo
+// motivo da decisão #2 no topo do arquivo: aquela rota é gateada por
+// requireRotina('pac-gestao','incluir'), que bloquearia um admin_sistema sem
+// nenhum Perfil de PAC concedido. Pedido do Alex: fechar o DFD e gerar os
+// números de PAC direto no fim do wizard de importação, sem precisar ir em
+// Gestão — "o número de PAC é o mais importante".
+function renumerarPacImportacao(dfdId, anoBase) {
+  const itens = db.prepare(`
+    SELECT di.id FROM dfd_itens di JOIN setores s ON s.id = di.setor_id
+    WHERE di.dfd_id = ? AND di.excluido_em IS NULL
+    ORDER BY s.ordem ASC, di.numero_item ASC
+  `).all(dfdId);
+  db.prepare(`UPDATE dfd_itens SET numero_pac = NULL WHERE dfd_id = ?`).run(dfdId);
+  const upd = db.prepare(`UPDATE dfd_itens SET numero_pac = ? WHERE id = ?`);
+  itens.forEach((item, i) => upd.run(`${anoBase}-${String(i + 1).padStart(3, '0')}`, item.id));
+  return itens.length;
+}
+
+// Consolidação é DFD inteiro e só roda UMA VEZ (trava o DFD pra
+// somente-leitura em seguida) — por isso não é automático a cada setor
+// importado, é uma ação explícita que o Alex aciona quando TODOS os setores
+// daquele DFD já tiverem entrado.
+router.post('/api/pac/importacao/dfds/:id/fechar-e-consolidar', pac, requireAdminGlobal, (req, res) => {
+  const dfd = db.prepare(`SELECT id, ano_base, titulo, status FROM dfds WHERE id = ?`).get(req.params.id);
+  if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
+  if (db.prepare(`SELECT 1 FROM pac_consolidacoes WHERE dfd_id = ?`).get(dfd.id)) {
+    return res.status(409).json({ error: 'Este DFD já foi consolidado — os números de PAC já foram gerados.' });
+  }
+  if (dfd.status !== 'fechado') {
+    db.prepare(`UPDATE dfds SET status = 'fechado', atualizado_em = datetime('now') WHERE id = ?`).run(dfd.id);
+    registrarLog(req, 'PAC', 'MUDOU_STATUS_DFD', `DFD "${dfd.titulo}" → fechado (via Importação, antes de consolidar)`);
+  }
+  const total = renumerarPacImportacao(dfd.id, dfd.ano_base);
+  db.prepare(`INSERT INTO pac_consolidacoes (dfd_id, consolidado_por, total_itens) VALUES (?, ?, ?)`).run(dfd.id, req.user.user_id, total);
+  registrarLog(req, 'PAC', 'CONSOLIDOU_DFD', `Consolidou o DFD "${dfd.titulo}" via Importação (${total} itens numerados)`);
+  res.json({ total_itens: total });
+});
+
 // ── Parsing de planilha (regras da seção 2 do prompt original) ────────────────
 
 // Excel guarda data como número serial (dias desde 1899-12-30 — bug histórico

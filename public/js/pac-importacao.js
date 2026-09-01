@@ -296,7 +296,9 @@ async function f1Importar() {
   }
 
   const btn = document.getElementById('f1-btn-importar');
-  btn.disabled = true; btn.textContent = 'Importando...';
+  const spinner = document.getElementById('f1-spinner');
+  const label = document.getElementById('f1-btn-importar-label');
+  btn.disabled = true; spinner.hidden = false; label.textContent = 'Importando...';
   try {
     const res = await fetch('/api/pac/importacao/dfd', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
@@ -309,7 +311,7 @@ async function f1Importar() {
   } catch (e) {
     toast('Erro: ' + e.message, 'error');
   } finally {
-    btn.disabled = false; btn.textContent = 'Importar agora';
+    btn.disabled = false; spinner.hidden = true; label.textContent = 'Importar agora';
   }
 }
 
@@ -324,6 +326,46 @@ function f1MostrarResultado(r) {
   document.getElementById('f1-log').innerHTML = (r.log || []).map(l =>
     `<div class="imp-log-linha imp-log-${l.tipo}">${l.tipo === 'erro' ? '❌' : l.tipo === 'alerta' ? '⚠️' : '✅'} Linha ${l.linha} — ${l.mensagem}</div>`
   ).join('');
+  f1CarregarStatusConsolidacao(r.dfd_id);
+}
+
+// ── Números de PAC (fechar DFD + consolidar) ───────────────────────────────────
+// numero_pac só nasce quando o DFD é fechado e consolidado (mesma regra de
+// negócio de sempre, ver routes/pac.js) — a importação sozinha não gera
+// número nenhum, é só lançamento. Esse botão é um atalho de conveniência
+// pro fim do wizard, pra não precisar ir em Gestão separadamente.
+async function f1CarregarStatusConsolidacao(dfdId) {
+  const status = document.getElementById('f1-consolidar-status');
+  const btn = document.getElementById('f1-btn-consolidar');
+  status.innerHTML = '';
+  btn.disabled = false;
+  btn.textContent = 'Fechar DFD e gerar números de PAC';
+  try {
+    const res = await fetch(`/api/pac/importacao/dfds/${dfdId}/consolidado`);
+    const r = await res.json();
+    if (r.consolidado) {
+      status.innerHTML = `<div class="imp-banner imp-banner-verde">Este DFD já foi consolidado — ${r.consolidacao.total_itens} item(ns) numerado(s).</div>`;
+      btn.disabled = true;
+      btn.textContent = 'Já consolidado';
+    }
+  } catch { /* silencioso — o botão continua disponível, só sem o aviso prévio */ }
+}
+
+async function f1FecharEConsolidar() {
+  if (!_f1Resultado) return;
+  if (!confirm('Confirma? Isso fecha o DFD (não aceita mais lançamento novo) e gera os números de PAC pra TODOS os itens dele de uma vez só. Não tem como desfazer.')) return;
+  const btn = document.getElementById('f1-btn-consolidar');
+  btn.disabled = true; btn.textContent = 'Consolidando...';
+  try {
+    const res = await fetch(`/api/pac/importacao/dfds/${_f1Resultado.dfd_id}/fechar-e-consolidar`, { method: 'POST' });
+    const r = await res.json();
+    if (!res.ok) throw new Error(r.error || 'Erro ao consolidar');
+    toast(`Números de PAC gerados — ${r.total_itens} item(ns) numerado(s).`, 'success');
+    f1CarregarStatusConsolidacao(_f1Resultado.dfd_id);
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+    btn.disabled = false; btn.textContent = 'Fechar DFD e gerar números de PAC';
+  }
 }
 
 function f1ImportarOutroSetor() {
@@ -472,7 +514,9 @@ async function f2Importar() {
   });
 
   const btn = document.getElementById('f2-btn-importar');
-  btn.disabled = true; btn.textContent = 'Importando...';
+  const spinner = document.getElementById('f2-spinner');
+  const label = document.getElementById('f2-btn-importar-label');
+  btn.disabled = true; spinner.hidden = false; label.textContent = 'Importando...';
   try {
     const res = await fetch('/api/pac/importacao/acompanhamento', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -486,7 +530,7 @@ async function f2Importar() {
   } catch (e) {
     toast('Erro: ' + e.message, 'error');
   } finally {
-    btn.disabled = false; btn.textContent = 'Importar agora';
+    btn.disabled = false; spinner.hidden = true; label.textContent = 'Importar agora';
   }
 }
 
