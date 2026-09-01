@@ -103,6 +103,14 @@
     .sql-resultado-wrap { max-height: 420px; overflow: auto; border: 1px solid var(--cinza-b); border-radius: 6px; }
     .sql-resultado-wrap table { margin: 0; }
     .sql-resultado-wrap thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+
+    /* Indicador de carregando nos botões de importar — sem lib nova. */
+    .imp-spinner {
+      display: inline-block; width: 13px; height: 13px; margin-right: 7px; vertical-align: -2px;
+      border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%;
+      animation: imp-girar .7s linear infinite;
+    }
+    @keyframes imp-girar { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body data-modulo="pac">
@@ -235,7 +243,7 @@
               </div>
               <div style="margin-top:16px;display:flex;gap:8px;">
                 <button class="btn btn-secondary" onclick="f1Voltar()">← Voltar</button>
-                <button class="btn btn-primary" id="f1-btn-importar" onclick="f1Importar()">Importar agora</button>
+                <button class="btn btn-primary" id="f1-btn-importar" onclick="f1Importar()"><span class="imp-spinner" id="f1-spinner" hidden></span><span id="f1-btn-importar-label">Importar agora</span></button>
               </div>
             </div>
           </div>
@@ -259,6 +267,16 @@
                   <button class="btn btn-secondary" onclick="abrirSqlNoConsole(_f1Resultado)">Abrir no Console SQL</button>
                   <button class="btn btn-secondary" onclick="baixarSql(_f1Resultado, 'importacao-fase1.sql')">Baixar .sql</button>
                 </div>
+              </div>
+              <div id="f1-consolidar-wrap" class="pac-card" style="margin-top:16px;">
+                <div class="pac-card-title">🔢 Números de PAC</div>
+                <p style="font-size:12.5px;color:var(--text-muted);margin:-6px 0 12px;">
+                  Só clique aqui depois que <strong>todos os setores</strong> deste DFD já tiverem sido
+                  importados. Essa ação fecha o DFD (não aceita mais lançamento novo) e numera todos os
+                  itens de uma vez só — não tem como desfazer.
+                </p>
+                <div id="f1-consolidar-status" style="margin-bottom:10px;"></div>
+                <button class="btn btn-primary" id="f1-btn-consolidar" onclick="f1FecharEConsolidar()">Fechar DFD e gerar números de PAC</button>
               </div>
               <div style="margin-top:16px;display:flex;gap:8px;">
                 <a class="btn btn-secondary" href="pac-gestao.html">Ver itens importados</a>
@@ -315,7 +333,7 @@
               <div class="pac-msg" id="f2-msg-obrigatorias" style="color:#b91c1c;"></div>
               <div style="margin-top:16px;display:flex;gap:8px;">
                 <button class="btn btn-secondary" onclick="f2Voltar()">← Voltar</button>
-                <button class="btn btn-primary" id="f2-btn-importar" onclick="f2Importar()">Importar agora</button>
+                <button class="btn btn-primary" id="f2-btn-importar" onclick="f2Importar()"><span class="imp-spinner" id="f2-spinner" hidden></span><span id="f2-btn-importar-label">Importar agora</span></button>
               </div>
             </div>
           </div>
