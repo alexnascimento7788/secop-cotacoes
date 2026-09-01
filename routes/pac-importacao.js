@@ -97,18 +97,38 @@ function parseMoedaServidor(bruto) {
   return { valor: v, alerta: null };
 }
 
-// "TU", "RDC", "MLP" ou combinação com percentual ("60% TU / 40% RDC") — extrai
-// a de maior percentual, texto original vira alerta.
+// "TU", "RDC", "MLP", com ou sem percentual, em QUALQUER ordem ("60% TU" OU
+// "TU 60%" OU "TU = 60%") e com qualquer separador entre combinações (barra,
+// traço, "e", vírgula...) — o parser não depende do separador, só acha cada
+// par "<fonte><percentual>" onde ele estiver no texto, então "TU 40% RDC 40%
+// e MLP 20%" funciona igual a "TU 40% / RDC 40% / MLP 20%". Achado real em
+// planilhas de setores diferentes usando a ordem oposta à do exemplo
+// original do prompt — por isso as duas ordens precisam ser aceitas.
 function parseFontePagadora(bruto) {
   const s = String(bruto).trim();
-  const combinacoes = [...s.matchAll(/(\d{1,3})\s*%\s*([A-Za-zÀ-ú]+)/g)];
-  if (combinacoes.length) {
-    combinacoes.sort((a, b) => Number(b[1]) - Number(a[1]));
-    const escolhida = combinacoes[0][2].toUpperCase();
-    return { valor: escolhida, alerta: `"${s}" tinha combinação de fontes, usada "${escolhida}" (maior percentual)` };
-  }
   const upper = s.toUpperCase();
   if (['TU', 'RDC', 'MLP'].includes(upper)) return { valor: upper, alerta: null };
+
+  const re = /(\d{1,3})\s*%\s*(TU|RDC|MLP)\b|\b(TU|RDC|MLP)\s*=?\s*(\d{1,3})\s*%/gi;
+  const combinacoes = [];
+  let m;
+  while ((m = re.exec(s))) {
+    combinacoes.push(m[2] ? { fonte: m[2].toUpperCase(), pct: Number(m[1]) } : { fonte: m[3].toUpperCase(), pct: Number(m[4]) });
+  }
+  if (combinacoes.length === 1) return { valor: combinacoes[0].fonte, alerta: null };
+  if (combinacoes.length > 1) {
+    // Empate no percentual: fica com a primeira fonte citada no texto (sort
+    // estável — só troca quando acha um percentual estritamente maior).
+    let escolhida = combinacoes[0];
+    combinacoes.forEach(c => { if (c.pct > escolhida.pct) escolhida = c; });
+    return { valor: escolhida.fonte, alerta: `"${s}" tinha combinação de fontes, usada "${escolhida.fonte}" (maior percentual)` };
+  }
+
+  // Fonte(s) citada(s) sem nenhum percentual junto (ex.: "TU e RDC").
+  const citadas = [...s.matchAll(/\b(TU|RDC|MLP)\b/gi)].map(x => x[1].toUpperCase());
+  if (citadas.length === 1) return { valor: citadas[0], alerta: null };
+  if (citadas.length > 1) return { valor: citadas[0], alerta: `"${s}" citava mais de uma fonte sem percentual, usada a primeira ("${citadas[0]}")` };
+
   return { valor: s, alerta: `fonte pagadora "${s}" não reconhecida, importada como texto` };
 }
 
