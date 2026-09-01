@@ -645,7 +645,7 @@ function sqlRenderResultados(resultados) {
     if (r.ok) return `<div class="pac-card">✅ Executado com sucesso. ${r.changes} linha(s) afetada(s).</div>`;
     if (!r.linhas.length) return `<div class="pac-card">Nenhum resultado.</div>`;
     return `<div class="pac-card">
-      <div class="table-wrap"><table>
+      <div class="sql-resultado-wrap"><table>
         <thead><tr>${r.colunas.map(c => `<th>${c}</th>`).join('')}</tr></thead>
         <tbody>${r.linhas.map(l => `<tr>${l.map(v => `<td>${v === null ? '<em>NULL</em>' : v}</td>`).join('')}</tr>`).join('')}</tbody>
       </table></div>

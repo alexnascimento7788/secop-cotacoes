@@ -93,6 +93,16 @@
     .sql-tree-tipo { font-size: 10.5px; color: var(--text-muted); }
     .sql-tree-simples { padding: 3px 4px; cursor: pointer; border-radius: 4px; color: var(--text-muted); }
     .sql-tree-simples:hover { background: var(--surface-2); color: var(--text); }
+
+    /* Resultado do Console SQL: scroll próprio (vertical E horizontal) preso
+       à própria tabela — sem isso, uma tabela larga estoura a largura da
+       página inteira e a barra horizontal só aparece lá embaixo, no rodapé
+       real da página (o usuário tem que rolar tudo antes de conseguir usá-la).
+       Mesma lição de [[project_secop_quebra_linha]], aplicada aqui pra scroll
+       em vez de quebra de linha. */
+    .sql-resultado-wrap { max-height: 420px; overflow: auto; border: 1px solid var(--cinza-b); border-radius: 6px; }
+    .sql-resultado-wrap table { margin: 0; }
+    .sql-resultado-wrap thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
   </style>
 </head>
 <body data-modulo="pac">
