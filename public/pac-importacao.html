@@ -407,9 +407,38 @@
           </div>
         </div>
       </div>
+
+      <!-- ═══ Zona de risco (só master) ═══ -->
+      <div id="imp-zona-risco" class="pac-card" style="display:none;margin-top:24px;border:1.5px solid #b91c1c;">
+        <div class="pac-card-title" style="color:#b91c1c;">⚠️ Zona de risco</div>
+        <p style="font-size:12.5px;color:var(--text-muted);margin-top:-6px;margin-bottom:12px;">
+          Apaga TODOS os DFDs do PAC e tudo ligado a eles (itens, valores, solicitações, consolidações,
+          pedidos de edição) — pra reiniciar o ciclo de teste do zero. Setores e os catálogos/listas de
+          parâmetros NÃO são apagados. Não tem como desfazer.
+        </p>
+        <button class="btn btn-secondary" style="border-color:#b91c1c;color:#b91c1c;" onclick="abrirModalApagarTudo()">Apagar toda a base de teste do PAC</button>
+      </div>
     </div>
     <div id="app-footer"></div>
   </main>
+</div>
+
+<!-- Modal: confirmar apagar tudo -->
+<div class="modal-overlay" id="modal-apagar-tudo">
+  <div class="modal-box">
+    <h3 style="color:#b91c1c;">⚠️ Apagar toda a base de teste do PAC</h3>
+    <div id="apagar-tudo-resumo" style="font-size:13px;margin-bottom:14px;">Carregando...</div>
+    <p style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px;">
+      Pra confirmar, digite <strong>APAGAR</strong> no campo abaixo.
+    </p>
+    <input type="text" id="apagar-tudo-confirmacao" placeholder="Digite APAGAR" autocomplete="off"
+      style="width:100%;padding:9px 12px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);margin-bottom:16px;box-sizing:border-box;"
+      oninput="document.getElementById('btn-confirmar-apagar-tudo').disabled = this.value !== 'APAGAR'">
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="fecharModalApagarTudo()">Cancelar</button>
+      <button class="btn btn-primary" id="btn-confirmar-apagar-tudo" style="background:#b91c1c;" disabled onclick="confirmarApagarTudo()">Apagar tudo</button>
+    </div>
+  </div>
 </div>
 
 <div id="toast"></div>

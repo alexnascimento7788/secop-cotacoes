@@ -22,6 +22,15 @@ function requireAdminGlobal(req, res, next) {
   return res.status(403).json({ error: 'Acesso restrito ao administrador do sistema.' });
 }
 
+// Guarda mais estrita, só pro "apagar tudo" — é uma ação destrutiva permanente
+// na ferramenta (existe pra facilitar o ciclo de teste do Alex agora, mas
+// continua lá depois que os dados forem reais). Restrita a `master` mesmo,
+// não a qualquer admin_sistema (que tem acesso normal ao resto do arquivo).
+function requireMasterSomente(req, res, next) {
+  if (req.user.username === 'master') return next();
+  return res.status(403).json({ error: 'Ação restrita ao usuário master.' });
+}
+
 // ── Leitura pros dropdowns da tela ─────────────────────────────────────────────
 // Rotas próprias (não reaproveita GET /api/pac/dfds etc. de routes/pac.js) de
 // propósito: aquelas são gateadas por requireRotina('pac-gestao','ver')/
@@ -458,6 +467,34 @@ router.post('/api/pac/importacao/acompanhamento', pac, requireAdminGlobal, (req,
     `Concluiu importação de acompanhamento (Fase 2) — DFD #${dfdId}: ${atualizados} status atualizados, ${solicitacoesCriadas} solicitações criadas, ${comErro} com erro`);
 
   res.json({ atualizados, solicitacoes_criadas: solicitacoesCriadas, erros: comErro, log, sql_gerado: sqlGerado, mapeamento });
+});
+
+// ── Apagar tudo do PAC (só pra acelerar o ciclo de teste) ──────────────────────
+// Zera TODOS os DFDs e tudo que depende deles (dfd_itens, valores, pedidos de
+// edição, solicitações, consolidações) — via `DELETE FROM dfds` + cascade
+// (PRAGMA foreign_keys=ON já ligado em database.js). NÃO mexe em `setores`
+// nem em `dfd_colunas_catalogo`/`dfd_parametros_lista`: aquilo é configuração
+// do módulo, não dado de teste — apagar isso quebraria o PAC inteiro (um DFD
+// novo nasce copiando o catálogo).
+router.get('/api/pac/importacao/resumo-apagar-tudo', pac, requireAdminGlobal, (_req, res) => {
+  res.json({
+    dfds: db.prepare(`SELECT COUNT(*) AS n FROM dfds`).get().n,
+    itens: db.prepare(`SELECT COUNT(*) AS n FROM dfd_itens`).get().n,
+    solicitacoes: db.prepare(`SELECT COUNT(*) AS n FROM pac_solicitacoes`).get().n,
+  });
+});
+
+router.post('/api/pac/importacao/apagar-tudo', pac, requireMasterSomente, (req, res) => {
+  const totalDfds = db.prepare(`SELECT COUNT(*) AS n FROM dfds`).get().n;
+  db.prepare(`DELETE FROM dfds`).run();
+  try {
+    db.prepare(`
+      DELETE FROM sqlite_sequence WHERE name IN
+      ('dfds','dfd_itens','dfd_itens_valores','dfd_setores','dfd_colunas_ativas','dfd_pedidos_edicao','pac_consolidacoes','pac_solicitacoes')
+    `).run();
+  } catch { /* sqlite_sequence só existe se alguma AUTOINCREMENT já rodou — inofensivo se faltar */ }
+  registrarLog(req, 'PAC', 'APAGOU_TUDO_PAC', `Apagou TODOS os DFDs e dados ligados via Importação (${totalDfds} DFD(s)) — reset de teste`);
+  res.json({ ok: true, dfds_apagados: totalDfds });
 });
 
 // ── Console SQL ────────────────────────────────────────────────────────────────
