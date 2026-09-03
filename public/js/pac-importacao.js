@@ -89,6 +89,9 @@ function melhorMatch(headerBruto, candidatos) {
     return;
   }
   document.getElementById('imp-conteudo').style.display = 'block';
+  // Zona de risco (apagar tudo) é mais restrita que o resto da ferramenta —
+  // só master, não qualquer admin_sistema.
+  if (user.username === 'master') document.getElementById('imp-zona-risco').style.display = 'block';
   await inicializar();
 })();
 
@@ -116,7 +119,11 @@ function irParaPasso(prefixo, passo) {
 // ── Init: popula selects comuns às duas fases ──────────────────────────────────
 let _dfds = [], _setores = [];
 
-async function inicializar() {
+// Só a parte "buscar DFDs/setores e repopular os selects" — separada de
+// inicializar() pra poder chamar de novo (ex.: depois de "apagar tudo") sem
+// duplicar os listeners de drag-and-drop/teclado que inicializar() também
+// registra (isso sim só pode rodar uma vez por carregamento de página).
+async function recarregarDfdsESetores() {
   try {
     const [dfdsRes, setoresRes] = await Promise.all([
       fetch('/api/pac/importacao/dfds'),
@@ -134,6 +141,10 @@ async function inicializar() {
   document.getElementById('f1-setor-select').innerHTML = _setores.map(s => `<option value="${s.id}">${s.nome}</option>`).join('');
 
   document.getElementById('f2-dfd-select').innerHTML = _dfds.map(d => `<option value="${d.id}">${d.titulo} (${d.ano_base}) — ${d.status}</option>`).join('');
+}
+
+async function inicializar() {
+  await recarregarDfdsESetores();
 
   // Dropzones — clique já abre o input (onclick no HTML); aqui só o
   // drag-and-drop, igual pedido no prompt.
@@ -767,5 +778,52 @@ async function baixarSql(resultado, nomeArquivo) {
     URL.revokeObjectURL(url);
   } catch (e) {
     toast('Erro: ' + e.message, 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Zona de risco — apagar toda a base de teste do PAC (só master)
+// ═══════════════════════════════════════════════════════════════════════════
+async function abrirModalApagarTudo() {
+  const resumo = document.getElementById('apagar-tudo-resumo');
+  const input = document.getElementById('apagar-tudo-confirmacao');
+  input.value = '';
+  document.getElementById('btn-confirmar-apagar-tudo').disabled = true;
+  resumo.textContent = 'Carregando...';
+  document.getElementById('modal-apagar-tudo').classList.add('open');
+  try {
+    const res = await fetch('/api/pac/importacao/resumo-apagar-tudo');
+    const r = await res.json();
+    if (!res.ok) throw new Error(r.error || 'Erro ao carregar resumo');
+    resumo.innerHTML = `Isso vai apagar <strong>${r.dfds}</strong> DFD(s), <strong>${r.itens}</strong> item(ns) e <strong>${r.solicitacoes}</strong> solicitação(ões) — de todos os anos, sem distinção.`;
+  } catch (e) {
+    resumo.textContent = 'Erro ao carregar resumo: ' + e.message;
+  }
+}
+
+function fecharModalApagarTudo() {
+  document.getElementById('modal-apagar-tudo').classList.remove('open');
+}
+
+async function confirmarApagarTudo() {
+  const btn = document.getElementById('btn-confirmar-apagar-tudo');
+  btn.disabled = true; btn.textContent = 'Apagando...';
+  try {
+    const res = await fetch('/api/pac/importacao/apagar-tudo', { method: 'POST' });
+    const r = await res.json();
+    if (!res.ok) throw new Error(r.error || 'Erro ao apagar');
+    toast(`Base zerada — ${r.dfds_apagados} DFD(s) apagado(s).`, 'success');
+    fecharModalApagarTudo();
+    // Tudo que dependia de um DFD (selects, wizard) ficou obsoleto — recarrega
+    // só os dropdowns (não inicializar() inteiro, que duplicaria os listeners
+    // de drag-and-drop/Ctrl+Enter) e volta os dois wizards pro passo 1.
+    await recarregarDfdsESetores();
+    f1ImportarOutroSetor();
+    f2ImportarOutra();
+    sqlCarregarSchema();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Apagar tudo';
   }
 }
