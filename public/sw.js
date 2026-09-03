@@ -1,4 +1,4 @@
-const CACHE_NAME = 'secop-shell-v50';
+const CACHE_NAME = 'secop-shell-v51';
 
 const SHELL_FILES = [
   '/components/footer.html',
