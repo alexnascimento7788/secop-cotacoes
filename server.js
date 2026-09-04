@@ -34,9 +34,12 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-// Protege todas as rotas /api/ exceto /api/auth/*
+// Protege todas as rotas /api/ exceto /api/auth/* e /api/version (metadado
+// público, sem dado sensível — precisa ficar acessível ANTES do login pra
+// login.html mostrar a versão no rodapé, o mesmo endpoint que a sidebar já
+// usa depois de autenticado).
 app.use('/api', (req, res, next) => {
-  if (req.path.startsWith('/auth/')) return next();
+  if (req.path.startsWith('/auth/') || req.path === '/version') return next();
   requireAuth(req, res, next);
 });
 
