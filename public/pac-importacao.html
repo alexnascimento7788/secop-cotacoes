@@ -268,16 +268,6 @@
                   <button class="btn btn-secondary" onclick="baixarSql(_f1Resultado, 'importacao-fase1.sql')">Baixar .sql</button>
                 </div>
               </div>
-              <div id="f1-consolidar-wrap" class="pac-card" style="margin-top:16px;">
-                <div class="pac-card-title">🔢 Números de PAC</div>
-                <p style="font-size:12.5px;color:var(--text-muted);margin:-6px 0 12px;">
-                  Só clique aqui depois que <strong>todos os setores</strong> deste DFD já tiverem sido
-                  importados. Essa ação fecha o DFD (não aceita mais lançamento novo) e numera todos os
-                  itens de uma vez só — não tem como desfazer.
-                </p>
-                <div id="f1-consolidar-status" style="margin-bottom:10px;"></div>
-                <button class="btn btn-primary" id="f1-btn-consolidar" onclick="f1FecharEConsolidar()">Fechar DFD e gerar números de PAC</button>
-              </div>
               <div style="margin-top:16px;display:flex;gap:8px;">
                 <a class="btn btn-secondary" href="pac-gestao.html">Ver itens importados</a>
                 <button class="btn btn-primary" onclick="f1ImportarOutroSetor()">Importar outro setor</button>

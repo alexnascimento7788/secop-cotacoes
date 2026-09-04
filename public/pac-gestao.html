@@ -139,17 +139,10 @@
               <div class="pac-card-title" id="dfd-det-titulo" style="margin-bottom:4px;">—</div>
               <span class="badge" id="dfd-det-badge"></span>
             </div>
-            <div id="dfd-det-acoes"></div>
-          </div>
-        </div>
-        <div class="pac-grids">
-          <div class="pac-card">
-            <div class="pac-card-title">Setores participantes</div>
-            <div id="dfd-det-setores">Carregando...</div>
-          </div>
-          <div class="pac-card">
-            <div class="pac-card-title">Colunas ativas</div>
-            <div id="dfd-det-colunas">Carregando...</div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <div id="dfd-det-acoes"></div>
+              <button class="btn btn-secondary btn-sm" onclick="abrirConfigDfd()">⚙️ Configurações</button>
+            </div>
           </div>
         </div>
         <div class="pac-card">
@@ -341,6 +334,28 @@
     </div>
     <div id="app-footer"></div>
   </main>
+</div>
+
+<!-- Modal: configurações do DFD (setores participantes + colunas ativas) —
+     isolado do fluxo principal de "Itens lançados" de propósito, é
+     configuração pontual, não algo que se olha toda vez que se abre um DFD. -->
+<div class="modal-overlay" id="modal-dfd-config">
+  <div class="modal-box" style="max-width:640px;">
+    <h3>Configurações do DFD</h3>
+    <div class="pac-grids">
+      <div>
+        <div class="pac-card-title">Setores participantes</div>
+        <div id="dfd-det-setores">Carregando...</div>
+      </div>
+      <div>
+        <div class="pac-card-title">Colunas ativas</div>
+        <div id="dfd-det-colunas">Carregando...</div>
+      </div>
+    </div>
+    <div style="margin-top:16px;text-align:right;">
+      <button class="btn btn-secondary" onclick="fecharConfigDfd()">Fechar</button>
+    </div>
+  </div>
 </div>
 
 <!-- Modal: usuários vinculados a um setor -->

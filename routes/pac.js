@@ -524,6 +524,14 @@ router.post('/api/pac/dfds/:id/consolidar', pac, requireRotina('pac-gestao', 'in
   if (db.prepare(`SELECT 1 FROM pac_consolidacoes WHERE dfd_id = ?`).get(dfd.id)) {
     return res.status(409).json({ error: 'Este DFD já foi consolidado.' });
   }
+  // Itens importados via routes/pac-importacao.js já nascem com numero_pac
+  // (sequencial contínuo, atribuído no momento da importação — não depende
+  // mais desta consolidação). renumerarPac() APAGA e reatribui tudo do zero;
+  // rodar isso num DFD que já tem números atribuídos trocaria os números já
+  // comunicados/usados externamente. Trava aqui em vez de deixar acontecer.
+  if (db.prepare(`SELECT 1 FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND numero_pac IS NOT NULL LIMIT 1`).get(dfd.id)) {
+    return res.status(409).json({ error: 'Este DFD já tem itens com número de PAC atribuído (provavelmente pela Importação) — consolidar de novo trocaria os números já existentes.' });
+  }
   const total = renumerarPac(dfd.id, dfd.ano_base);
   db.prepare(`INSERT INTO pac_consolidacoes (dfd_id, consolidado_por, total_itens) VALUES (?, ?, ?)`)
     .run(dfd.id, req.user.user_id, total);
