@@ -43,37 +43,37 @@
       margin-top: 18px;
       max-width: 420px;
     }
-    .login-hero-stats {
-      display: flex;
-      gap: 40px;
+    .login-hero-footer {
       padding-top: 24px;
       border-top: 1px solid rgba(255,255,255,.22);
-      flex-wrap: wrap;
-    }
-    .login-hero-stat-label {
-      display: block;
-      font-size: 10.5px;
-      font-weight: 700;
-      letter-spacing: 1px;
-      text-transform: uppercase;
+      font-size: 12.5px;
+      letter-spacing: .3px;
       color: rgba(255,255,255,.65);
-      margin-bottom: 4px;
-    }
-    .login-hero-stat-value {
-      font-size: 20px;
-      font-weight: 800;
     }
 
     /* ── Painel direito: formulário ──────────────────────────────────────── */
     .login-panel {
       flex: 1;
+      position: relative;
+      overflow: hidden;
       display: flex;
       align-items: center;
       justify-content: center;
       padding: 32px;
       background: #f9f8f5;
     }
-    .login-panel-inner { width: 100%; max-width: 360px; }
+    /* Losango da CEASAMINAS como marca d'água — mesmo SVG inline já usado como
+       fallback da logo mais abaixo (.logo-diamond), sem carregar imagem nova. */
+    .login-panel-watermark {
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 460px; height: 460px;
+      transform: translate(-50%, -50%);
+      opacity: .05;
+      z-index: 0;
+      pointer-events: none;
+    }
+    .login-panel-inner { position: relative; z-index: 1; width: 100%; max-width: 360px; }
 
     .login-logo { text-align: center; margin-bottom: 32px; }
     .login-logo-img { max-width: 190px; height: auto; }
@@ -171,7 +171,6 @@
     @media (max-width: 860px) {
       .login-page { flex-direction: column; }
       .login-hero { flex: none; padding: 36px 28px; }
-      .login-hero-stats { display: none; }
       .login-panel { padding: 28px; }
     }
   </style>
@@ -181,26 +180,19 @@
 
   <div class="login-hero">
     <div>
-      <h1>Da planilha ao processo com histórico completo.</h1>
-      <p>Cada cotação, cada comunicado e cada item do planejamento anual fica registrado — sem edição depois de decidido.</p>
+      <h1>CEASA CONECTA</h1>
+      <p>Decisões registradas. Processos rastreados. Nada se perde.</p>
     </div>
-    <div class="login-hero-stats">
-      <div>
-        <span class="login-hero-stat-label">Cotações</span>
-        <span class="login-hero-stat-value">SECOP</span>
-      </div>
-      <div>
-        <span class="login-hero-stat-label">Concessionários</span>
-        <span class="login-hero-stat-value">SECAD</span>
-      </div>
-      <div>
-        <span class="login-hero-stat-label">Planejamento anual</span>
-        <span class="login-hero-stat-value">PAC</span>
-      </div>
-    </div>
+    <div class="login-hero-footer" id="login-hero-footer">CEASAMINAS</div>
   </div>
 
   <div class="login-panel">
+    <svg class="login-panel-watermark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56" aria-hidden="true" focusable="false">
+      <polygon points="28,2 2,28 28,28" fill="#1A6B35"/>
+      <polygon points="28,2 54,28 28,28" fill="#F9A800"/>
+      <polygon points="54,28 28,54 28,28" fill="#1A6B35"/>
+      <polygon points="2,28 28,54 28,28" fill="#1A6B35"/>
+    </svg>
     <div class="login-panel-inner">
       <div class="login-logo">
         <span class="login-logo-plate">
@@ -245,6 +237,20 @@
 
 <script src="js/pwa.js"></script>
 <script>
+// Rodapé do painel esquerdo — mesmo padrão de fetch já usado pra injetar a
+// versão no rodapé global (auth.js:_injetarRodape) e na sidebar, só que sem
+// incluir auth.js inteiro aqui (login.html não roda a lógica de sessão dele
+// de propósito). Falha silenciosa: sem versão, fica só "CEASAMINAS · ano".
+(async () => {
+  const el = document.getElementById('login-hero-footer');
+  const ano = new Date().getFullYear();
+  el.textContent = `CEASAMINAS · ${ano}`;
+  try {
+    const r = await fetch('/api/version');
+    if (r.ok) { const { version } = await r.json(); el.textContent = `CEASAMINAS · ${ano} · v${version}`; }
+  } catch {}
+})();
+
 async function fazerLogin(e) {
   e.preventDefault();
   const btn  = document.getElementById('btn-login');
