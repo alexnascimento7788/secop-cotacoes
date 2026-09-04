@@ -140,9 +140,21 @@ async function carregarDetalheDfd() {
     `<button class="btn btn-secondary btn-sm" onclick="mudarStatusDfd('${s}')">${rotulos[s]}</button>`
   ).join(' ');
 
-  await renderGridSetoresDfd();
-  await renderGridColunasDfd();
   await renderItensDfd(dfd.colunas);
+}
+
+// "Setores participantes"/"Colunas ativas" são configuração pontual do DFD,
+// não algo que se consulta toda vez que se abre a tela — ficam isoladas num
+// modal à parte (Alex: "esta aba está errada... configurações devem ficar
+// isolados"), carregadas só quando o modal realmente abre.
+function abrirConfigDfd() {
+  document.getElementById('modal-dfd-config').classList.add('open');
+  renderGridSetoresDfd();
+  renderGridColunasDfd();
+}
+
+function fecharConfigDfd() {
+  document.getElementById('modal-dfd-config').classList.remove('open');
 }
 
 async function mudarStatusDfd(status) {
@@ -232,13 +244,21 @@ async function renderItensDfd(colunasParam) {
   const setores = setoresRes.ok ? await setoresRes.json() : [];
   const nomeSetor = id => (setores.find(s => s.id === id) || {}).nome || `#${id}`;
 
+  // "Nº" primeiro, "Setor" segundo — mesma ordem de sempre em Lançamento
+  // (onde Nº é a 1ª coluna fixa; Setor nem existe lá, é escopo de um setor só).
+  // Tinha ficado invertido aqui (Setor antes de Nº), único lugar do sistema
+  // assim — Alex reportou como "setor e número estão invertidos".
+  const colunaNumero = colunas.find(c => c.slug === 'numero_item');
+  const colunasResto = colunas.filter(c => c.slug !== 'numero_item');
+
   document.getElementById('dfd-det-itens-thead').innerHTML =
-    `<tr><th>Setor</th>${colunas.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}</tr>`;
+    `<tr><th>${colunaNumero ? colunaNumero.label : 'Nº'}</th><th>Setor</th>${colunasResto.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}</tr>`;
 
   document.getElementById('dfd-det-itens-tbody').innerHTML = itens.map(item => `
     <tr>
+      <td>${item.numero_item}</td>
       <td>${nomeSetor(item.setor_id)}</td>
-      ${colunas.map(c => `<td>${formatarValorColuna(c, c.slug === 'numero_item' ? item.numero_item : item.valores[c.id])}</td>`).join('')}
+      ${colunasResto.map(c => `<td>${formatarValorColuna(c, item.valores[c.id])}</td>`).join('')}
       ${temColContrato ? celulaContratoLeitura(item, colunasContrato, todasColunas) : ''}
     </tr>
   `).join('') || `<tr><td colspan="${colunas.length + (temColContrato ? 2 : 1)}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`;

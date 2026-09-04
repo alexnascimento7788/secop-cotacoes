@@ -331,52 +331,15 @@ function f1MostrarResultado(r) {
   document.getElementById('f1-cnt-alertas').textContent = r.alertas;
   document.getElementById('f1-cnt-erros').textContent = r.erros;
   const banner = document.getElementById('f1-banner');
-  if (r.erros > 0) banner.innerHTML = `<div class="imp-banner imp-banner-vermelho">Importação concluída com ${r.erros} erro(s).</div>`;
-  else if (r.alertas > 0) banner.innerHTML = `<div class="imp-banner imp-banner-amarelo">Importação concluída com ${r.alertas} alerta(s).</div>`;
-  else banner.innerHTML = `<div class="imp-banner imp-banner-verde">Importação 100% bem-sucedida.</div>`;
+  const faixaPac = r.numero_pac_inicial
+    ? (r.numero_pac_inicial === r.numero_pac_final ? ` Número de PAC: <strong>${r.numero_pac_inicial}</strong>.` : ` Números de PAC: <strong>${r.numero_pac_inicial}</strong> a <strong>${r.numero_pac_final}</strong>.`)
+    : '';
+  if (r.erros > 0) banner.innerHTML = `<div class="imp-banner imp-banner-vermelho">Importação concluída com ${r.erros} erro(s).${faixaPac}</div>`;
+  else if (r.alertas > 0) banner.innerHTML = `<div class="imp-banner imp-banner-amarelo">Importação concluída com ${r.alertas} alerta(s).${faixaPac}</div>`;
+  else banner.innerHTML = `<div class="imp-banner imp-banner-verde">Importação 100% bem-sucedida.${faixaPac}</div>`;
   document.getElementById('f1-log').innerHTML = (r.log || []).map(l =>
     `<div class="imp-log-linha imp-log-${l.tipo}">${l.tipo === 'erro' ? '❌' : l.tipo === 'alerta' ? '⚠️' : '✅'} Linha ${l.linha} — ${l.mensagem}</div>`
   ).join('');
-  f1CarregarStatusConsolidacao(r.dfd_id);
-}
-
-// ── Números de PAC (fechar DFD + consolidar) ───────────────────────────────────
-// numero_pac só nasce quando o DFD é fechado e consolidado (mesma regra de
-// negócio de sempre, ver routes/pac.js) — a importação sozinha não gera
-// número nenhum, é só lançamento. Esse botão é um atalho de conveniência
-// pro fim do wizard, pra não precisar ir em Gestão separadamente.
-async function f1CarregarStatusConsolidacao(dfdId) {
-  const status = document.getElementById('f1-consolidar-status');
-  const btn = document.getElementById('f1-btn-consolidar');
-  status.innerHTML = '';
-  btn.disabled = false;
-  btn.textContent = 'Fechar DFD e gerar números de PAC';
-  try {
-    const res = await fetch(`/api/pac/importacao/dfds/${dfdId}/consolidado`);
-    const r = await res.json();
-    if (r.consolidado) {
-      status.innerHTML = `<div class="imp-banner imp-banner-verde">Este DFD já foi consolidado — ${r.consolidacao.total_itens} item(ns) numerado(s).</div>`;
-      btn.disabled = true;
-      btn.textContent = 'Já consolidado';
-    }
-  } catch { /* silencioso — o botão continua disponível, só sem o aviso prévio */ }
-}
-
-async function f1FecharEConsolidar() {
-  if (!_f1Resultado) return;
-  if (!confirm('Confirma? Isso fecha o DFD (não aceita mais lançamento novo) e gera os números de PAC pra TODOS os itens dele de uma vez só. Não tem como desfazer.')) return;
-  const btn = document.getElementById('f1-btn-consolidar');
-  btn.disabled = true; btn.textContent = 'Consolidando...';
-  try {
-    const res = await fetch(`/api/pac/importacao/dfds/${_f1Resultado.dfd_id}/fechar-e-consolidar`, { method: 'POST' });
-    const r = await res.json();
-    if (!res.ok) throw new Error(r.error || 'Erro ao consolidar');
-    toast(`Números de PAC gerados — ${r.total_itens} item(ns) numerado(s).`, 'success');
-    f1CarregarStatusConsolidacao(_f1Resultado.dfd_id);
-  } catch (e) {
-    toast('Erro: ' + e.message, 'error');
-    btn.disabled = false; btn.textContent = 'Fechar DFD e gerar números de PAC';
-  }
 }
 
 function f1ImportarOutroSetor() {
