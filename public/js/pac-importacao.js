@@ -232,8 +232,23 @@ function f1MontarPreview(setorId, dfdSel) {
   ).join('');
 
   const candidatos = _f1ColunasAtivas.map(c => ({ slug: c.slug, label: c.label }));
+  const autoMatches = headers.map(h => melhorMatch(h, candidatos));
+
+  // "Possui Contrato?" no template oficial do Alex vem SEM cabeçalho (célula
+  // em branco) — por texto nunca vai casar (melhorMatch já retorna null de
+  // propósito pra cabeçalho vazio). Detecta por POSIÇÃO em vez de texto: é
+  // sempre a coluna em branco logo antes de "Nº Contrato" (mesmo padrão nas
+  // ~30 planilhas que ele vai importar). Só entra se ainda não tiver sido
+  // resolvida por nenhum outro cabeçalho.
+  if (candidatos.some(c => c.slug === 'possui_contrato') && !autoMatches.includes('possui_contrato')) {
+    const idxContrato = autoMatches.indexOf('numero_contrato');
+    if (idxContrato > 0 && !headers[idxContrato - 1] && !autoMatches[idxContrato - 1]) {
+      autoMatches[idxContrato - 1] = 'possui_contrato';
+    }
+  }
+
   document.getElementById('f1-mapa-tbody').innerHTML = headers.map((h, i) => {
-    const auto = melhorMatch(h, candidatos);
+    const auto = autoMatches[i];
     return `<tr>
       <td>${h || `(coluna ${i + 1})`}</td>
       <td><select data-idx="${i}" onchange="f1RecalcularIndicadores()">
