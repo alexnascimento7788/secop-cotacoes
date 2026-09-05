@@ -407,8 +407,12 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 .dfd-table th, .dfd-table td { white-space: nowrap; }
 .dfd-table tbody td { padding: 12px 12px; }
 .dfd-table th.dfd-col-fixa-1, .dfd-table td.dfd-col-fixa-1 { position: sticky; left: 0; z-index: 2; background: var(--surface); min-width: 56px; }
-.dfd-table th.dfd-col-fixa-2, .dfd-table td.dfd-col-fixa-2 { position: sticky; left: 56px; z-index: 2; background: var(--surface); min-width: 220px; white-space: normal; box-shadow: 2px 0 4px rgba(0,0,0,.06); }
-.dfd-table thead th.dfd-col-fixa-1, .dfd-table thead th.dfd-col-fixa-2 { z-index: 3; background: var(--surface-2); }
+.dfd-table th.dfd-col-fixa-2, .dfd-table td.dfd-col-fixa-2 { position: sticky; left: 56px; z-index: 2; background: var(--surface); min-width: 130px; white-space: normal; }
+.dfd-table th.dfd-col-fixa-3, .dfd-table td.dfd-col-fixa-3 { position: sticky; left: 186px; z-index: 2; background: var(--surface); min-width: 90px; white-space: normal; box-shadow: 2px 0 4px rgba(0,0,0,.06); }
+.dfd-table thead th.dfd-col-fixa-1, .dfd-table thead th.dfd-col-fixa-2, .dfd-table thead th.dfd-col-fixa-3 { z-index: 3; background: var(--surface-2); }
+
+/* "Finalizar meu DFD" por setor (pac-lancamento.js) */
+.lanc-fin-linha { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--cinza-b); border-radius: 8px; padding: 10px 16px; margin-bottom: 8px; font-size: 13px; }
 
 /* Inputs/selects dentro da tabela do DFD reaproveitam a aparência de
    .form-group, em vez do controle cru do navegador (era isso que dava a

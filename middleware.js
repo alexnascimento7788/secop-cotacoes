@@ -190,33 +190,28 @@ function getCpfHubKey() {
   return v || process.env.CPFHUB_API_KEY || '';
 }
 
-// numero_pac (AAAA-NNN) nasce JÁ na hora que o item é criado — seja por
-// importação (routes/pac-importacao.js) ou lançamento manual de um gestor
-// (routes/pac.js, POST /dfds/:id/itens) — sequencial contínuo por DFD/ano,
-// nunca reaproveita número (item excluído depois só vira um buraco na
-// sequência, nunca uma colisão — idx_dfd_itens_numero_pac é único mesmo em
-// linha soft-deletada). Compartilhado entre os dois arquivos porque é a MESMA
-// regra de negócio nos dois lugares — ao contrário dos helpers de acesso
-// (esses sim duplicados de propósito por causa do gate diferente).
-//
-// Concorrência: chamador precisa ser síncrono do início ao fim (sem `await`
-// entre isto e o INSERT que usa o valor devolvido) — o Node só processa uma
-// requisição por vez quando não há nenhum ponto de yield no meio, então dois
-// gestores/importações "simultâneos" continuam serializados pelo próprio
-// event loop, sem precisar de lock explícito no SQLite.
-function proximoNumeroPac(dfdId, anoBase) {
-  const prefixo = `${anoBase}-`;
-  const usados = db.prepare(`SELECT numero_pac FROM dfd_itens WHERE dfd_id = ? AND numero_pac LIKE ?`)
-    .all(dfdId, prefixo + '%')
-    .map(r => parseInt(String(r.numero_pac).slice(prefixo.length), 10))
-    .filter(n => !isNaN(n));
-  const proximo = (usados.length ? Math.max(...usados) : 0) + 1;
-  return `${prefixo}${String(proximo).padStart(3, '0')}`;
+// codigo_pac (SIGLA-NNNN) usa a MESMA sequência de numero_item (sequencial
+// por setor, nunca muda) — não precisa de contador próprio, só formata. Sigla
+// vem do cadastro do setor (PAC → Gestão → Setores → Editar); setor sem sigla
+// cadastrada cai num fallback derivado do nome (sem acento, só A-Z0-9, até 6
+// letras) — funcional, mas o ideal é o Alex cadastrar a sigla de verdade pra
+// bater com a convenção dele (DETIN, DEFIN, GERUB...). Compartilhado entre
+// routes/pac.js e routes/pac-importacao.js — é a MESMA regra de negócio nos
+// dois lugares (ao contrário dos helpers de acesso, esses sim duplicados de
+// propósito por causa do gate diferente).
+function siglaSetor(setor) {
+  if (setor && setor.sigla && String(setor.sigla).trim()) return String(setor.sigla).trim().toUpperCase();
+  return String((setor && setor.nome) || 'SET')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) || 'SET';
+}
+function gerarCodigoPac(setor, numeroItem) {
+  return `${siglaSetor(setor)}-${String(numeroItem).padStart(4, '0')}`;
 }
 
 module.exports = {
   n, getCookie, getInatividadeMinutos, getLixeiraDias, getSecopEdicaoLivre, renovarSessao, SESSAO_SQL, requireAuth,
   resolverPerfilId, modulosDoUsuario, registrarLog, CONSULTA_POST_OK,
   requireAdminAny, requireAdminSistema, requireModulo, ROTINA_FLAGS_VALIDAS,
-  requireRotina, getCpfHubKey, proximoNumeroPac,
+  requireRotina, getCpfHubKey, siglaSetor, gerarCodigoPac,
 };

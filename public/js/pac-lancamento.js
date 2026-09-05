@@ -55,6 +55,7 @@ let _dfdAtual = null;
 let _meusSetores = [];
 let _pedidosLiberados = {}; // item_id -> Set('editar'|'excluir') aprovados e ainda não consumidos
 let _itensAtuais = [];
+let _finalizacaoPorSetor = {}; // setor_id -> finalizado_em (ou null)
 
 document.addEventListener('DOMContentLoaded', () => {
   atualizarCabecalhoUsuario();
@@ -156,7 +157,9 @@ async function abrirDfd(id) {
 
   await carregarListas();
   await renderMeusPedidos(); // calcula _pedidosLiberados antes da tabela usar
-  await renderItens();
+  await carregarStatusFinalizacao(); // calcula _finalizacaoPorSetor antes da tabela usar
+  await renderItens(); // popula _itensAtuais (renderFinalizacao precisa disso pra decidir "tem item lançado?")
+  renderFinalizacao();
 }
 
 function fecharDfd() {
@@ -174,33 +177,43 @@ function fecharDfd() {
 // ("Contrato") — badge com texto (Sim/Não já visível, sem depender de hover),
 // clique abre popup com o seletor Sim/Não + os campos de C.
 async function renderItens() {
-  const colunasPrincipais = _dfdAtual.colunas.filter(c => c.grupo === 'A');
+  // Nº e Nº PAC ficam fixos (sticky) no início da tabela — numero_pac não é
+  // uma "coluna" configurável do catálogo (é campo direto de dfd_itens, como
+  // numero_item), então é renderizado à parte, fora do loop de colunasPrincipais.
+  const colunaNumero = _dfdAtual.colunas.find(c => c.grupo === 'A' && c.slug === 'numero_item');
+  const colunasPrincipais = _dfdAtual.colunas.filter(c => c.grupo === 'A' && c.slug !== 'numero_item');
   const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
   const temColContrato = colunasContrato.length > 0;
 
   const thead = document.getElementById('lanc-itens-thead');
-  thead.innerHTML = `<tr>${colunasPrincipais.map((c, i) => `<th class="${i === 0 ? 'dfd-col-fixa-1' : i === 1 ? 'dfd-col-fixa-2' : ''}">${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}<th></th></tr>`;
+  thead.innerHTML = `<tr><th class="dfd-col-fixa-1">${colunaNumero ? colunaNumero.label : 'Nº'}</th><th class="dfd-col-fixa-2">Código PAC</th><th class="dfd-col-fixa-3">Nº PAC</th>${colunasPrincipais.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}<th></th></tr>`;
 
   const res = await fetch(`/api/pac/dfds/${_dfdAtualId}/itens`);
   _itensAtuais = res.ok ? await res.json() : [];
   const contagem = document.getElementById('lanc-dfd-contagem');
   if (contagem) contagem.textContent = _itensAtuais.length === 1 ? '1 item lançado' : `${_itensAtuais.length} itens lançados`;
 
-  const colspan = colunasPrincipais.length + (temColContrato ? 1 : 0) + 1;
+  const colspan = 3 + colunasPrincipais.length + (temColContrato ? 1 : 0) + 1;
   const tbody = document.getElementById('lanc-itens-tbody');
   tbody.innerHTML = _itensAtuais.map(item => {
     const liberado = _pedidosLiberados[item.id] || new Set();
-    const podeExcluir = _dfdAtual.status === 'aberto' || liberado.has('excluir');
-    const podeSolicitar = _dfdAtual.status === 'analise'; // fechado não aceita nem pedido
+    const setorFinalizado = !!_finalizacaoPorSetor[item.setor_id];
+    const podeExcluir = (_dfdAtual.status === 'aberto' && !setorFinalizado) || liberado.has('excluir');
+    // "análise" OU setor já finalizado (com DFD ainda aberto pros outros
+    // setores) — nos dois casos, "fechado" não aceita nem pedido.
+    const podeSolicitar = _dfdAtual.status !== 'fechado' && (_dfdAtual.status === 'analise' || setorFinalizado);
     return `
     <tr data-item-id="${item.id}">
-      ${colunasPrincipais.map((c, i) => renderCelula(item, c, i, liberado)).join('')}
+      <td class="dfd-col-fixa-1" data-label="${colunaNumero ? colunaNumero.label : 'Nº'}">${item.numero_item}</td>
+      <td class="dfd-col-fixa-2" data-label="Código PAC">${item.codigo_pac || '—'}</td>
+      <td class="dfd-col-fixa-3" data-label="Nº PAC">${item.numero_pac || '—'}</td>
+      ${colunasPrincipais.map(c => renderCelula(item, c, -1, liberado)).join('')}
       ${temColContrato ? renderCelulaContrato(item, colunasContrato) : ''}
       <td style="text-align:right;white-space:nowrap;">
         ${podeExcluir
           ? `<button class="btn btn-danger btn-xs" onclick="excluirItem(${item.id})">Excluir</button>`
           : (podeSolicitar ? `<button class="btn btn-secondary btn-xs" onclick="abrirPedido(${item.id}, 'excluir')">Solicitar exclusão</button>` : '')}
-        ${(!(_dfdAtual.status === 'aberto' || liberado.has('editar')) && podeSolicitar)
+        ${(!itemEditavel(item, liberado) && podeSolicitar)
           ? `<button class="btn btn-secondary btn-xs" onclick="abrirPedido(${item.id}, 'editar')">Solicitar edição</button>` : ''}
       </td>
     </tr>`;
@@ -244,10 +257,19 @@ function renderCelulaContrato(item, colunasContrato) {
   </td>`;
 }
 
+// Editável = DFD aberto E o setor do item ainda não finalizado — OU um
+// pedido de edição aprovado (uso único, ver liberado). Mesma trava do
+// servidor (requireDfdEditavel em routes/pac.js), só pra não oferecer no
+// front uma ação que vai voltar 409 na certa.
+function itemEditavel(item, liberado) {
+  if (liberado && liberado.has('editar')) return true;
+  return _dfdAtual.status === 'aberto' && !_finalizacaoPorSetor[item.setor_id];
+}
+
 function renderCelula(item, coluna, indice, liberado) {
   const classe = indice === 0 ? 'dfd-col-fixa-1' : indice === 1 ? 'dfd-col-fixa-2' : '';
   const valor = coluna.slug === 'numero_item' ? item.numero_item : item.valores[coluna.id];
-  const editavel = _dfdAtual.status === 'aberto' || (liberado && liberado.has('editar'));
+  const editavel = itemEditavel(item, liberado);
 
   if (coluna.tipo_input === 'auto') {
     return `<td class="${classe}" data-label="${coluna.label}">${valor ?? ''}</td>`;
@@ -526,9 +548,15 @@ function renderFormNovoItem() {
   if (_dfdAtual.status !== 'aberto') { wrap.innerHTML = ''; return; }
   if (!_meusSetores.length) { wrap.innerHTML = '<span class="text-muted">Você não está vinculado a nenhum setor.</span>'; return; }
 
-  const selectSetor = _meusSetores.length > 1
-    ? `<select id="novo-item-setor" style="margin-right:10px;">${_meusSetores.map(s => `<option value="${s.id}">${s.nome}</option>`).join('')}</select>`
-    : `<input type="hidden" id="novo-item-setor" value="${_meusSetores[0].id}" />`;
+  // Setor já finalizado ("Finalizar meu DFD") não entra mais como opção pra
+  // lançar item novo — a trava do servidor já bloqueia, isso só evita
+  // oferecer uma ação que vai falhar na certa.
+  const disponiveis = _meusSetores.filter(s => !_finalizacaoPorSetor[s.id]);
+  if (!disponiveis.length) { wrap.innerHTML = '<span class="text-muted">Todos os seus setores já foram finalizados neste DFD.</span>'; return; }
+
+  const selectSetor = disponiveis.length > 1
+    ? `<select id="novo-item-setor" style="margin-right:10px;">${disponiveis.map(s => `<option value="${s.id}">${s.nome}</option>`).join('')}</select>`
+    : `<input type="hidden" id="novo-item-setor" value="${disponiveis[0].id}" />`;
 
   wrap.innerHTML = `${selectSetor}<button class="btn btn-primary btn-sm" onclick="iniciarNovoItem()">+ Novo item</button>`;
 }
@@ -553,6 +581,52 @@ async function criarItem() {
     });
     if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
     renderItens();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+  }
+}
+
+/* ── Finalização por setor ("Finalizar meu DFD") ────────────────────────────
+   Sinaliza ao DEPLA que o setor terminou de lançar — trava escrita nesse
+   setor (mesma trava do DFD "em análise", ver requireDfdEditavel no
+   servidor) mesmo com o DFD continuando aberto pros OUTROS setores. Um
+   gestor com mais de um setor vinculado finaliza cada um separadamente. ── */
+
+async function carregarStatusFinalizacao() {
+  if (!_meusSetores.length) { _finalizacaoPorSetor = {}; return; }
+  try {
+    const res = await fetch(`/api/pac/dfds/${_dfdAtualId}/status-finalizacao`);
+    const info = res.ok ? await res.json() : { setores: [] };
+    _finalizacaoPorSetor = Object.fromEntries(info.setores.map(s => [s.setor_id, s.finalizado_em]));
+  } catch { _finalizacaoPorSetor = {}; }
+}
+
+// Chamado DEPOIS de renderItens() — precisa de _itensAtuais pra só oferecer o
+// botão quando o setor já tem ao menos 1 item lançado (Alex: "visível somente
+// quando... o gestor tem ao menos 1 item lançado").
+function renderFinalizacao() {
+  const wrap = document.getElementById('lanc-finalizar-wrap');
+  if (!wrap) return;
+  if (_dfdAtual.status !== 'aberto' || !_meusSetores.length) { wrap.innerHTML = ''; return; }
+
+  wrap.innerHTML = _meusSetores.map(s => {
+    const fin = _finalizacaoPorSetor[s.id];
+    if (fin) return `<div class="lanc-fin-linha"><strong>${s.nome}:</strong> <span class="badge badge-aberto">✅ Finalizado em ${fmtBr(String(fin).split(' ')[0])}</span></div>`;
+    const temItem = _itensAtuais.some(i => i.setor_id === s.id);
+    if (!temItem) return '';
+    return `<div class="lanc-fin-linha"><strong>${s.nome}:</strong> <button class="btn btn-secondary btn-xs" onclick="finalizarMeuSetor(${s.id})">Finalizar meu DFD</button></div>`;
+  }).join('');
+}
+
+async function finalizarMeuSetor(setorId) {
+  if (!confirm('Ao finalizar, você não poderá mais incluir ou editar itens deste setor sem solicitar autorização ao DEPLA. Confirmar?')) return;
+  try {
+    const res = await fetch(`/api/pac/dfds/${_dfdAtualId}/setores/${setorId}/finalizar`, { method: 'POST' });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    toast('Setor finalizado.');
+    await carregarStatusFinalizacao();
+    await renderItens();
+    renderFinalizacao();
   } catch (e) {
     toast('Erro: ' + e.message, 'error');
   }
