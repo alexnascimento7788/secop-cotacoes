@@ -32,6 +32,26 @@
     .pac-grids { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
     @media (max-width: 900px) { .pac-grids { grid-template-columns: 1fr; } }
 
+    /* ── Menu de Gestão em árvore: Acompanhamento/Consolidação (operacional)
+       soltos, resto (cadastro/config) agrupado num galho colapsável ──────────── */
+    .pac-gestao-layout { display: flex; gap: 22px; align-items: flex-start; }
+    .pac-nav-lateral { width: 200px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px; position: sticky; top: 16px; }
+    .pac-nav-item { display: block; width: 100%; text-align: left; padding: 9px 12px; border: none; background: none; border-radius: 7px; font-size: 13.5px; font-weight: 600; color: var(--text); cursor: pointer; }
+    .pac-nav-item:hover { background: var(--surface-2); }
+    .pac-nav-item.active { background: var(--verde); color: #fff; }
+    .pac-nav-galho { border-top: 1px solid var(--cinza-b); margin-top: 6px; padding-top: 6px; }
+    .pac-nav-galho summary { padding: 9px 12px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--text-subtle); cursor: pointer; list-style: none; user-select: none; }
+    .pac-nav-galho summary::-webkit-details-marker { display: none; }
+    .pac-nav-galho summary::before { content: '▸ '; }
+    .pac-nav-galho[open] summary::before { content: '▾ '; }
+    .pac-nav-galho .pac-nav-item { padding-left: 22px; }
+    .pac-nav-content { flex: 1; min-width: 0; }
+    @media (max-width: 860px) {
+      .pac-gestao-layout { flex-direction: column; }
+      .pac-nav-lateral { width: 100%; position: static; flex-direction: row; flex-wrap: wrap; }
+      .pac-nav-galho { border-top: none; margin-top: 0; padding-top: 0; width: 100%; }
+    }
+
     /* ── Consolidação / Solicitações / Acompanhamento (execução do PAC) ──────── */
     .pac-filtros { display: flex; gap: 14px; flex-wrap: wrap; align-items: end; }
     .pac-filtros .form-group { margin: 0; min-width: 160px; }
@@ -42,6 +62,26 @@
     tr.acomp-sub-row.hidden { display: none; }
     .acomp-toggle { cursor: pointer; -webkit-user-select: none; user-select: none; }
     tfoot td { font-weight: 700; border-top: 2px solid var(--cinza-b); }
+
+    /* Badges de finalização por setor (Acompanhamento DEPLA) */
+    .pac-fin-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+    .pac-fin-badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--cinza-b); font-size: 12px; }
+    .pac-fin-badge.ok { color: #15803d; }
+    .pac-fin-badge.aguardando { color: #854d0e; }
+
+    /* Consolidação: abas internas + status visual por linha */
+    .consol-subtabs { display: flex; gap: 6px; margin-bottom: 14px; border-bottom: 1px solid var(--cinza-b); }
+    .consol-subtab { padding: 8px 14px; border: none; background: none; font-size: 13px; font-weight: 600; color: var(--text-subtle); cursor: pointer; border-bottom: 2px solid transparent; }
+    .consol-subtab.active { color: var(--verde); border-bottom-color: var(--verde); }
+    .consol-setor-header td { background: var(--surface-2); font-weight: 700; padding: 10px 14px; }
+    tr.consol-linha.st-nao_iniciado td { background: rgba(198,40,40,.08); }
+    tr.consol-linha.st-em_analise td { background: rgba(230,145,0,.10); }
+    tr.consol-linha.st-finalizado td { background: rgba(21,128,61,.14); }
+    [data-theme="dark"] tr.consol-linha.st-nao_iniciado td { background: rgba(248,113,113,.10); }
+    [data-theme="dark"] tr.consol-linha.st-em_analise td { background: rgba(253,224,71,.10); }
+    [data-theme="dark"] tr.consol-linha.st-finalizado td { background: rgba(74,222,128,.12); }
+    .consol-obs-input { width: 100%; min-width: 140px; border: 1px solid transparent; background: transparent; font-size: 12.5px; padding: 4px 6px; border-radius: 4px; }
+    .consol-obs-input:hover, .consol-obs-input:focus { border-color: var(--cinza-b); background: var(--surface); }
   </style>
 </head>
 <body data-modulo="pac" data-rotina="pac-gestao">
@@ -97,18 +137,23 @@
       </div>
     </div>
 
-    <div class="page-tabs" id="pac-tabs">
-      <button class="page-tab active" data-tab="dfds">DFDs</button>
-      <button class="page-tab" data-tab="consolidacao">Consolidação</button>
-      <button class="page-tab" data-tab="solicitacoes">Solicitações</button>
-      <button class="page-tab" data-tab="acompanhamento">Acompanhamento</button>
-      <button class="page-tab" data-tab="setores">Setores</button>
-      <button class="page-tab" data-tab="parametros">Parâmetros</button>
-      <button class="page-tab" data-tab="pedidos">Pedidos <span class="page-tab-count" id="pac-cnt-pedidos">0</span></button>
-    </div>
+    <div class="pac-gestao-layout">
+      <nav class="pac-nav-lateral" id="pac-tabs">
+        <button class="pac-nav-item" data-tab="acompanhamento">Acompanhamento</button>
+        <button class="pac-nav-item" data-tab="consolidacao">Consolidação</button>
+        <details class="pac-nav-galho" open>
+          <summary>Administração</summary>
+          <button class="pac-nav-item" data-tab="dfds">DFDs</button>
+          <button class="pac-nav-item" data-tab="solicitacoes">Solicitações</button>
+          <button class="pac-nav-item" data-tab="setores">Setores</button>
+          <button class="pac-nav-item" data-tab="parametros">Parâmetros</button>
+          <button class="pac-nav-item" data-tab="pedidos">Pedidos <span class="page-tab-count" id="pac-cnt-pedidos">0</span></button>
+        </details>
+      </nav>
+      <div class="pac-nav-content">
 
     <!-- ═══ DFDs ═══ -->
-    <div id="pane-dfds" class="pac-pane active">
+    <div id="pane-dfds" class="pac-pane">
       <div id="pac-dfd-lista">
         <div class="pac-card">
           <div class="pac-card-title">Documentos de Formalização de Demanda</div>
@@ -161,24 +206,55 @@
     <div id="pane-consolidacao" class="pac-pane">
       <div id="consol-lista">
         <div class="pac-card">
-          <div class="pac-card-title">DFDs fechados</div>
+          <div class="pac-card-title">DFDs consolidados</div>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Título</th><th>Ano</th><th>Itens</th><th>Consolidação</th><th></th></tr></thead>
               <tbody id="consol-tbody"><tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
             </table>
           </div>
+          <p class="text-muted" style="margin-top:10px;font-size:12.5px;">
+            Um DFD entra aqui depois que todos os setores finalizarem o lançamento e o
+            DEPLA clicar "Gerar Consolidação" na aba Acompanhamento.
+          </p>
         </div>
       </div>
       <div id="consol-detalhe" style="display:none;">
         <button class="btn btn-secondary btn-sm" onclick="fecharConsolidadoDetalhe()" style="margin-bottom:14px;">← Voltar</button>
         <div class="pac-card">
           <div class="pac-card-title" id="consol-det-titulo">—</div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Nº PAC</th><th>Setor</th><th>Nº item</th><th>Descrição</th><th>Tipo</th><th>Valor est.</th><th>Status</th><th></th></tr></thead>
-              <tbody id="consol-itens-tbody"></tbody>
-            </table>
+          <div class="pac-filtros">
+            <div class="form-group"><label>Setor</label><select id="consol-filtro-setor" onchange="renderConsolidadoDetalhe()"><option value="">Todos</option></select></div>
+            <div class="form-group" style="min-width:auto;">
+              <label style="visibility:hidden;">.</label>
+              <label style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:13px;">
+                <input type="checkbox" id="consol-exibir-codigo" onchange="renderConsolidadoDetalhe()" style="width:auto;"> Exibir código
+              </label>
+            </div>
+          </div>
+          <div class="consol-subtabs">
+            <button class="consol-subtab active" data-subtab="ativos" onclick="mudarConsolSubtab('ativos')">Ativos</button>
+            <button class="consol-subtab" data-subtab="cancelados" onclick="mudarConsolSubtab('cancelados')">Cancelados</button>
+            <button class="consol-subtab" data-subtab="aguardando" onclick="mudarConsolSubtab('aguardando')">Aguardando observação</button>
+          </div>
+          <div id="consol-subtab-ativos">
+            <div class="table-wrap">
+              <table>
+                <thead id="consol-itens-thead"></thead>
+                <tbody id="consol-itens-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div id="consol-subtab-cancelados" style="display:none;">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Nº PAC</th><th>Setor</th><th>Descrição</th><th>Justificativa</th><th>Cancelado por</th><th>Quando</th></tr></thead>
+                <tbody id="consol-cancelados-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div id="consol-subtab-aguardando" style="display:none;padding:24px;text-align:center;color:var(--text-subtle);">
+            Em breve.
           </div>
         </div>
       </div>
@@ -237,7 +313,7 @@
     </div>
 
     <!-- ═══ Acompanhamento (DEPLA) ═══ -->
-    <div id="pane-acompanhamento" class="pac-pane">
+    <div id="pane-acompanhamento" class="pac-pane active">
       <div class="pac-card">
         <div class="pac-filtros">
           <div class="form-group"><label>DFD (exercício)</label><select id="acomp-dfd-select" onchange="carregarAcompanhamento()"></select></div>
@@ -256,14 +332,22 @@
           </div>
         </div>
       </div>
+      <!-- Finalização por setor + botão "Gerar Consolidação" — só aparece
+           quando todos os setores participantes já finalizaram e o DFD ainda
+           não foi consolidado (ver renderFinalizacaoAcompanhamento()). -->
+      <div class="pac-card" id="acomp-finalizacao-card" style="display:none;">
+        <div class="pac-card-title">Finalização por setor</div>
+        <div class="pac-fin-badges" id="acomp-fin-badges"></div>
+        <div id="acomp-gerar-consolidacao-wrap"></div>
+      </div>
       <div class="pac-card">
         <div class="table-wrap"><table id="acomp-table">
           <thead><tr>
-            <th></th><th>Nº PAC</th><th>Setor</th><th>Descrição</th><th>Tipo</th>
+            <th></th><th>Nº PAC</th><th>Código PAC</th><th>Setor</th><th>Descrição</th><th>Tipo</th>
             <th>Est. TU+MLP</th><th>Est. RDC</th><th>Status</th><th>Solic.</th>
             <th>Real. TU+MLP</th><th>Real. RDC</th><th>Saldo TU+MLP</th><th>Saldo RDC</th>
           </tr></thead>
-          <tbody id="acomp-tbody"><tr><td colspan="13" style="padding:20px;text-align:center;color:var(--text-subtle);">Selecione um DFD.</td></tr></tbody>
+          <tbody id="acomp-tbody"><tr><td colspan="14" style="padding:20px;text-align:center;color:var(--text-subtle);">Selecione um DFD.</td></tr></tbody>
           <tfoot id="acomp-tfoot"></tfoot>
         </table></div>
       </div>
@@ -332,6 +416,9 @@
         </div>
       </div>
     </div>
+
+      </div><!-- /.pac-nav-content -->
+    </div><!-- /.pac-gestao-layout -->
     <div id="app-footer"></div>
   </main>
 </div>

@@ -790,13 +790,72 @@ function setupDb() {
   `);
 
   // ── PAC: consolidação e execução (após o DFD fechar) ──────────────────────────
-  // numero_pac (AAAA-NNN) só existe depois que o DEPLA consolida um DFD fechado
-  // — atribuído/recalculado por rotina em routes/pac.js, nunca escrito à mão.
-  // status_execucao acompanha o item ao longo do exercício, independente do
-  // status (aberto/análise/fechado) do DFD em si — são dois ciclos de vida
-  // sobrepostos (planejamento vs. execução).
+  // numero_pac agora é um inteiro com 3 "momentos" de vida (ver middleware.js):
+  // 1) nasce local por setor (mesmo valor de numero_item) já no lançamento;
+  // 2) vira sequencial GLOBAL do DFD quando o DEPLA gera a consolidação;
+  // 3) é reordenado de novo (excluindo cancelados) quando cada setor finaliza
+  // sua consolidação. status_execucao acompanha o item ao longo do exercício,
+  // independente do status (aberto/análise/fechado) do DFD em si — são dois
+  // ciclos de vida sobrepostos (planejamento vs. execução).
   try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN numero_pac TEXT`); } catch {}
   try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN status_execucao TEXT NOT NULL DEFAULT 'Não Iniciado'`); } catch {}
+
+  // id_pac: identidade estável adicional (UUID), nunca reaproveitada — na
+  // prática `dfd_itens.id` (PK autoincrement) já cumpre esse papel em TODAS as
+  // FKs do sistema (pac_solicitacoes.item_id, dfd_pedidos_edicao.item_id...),
+  // então id_pac não substitui nenhuma FK — é só a identidade "de fora" que
+  // nunca aparece como label na tela (ver ordem de execução do prompt, item 3).
+  // codigo_pac: rótulo estável pro gestor (SIGLA-NNNN) — usa a MESMA sequência
+  // de numero_item (sequencial por setor, nunca muda), só formatado; não
+  // precisa de contador próprio. status_consolidacao/justificativa/cancelado_*
+  // são o ciclo de vida da tela de Consolidação (independente de
+  // status_execucao, que é o ciclo de vida da execução real do contrato).
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN id_pac TEXT`); } catch {}
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN codigo_pac TEXT`); } catch {}
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN status_consolidacao TEXT NOT NULL DEFAULT 'nao_iniciado'`); } catch {}
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN justificativa_cancelamento TEXT`); } catch {}
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN cancelado_por INTEGER`); } catch {}
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN cancelado_em DATETIME`); } catch {}
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN observacao_consolidacao TEXT`); } catch {}
+  // finalizado_em: gestor de setor sinaliza que terminou de lançar (botão
+  // "Finalizar meu DFD" em pac-lancamento.js) — o status do DFD em si
+  // continua global/manual (DEPLA), isto é só o registro por setor.
+  try { _db.exec(`ALTER TABLE dfd_setores ADD COLUMN finalizado_em DATETIME`); } catch {}
+
+  // Migração 1x dos itens que existiam antes desta versão (id_pac NULL é a
+  // marca de "ainda não migrado" — idempotente, roda de novo sem efeito
+  // depois da 1ª vez). numero_pac antigo (formato "AAAA-NNN" global) não faz
+  // mais sentido no modelo novo (inteiro local-por-setor até a consolidação)
+  // — reseta pro valor local (= numero_item), igual a um item recém-lançado
+  // no Momento 1; uma nova consolidação recalcula o valor global de verdade.
+  {
+    const pendentes = _db.prepare(`
+      SELECT di.id, di.numero_item, s.sigla, s.nome AS setor_nome
+      FROM dfd_itens di JOIN setores s ON s.id = di.setor_id
+      WHERE di.id_pac IS NULL
+    `).all();
+    if (pendentes.length) {
+      const upd = _db.prepare(`UPDATE dfd_itens SET id_pac = ?, codigo_pac = ?, numero_pac = ? WHERE id = ?`);
+      pendentes.forEach(item => {
+        const sigla = String(item.sigla || item.setor_nome || 'SET')
+          .normalize('NFD').replace(/[̀-ͯ]/g, '')
+          .toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) || 'SET';
+        const codigoPac = `${sigla}-${String(item.numero_item).padStart(4, '0')}`;
+        upd.run(crypto.randomUUID(), codigoPac, String(item.numero_item), item.id);
+      });
+    }
+  }
+
+  // Índice único antigo não podia coexistir com o novo requisito de que um
+  // item CANCELADO mantenha seu numero_pac antigo mesmo depois que os itens
+  // ativos são renumerados por cima dele (ver renumerarPacFinal em pac.js) —
+  // sem excluir cancelados do escopo do índice, essa colisão de propósito
+  // violaria a unicidade. Recriado como parcial também por status_consolidacao.
+  try { _db.exec(`DROP INDEX IF EXISTS idx_dfd_itens_numero_pac`); } catch {}
+  // Defensivo: se o servidor já rodou uma vez com a definição intermediária
+  // (só dfd_id+numero_pac, sem setor_id — quebrava o Momento 1, onde cada
+  // setor recomeça sua sequência do zero), derruba pra recriar corrigido.
+  try { _db.exec(`DROP INDEX IF EXISTS idx_dfd_itens_numero_pac_ativo`); } catch {}
 
   _db.exec(`
     CREATE TABLE IF NOT EXISTS pac_consolidacoes (
@@ -831,10 +890,20 @@ function setupDb() {
 
     CREATE INDEX IF NOT EXISTS idx_pac_solicitacoes_dfd ON pac_solicitacoes(dfd_id);
     CREATE INDEX IF NOT EXISTS idx_pac_solicitacoes_item ON pac_solicitacoes(item_id);
-    -- Único por DFD só quando atribuído (NULL antes de consolidar não conta) —
-    -- índice PARCIAL, senão dois itens nunca consolidados (ambos NULL) colidiriam.
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_dfd_itens_numero_pac
-      ON dfd_itens(dfd_id, numero_pac) WHERE numero_pac IS NOT NULL;
+    -- Único por SETOR (não por DFD inteiro) — no Momento 1, numero_pac é local
+    -- por setor (DETIN item nº1 e DEFIN item nº1 coexistem de propósito no
+    -- mesmo DFD, cada um começando sua própria sequência do zero). Só a partir
+    -- do Momento 2 (gerar-consolidacao) ele passa a ser globalmente único no
+    -- DFD inteiro — e nesse ponto a unicidade por (dfd_id, setor_id, numero_pac)
+    -- continua válida automaticamente, porque unicidade global implica
+    -- unicidade por setor. Parcial também nos outros dois sentidos: itens
+    -- nunca numerados (NULL) não colidem entre si, e um item CANCELADO fica de
+    -- fora de propósito, porque mantém congelado o numero_pac que tinha antes
+    -- de cancelar (ver renumerarPacFinal em routes/pac.js) mesmo depois que os
+    -- itens ativos são renumerados por cima — sem excluir cancelados do
+    -- índice, essa sobreposição intencional violaria a unicidade.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_dfd_itens_numero_pac_ativo
+      ON dfd_itens(dfd_id, setor_id, numero_pac) WHERE numero_pac IS NOT NULL AND status_consolidacao != 'cancelado';
   `);
 
   // Nº SEI — só esse era realmente novo. numero_movimento já existia rotulado

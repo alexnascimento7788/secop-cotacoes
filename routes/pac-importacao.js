@@ -12,7 +12,8 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { db, depopDb, anexosDb } = require('../database');
-const { registrarLog, requireModulo, proximoNumeroPac } = require('../middleware');
+const { registrarLog, requireModulo, gerarCodigoPac } = require('../middleware');
+const crypto = require('crypto');
 
 const router = express.Router();
 const pac = requireModulo('pac');
@@ -252,17 +253,17 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
   // do .sql gerado — mesma convenção de "id sempre explícito" documentada em
   // project_secop_homolog_migracoes, sem depender de last_insert_rowid() dentro
   // do próprio script.
-  const insertItem = db.prepare(`INSERT INTO dfd_itens (dfd_id, setor_id, numero_item, criado_por, numero_pac) VALUES (?, ?, ?, ?, ?)`);
+  const insertItem = db.prepare(`
+    INSERT INTO dfd_itens (dfd_id, setor_id, numero_item, criado_por, numero_pac, id_pac, codigo_pac)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
   const insertValor = db.prepare(`INSERT INTO dfd_itens_valores (item_id, coluna_id, valor) VALUES (?, ?, ?)`);
 
-  // Número de PAC nasce JÁ na importação (Alex: "o número do pac de
-  // lançamento seja o mesmo no acompanhamento") — não depende mais de uma
-  // consolidação separada. Mesma regra/helper de negócio do lançamento manual
-  // (proximoNumeroPac em middleware.js): sequencial contínuo por DFD/ano,
-  // nunca reaproveita número. Chamado uma vez por linha (não computado uma
-  // vez só no início) — cada INSERT já commitado é considerado no próximo
-  // cálculo, então importar DETIN e depois DEFIN produz 1,2,3,4/5,6,7,8
-  // naturalmente, mesmo entre chamadas de rota diferentes.
+  // numero_pac (Momento 1, ver middleware.js) nasce JÁ na importação com o
+  // MESMO valor local do numero_item que a linha está recebendo — só vira
+  // sequencial global do DFD inteiro quando o DEPLA gerar a consolidação
+  // (POST /gerar-consolidacao em routes/pac.js). codigo_pac (SIGLA-NNNN) usa
+  // essa mesma sequência, formatado — é o rótulo que nunca muda depois.
   let importados = 0, comAlertas = 0, comErro = 0;
   let numeroPacInicial = null, numeroPacFinal = null;
   const log = [];
@@ -323,11 +324,13 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
     }
 
     numeroAtual++;
-    const numeroPac = proximoNumeroPac(dfdId, dfd.ano_base);
+    const numeroPac = String(numeroAtual);
+    const idPac = crypto.randomUUID();
+    const codigoPac = gerarCodigoPac(setor, numeroAtual);
     numeroPacInicial ??= numeroPac;
     numeroPacFinal = numeroPac;
-    const itemId = insertItem.run(dfdId, setor_id, numeroAtual, req.user.user_id, numeroPac).lastInsertRowid;
-    sqlPartes.push(`INSERT OR IGNORE INTO dfd_itens (id, dfd_id, setor_id, numero_item, criado_por, numero_pac) VALUES (${itemId}, ${dfdId}, ${setor_id}, ${numeroAtual}, ${req.user.user_id}, ${sqlLit(numeroPac)});`);
+    const itemId = insertItem.run(dfdId, setor_id, numeroAtual, req.user.user_id, numeroPac, idPac, codigoPac).lastInsertRowid;
+    sqlPartes.push(`INSERT OR IGNORE INTO dfd_itens (id, dfd_id, setor_id, numero_item, criado_por, numero_pac, id_pac, codigo_pac) VALUES (${itemId}, ${dfdId}, ${setor_id}, ${numeroAtual}, ${req.user.user_id}, ${sqlLit(numeroPac)}, ${sqlLit(idPac)}, ${sqlLit(codigoPac)});`);
 
     Object.entries(valoresFinal).forEach(([colunaId, valor]) => {
       insertValor.run(itemId, Number(colunaId), valor);

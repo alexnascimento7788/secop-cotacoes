@@ -48,7 +48,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       || '<option value="">Nenhum DFD disponível</option>';
 
     const setores = setoresRes.ok ? await setoresRes.json() : [];
-    if (setores.length > 1) {
+    if (user.username === 'master') {
+      // Master enxerga TODOS os setores (mesmo endpoint /meus-setores devolve
+      // a lista inteira pra ele) — mas o cabeçalho não deve listar todos eles
+      // feito os demais usuários listam os seus (Alex: "o cabeçalho do master
+      // não deve listar setores"). O filtro por setor continua disponível,
+      // só o texto do subtítulo fica igual ao de qualquer outro usuário.
+      if (setores.length > 1) {
+        document.getElementById('acomp-setor-wrap').style.display = '';
+        document.getElementById('acomp-setor-select').innerHTML =
+          `<option value="">Todos os setores</option>` + setores.map(s => `<option value="${s.id}">${s.nome}</option>`).join('');
+      }
+    } else if (setores.length > 1) {
       document.getElementById('acomp-setor-wrap').style.display = '';
       document.getElementById('acomp-setor-select').innerHTML =
         `<option value="">Todos os meus setores</option>` + setores.map(s => `<option value="${s.id}">${s.nome}</option>`).join('');
@@ -68,7 +79,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function carregarAcompanhamento() {
   const dfdId = document.getElementById('acomp-dfd-select').value;
   if (!dfdId) return;
-  document.getElementById('acomp-tbody').innerHTML = `<tr><td colspan="12" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
+  document.getElementById('acomp-tbody').innerHTML = `<tr><td colspan="13" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
   try {
     const res = await fetch(`/api/pac/dfds/${dfdId}/acompanhamento/meu-setor`);
     if (!res.ok) throw new Error();
@@ -95,6 +106,7 @@ function renderTabelaAcompanhamento() {
     <tr>
       <td class="acomp-toggle" onclick="toggleAcompLinha(${item.item_id})">${item.solicitacoes.length ? '▸' : ''}</td>
       <td><strong>${item.numero_pac || '—'}</strong></td>
+      <td>${item.codigo_pac || '—'}</td>
       <td>${item.descricao_objeto || '—'}</td>
       <td>${item.tipo || '—'}</td>
       <td>${fmtMoeda(item.estimado_tu_mlp)}</td>
@@ -107,7 +119,7 @@ function renderTabelaAcompanhamento() {
       <td>${linhaSaldo(item.saldo_rdc)}</td>
     </tr>
     <tr class="acomp-sub-row hidden" id="acomp-sub-${item.item_id}">
-      <td colspan="12">
+      <td colspan="13">
         ${item.solicitacoes.length ? `
           <table style="width:100%;">
             <thead><tr><th>Movimento</th><th>Data</th><th>TU+MLP</th><th>RDC</th><th>Observação</th></tr></thead>
@@ -126,7 +138,7 @@ function renderTabelaAcompanhamento() {
         ` : '<span class="text-muted">Nenhuma solicitação vinculada.</span>'}
       </td>
     </tr>
-  `).join('') || `<tr><td colspan="12" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item consolidado ainda para este DFD.</td></tr>`;
+  `).join('') || `<tr><td colspan="13" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item consolidado ainda para este DFD.</td></tr>`;
 
   const t = itens.reduce((acc, i) => ({
     estimado_tu_mlp: acc.estimado_tu_mlp + i.estimado_tu_mlp, estimado_rdc: acc.estimado_rdc + i.estimado_rdc,
@@ -135,7 +147,7 @@ function renderTabelaAcompanhamento() {
   }), { estimado_tu_mlp: 0, estimado_rdc: 0, realizado_tu_mlp: 0, realizado_rdc: 0, saldo_tu_mlp: 0, saldo_rdc: 0 });
   document.getElementById('acomp-tfoot').innerHTML = itens.length ? `
     <tr>
-      <td colspan="4">Totais (${itens.length} itens)</td>
+      <td colspan="5">Totais (${itens.length} itens)</td>
       <td>${fmtMoeda(t.estimado_tu_mlp)}</td><td>${fmtMoeda(t.estimado_rdc)}</td>
       <td colspan="2"></td>
       <td>${fmtMoeda(t.realizado_tu_mlp)}</td><td>${fmtMoeda(t.realizado_rdc)}</td>

@@ -14,19 +14,23 @@ function badgeStatusDfd(status) {
   return `<span class="badge badge-${status}">${map[status] || status}</span>`;
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('#pac-tabs .page-tab').forEach(t => t.addEventListener('click', () => mudarAbaPac(t.dataset.tab)));
-  carregarDfds();
+document.addEventListener('DOMContentLoaded', async () => {
+  document.querySelectorAll('#pac-tabs .pac-nav-item[data-tab]').forEach(t => t.addEventListener('click', () => mudarAbaPac(t.dataset.tab)));
+  await carregarDfds();
   carregarSetores();
   popularSelectListas();
   carregarPedidos();
   aplicarPermissaoSolicitacoes();
   aplicarAcessoImportacao();
-  popularSelectDfdsExecucao();
+  await popularSelectDfdsExecucao();
+  // Acompanhamento/Consolidação são as abas operacionais (menu em árvore,
+  // ver item 2 do prompt) — landing page da Gestão, em vez de DFDs (que virou
+  // uma sub-aba administrativa, dentro do galho "Administração").
+  mudarAbaPac('acompanhamento');
 });
 
 function mudarAbaPac(aba) {
-  document.querySelectorAll('#pac-tabs .page-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === aba));
+  document.querySelectorAll('#pac-tabs .pac-nav-item[data-tab]').forEach(t => t.classList.toggle('active', t.dataset.tab === aba));
   document.querySelectorAll('.pac-pane').forEach(p => p.classList.toggle('active', p.id === `pane-${aba}`));
   if (aba === 'setores') carregarSetores();
   if (aba === 'parametros') carregarParametros();
@@ -252,16 +256,18 @@ async function renderItensDfd(colunasParam) {
   const colunasResto = colunas.filter(c => c.slug !== 'numero_item');
 
   document.getElementById('dfd-det-itens-thead').innerHTML =
-    `<tr><th>${colunaNumero ? colunaNumero.label : 'Nº'}</th><th>Setor</th>${colunasResto.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}</tr>`;
+    `<tr><th>${colunaNumero ? colunaNumero.label : 'Nº'}</th><th>Setor</th><th>Código PAC</th><th>Nº PAC</th>${colunasResto.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}</tr>`;
 
   document.getElementById('dfd-det-itens-tbody').innerHTML = itens.map(item => `
     <tr>
       <td>${item.numero_item}</td>
       <td>${nomeSetor(item.setor_id)}</td>
+      <td>${item.codigo_pac || '—'}</td>
+      <td>${item.numero_pac || '—'}</td>
       ${colunasResto.map(c => `<td>${formatarValorColuna(c, item.valores[c.id])}</td>`).join('')}
       ${temColContrato ? celulaContratoLeitura(item, colunasContrato, todasColunas) : ''}
     </tr>
-  `).join('') || `<tr><td colspan="${colunas.length + (temColContrato ? 2 : 1)}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`;
+  `).join('') || `<tr><td colspan="${colunas.length + 2 + (temColContrato ? 2 : 1)}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`;
 }
 
 /* ── Formatação por tipo de coluna (mesma ideia de fmtBr/fmtMoeda do resto do
@@ -615,61 +621,61 @@ async function popularSelectDfdsExecucao() {
   } catch {}
 }
 
-/* ── Consolidação ─────────────────────────────────────────────────────────── */
+/* ── Consolidação ─────────────────────────────────────────────────────────────
+   Fluxo novo: um DFD só aparece aqui depois que TODOS os setores finalizaram
+   o lançamento e o DEPLA clicou "Gerar Consolidação" na aba Acompanhamento
+   (ver renderFinalizacaoAcompanhamento) — não depende mais de status='fechado'
+   do DFD. numero_pac já nasce global nesse momento; aqui o DEPLA aprova
+   (em análise/finalizado) ou cancela item a item, com observação livre, e ao
+   finalizar a consolidação de um setor a numeração é reordenada de novo
+   (Momento 3), excluindo cancelados da sequência ativa. ────────────────────── */
 
 async function carregarConsolidacaoLista() {
   document.getElementById('consol-lista').style.display = 'block';
   document.getElementById('consol-detalhe').style.display = 'none';
   if (!_dfds.length) await carregarDfds();
-  const fechados = _dfds.filter(d => d.status === 'fechado');
   const tbody = document.getElementById('consol-tbody');
-  if (!fechados.length) {
-    tbody.innerHTML = `<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum DFD fechado ainda.</td></tr>`;
-    return;
-  }
   tbody.innerHTML = `<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
-  const linhas = await Promise.all(fechados.map(async d => {
+  const linhas = (await Promise.all(_dfds.map(async d => {
     const res = await fetch(`/api/pac/dfds/${d.id}/consolidado`);
     const info = res.ok ? await res.json() : { consolidado: false };
-    return { dfd: d, info };
-  }));
+    return info.consolidado ? { dfd: d, info } : null;
+  }))).filter(Boolean);
+  if (!linhas.length) {
+    tbody.innerHTML = `<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum DFD consolidado ainda.</td></tr>`;
+    return;
+  }
   tbody.innerHTML = linhas.map(({ dfd, info }) => `
     <tr>
       <td><strong>${dfd.titulo}</strong></td>
       <td>${dfd.ano_base}</td>
-      <td>${dfd.itens_count}</td>
-      <td>${info.consolidado
-        ? `Consolidado em ${fmtBrData(info.consolidacao.consolidado_em)}`
-        : `<span class="text-muted">Não consolidado</span>`}</td>
+      <td>${info.itens.length}</td>
+      <td>Consolidado em ${fmtBrData(info.consolidacao.consolidado_em)}</td>
       <td style="text-align:right;white-space:nowrap;">
-        ${info.consolidado
-          ? `<button class="btn btn-secondary btn-sm" onclick="abrirConsolidadoDetalhe(${dfd.id},'${(dfd.titulo || '').replace(/'/g, "\\'")}',${dfd.ano_base})">Ver consolidado</button>`
-          : `<button class="btn btn-primary btn-sm" onclick="consolidarDfd(${dfd.id},'${(dfd.titulo || '').replace(/'/g, "\\'")}',${dfd.ano_base},${dfd.itens_count})">Consolidar agora</button>`}
+        <button class="btn btn-secondary btn-sm" onclick="abrirConsolidadoDetalhe(${dfd.id},'${(dfd.titulo || '').replace(/'/g, "\\'")}',${dfd.ano_base})">Ver consolidado</button>
       </td>
     </tr>
   `).join('');
 }
 
-async function consolidarDfd(dfdId, titulo, anoBase, totalItens) {
-  if (!confirm(`Isso atribuirá números PAC a todos os ${totalItens} itens do DFD "${titulo}". Deseja continuar?`)) return;
-  try {
-    const res = await fetch(`/api/pac/dfds/${dfdId}/consolidar`, { method: 'POST' });
-    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-    toast('DFD consolidado.');
-    abrirConsolidadoDetalhe(dfdId, titulo, anoBase);
-    carregarConsolidacaoLista();
-  } catch (e) {
-    toast('Erro: ' + e.message, 'error');
-  }
-}
-
 let _consolDfdId = null;
+let _consolDados = null; // { itens, totais... } — cache do GET /consolidado
+let _consolSubtabAtual = 'ativos';
 
 async function abrirConsolidadoDetalhe(dfdId, titulo, anoBase) {
   _consolDfdId = dfdId;
+  _consolSubtabAtual = 'ativos';
   document.getElementById('consol-lista').style.display = 'none';
   document.getElementById('consol-detalhe').style.display = 'block';
   document.getElementById('consol-det-titulo').textContent = `${titulo} (${anoBase}) — Consolidado`;
+  // Reseta o filtro de setor (dataset.montado força remontar as <option> pra
+  // este DFD — sem isso, abrir um 2º DFD reaproveitaria a lista de setores do
+  // 1º) e a aba de volta pra "Ativos".
+  const setorSel = document.getElementById('consol-filtro-setor');
+  setorSel.dataset.montado = '';
+  setorSel.value = '';
+  document.getElementById('consol-exibir-codigo').checked = false;
+  mudarConsolSubtab('ativos');
   await renderConsolidadoDetalhe();
 }
 
@@ -678,31 +684,104 @@ function fecharConsolidadoDetalhe() {
   carregarConsolidacaoLista();
 }
 
+function mudarConsolSubtab(tab) {
+  _consolSubtabAtual = tab;
+  document.querySelectorAll('.consol-subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === tab));
+  ['ativos', 'cancelados', 'aguardando'].forEach(t =>
+    document.getElementById(`consol-subtab-${t}`).style.display = t === tab ? '' : 'none');
+  if (tab === 'cancelados') renderConsolCancelados();
+}
+
 async function renderConsolidadoDetalhe() {
-  const tbody = document.getElementById('consol-itens-tbody');
-  tbody.innerHTML = `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
   const res = await fetch(`/api/pac/dfds/${_consolDfdId}/consolidado`);
-  const info = res.ok ? await res.json() : { itens: [] };
+  _consolDados = res.ok ? await res.json() : { itens: [] };
+
+  // Filtro por setor — populado com os setores que realmente têm item aqui.
+  const setorSel = document.getElementById('consol-filtro-setor');
+  const setoresUnicos = [...new Map(_consolDados.itens.map(i => [i.setor_id, i.setor_nome])).entries()];
+  if (!setorSel.dataset.montado) {
+    setorSel.innerHTML = `<option value="">Todos</option>` + setoresUnicos.map(([id, nome]) => `<option value="${id}">${nome}</option>`).join('');
+    setorSel.dataset.montado = '1';
+  }
+  const filtroSetor = setorSel.value;
+  const exibirCodigo = document.getElementById('consol-exibir-codigo').checked;
+
   const idDescricao = colunaId('descricao_objeto');
   const idTipo = colunaId('tipo');
+  const idSubitem = colunaId('subitem');
   const idValorEstimado = colunaId('valor_estimado');
-  const STATUS_OPCOES = ['Não Iniciado', 'Processado DEPLA', 'Fracionamento Aberto', 'Processo Finalizado', 'Cancelado'];
-  tbody.innerHTML = info.itens.map(item => `
-    <tr>
-      <td><strong>${item.numero_pac || '—'}</strong></td>
-      <td>${item.setor_nome}</td>
-      <td>${item.numero_item}</td>
-      <td>${item.valores[idDescricao] || '—'}</td>
-      <td>${item.valores[idTipo] || '—'}</td>
-      <td>${fmtMoeda(item.valores[idValorEstimado])}</td>
-      <td>
-        <select onchange="alterarStatusExecucao(${item.id}, this.value)">
-          ${STATUS_OPCOES.map(s => `<option value="${s}" ${s === item.status_execucao ? 'selected' : ''}>${s}</option>`).join('')}
-        </select>
+  const idFonte = colunaId('fonte_pagadora');
+
+  const itens = _consolDados.itens.filter(i => !filtroSetor || String(i.setor_id) === filtroSetor);
+  const ativos = itens.filter(i => i.status_consolidacao !== 'cancelado');
+
+  const thead = document.getElementById('consol-itens-thead');
+  thead.innerHTML = `<tr>
+    <th>Nº PAC</th>${exibirCodigo ? '<th>Código PAC</th>' : ''}<th>Descrição</th><th>Tipo/Subitem</th>
+    <th>Fonte</th><th>Valor est.</th><th>Observação</th><th>Status</th><th></th>
+  </tr>`;
+
+  // Agrupado visualmente por setor (setores.ordem já vem aplicado do servidor
+  // em ORDER BY, então só precisa detectar troca de setor_id na sequência).
+  const linhas = [];
+  let setorAtual = null;
+  ativos.forEach(item => {
+    if (item.setor_id !== setorAtual) {
+      setorAtual = item.setor_id;
+      const doSetor = itens.filter(i => i.setor_id === setorAtual); // ativos + cancelados desse setor
+      const pendentes = doSetor.filter(i => !['finalizado', 'cancelado'].includes(i.status_consolidacao)).length;
+      linhas.push(`<tr class="consol-setor-header"><td colspan="${8 + (exibirCodigo ? 1 : 0)}">
+        ${item.setor_nome}
+        ${pendentes === 0
+          ? `<button class="btn btn-primary btn-xs" style="margin-left:10px;" onclick="finalizarConsolidacaoSetor(${setorAtual})">DFD Finalizado</button>`
+          : `<span class="text-muted" style="font-weight:400;margin-left:10px;font-size:11.5px;">${pendentes} item(ns) pendente(s)</span>`}
+      </td></tr>`);
+    }
+    const v = item.valores || {};
+    linhas.push(`<tr class="consol-linha st-${item.status_consolidacao}" data-item-id="${item.id}">
+      <td><strong>${item.numero_pac ?? '—'}</strong></td>
+      ${exibirCodigo ? `<td>${item.codigo_pac || '—'}</td>` : ''}
+      <td>${v[idDescricao] || '—'}</td>
+      <td>${[v[idTipo], v[idSubitem]].filter(Boolean).join(' / ') || '—'}</td>
+      <td>${v[idFonte] || '—'}</td>
+      <td>${fmtMoeda(v[idValorEstimado])}</td>
+      <td><input type="text" class="consol-obs-input" value="${(item.observacao_consolidacao || '').replace(/"/g, '&quot;')}" placeholder="—" onblur="salvarObservacaoConsolidacao(${item.id}, this.value)" /></td>
+      <td>${badgeStatusConsolidacao(item.status_consolidacao)}</td>
+      <td style="text-align:right;white-space:nowrap;">
+        ${item.status_consolidacao !== 'em_analise' ? `<button class="btn btn-secondary btn-xs" onclick="alterarStatusConsolidacao(${item.id},'em_analise')">Em análise</button>` : ''}
+        ${item.status_consolidacao !== 'finalizado' ? `<button class="btn btn-primary btn-xs" onclick="alterarStatusConsolidacao(${item.id},'finalizado')">Finalizada</button>` : ''}
+        <button class="btn btn-danger btn-xs" onclick="cancelarPac(${item.id})">Cancelar</button>
       </td>
-      <td style="text-align:right;"><button class="btn btn-danger btn-sm" onclick="excluirItemConsolidado(${item.id})">Excluir</button></td>
+    </tr>`);
+  });
+
+  document.getElementById('consol-itens-tbody').innerHTML = linhas.join('')
+    || `<tr><td colspan="${8 + (exibirCodigo ? 1 : 0)}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item ativo.</td></tr>`;
+
+  if (_consolSubtabAtual === 'cancelados') renderConsolCancelados();
+}
+
+function badgeStatusConsolidacao(status) {
+  const map = { nao_iniciado: 'Não iniciado', em_analise: 'Em análise', finalizado: 'Consolidação finalizada', cancelado: 'Cancelado' };
+  const cor = { nao_iniciado: 'fechado', em_analise: 'analise', finalizado: 'aberto', cancelado: 'fechado' }[status] || 'fechado';
+  return `<span class="badge badge-${cor}">${map[status] || status}</span>`;
+}
+
+function renderConsolCancelados() {
+  if (!_consolDados) return;
+  const filtroSetor = document.getElementById('consol-filtro-setor').value;
+  const cancelados = _consolDados.itens.filter(i => i.status_consolidacao === 'cancelado' && (!filtroSetor || String(i.setor_id) === filtroSetor));
+  const idDescricao = colunaId('descricao_objeto');
+  document.getElementById('consol-cancelados-tbody').innerHTML = cancelados.map(item => `
+    <tr>
+      <td><strong>${item.numero_pac ?? '—'}</strong></td>
+      <td>${item.setor_nome}</td>
+      <td>${(item.valores || {})[idDescricao] || '—'}</td>
+      <td>${item.justificativa_cancelamento || '—'}</td>
+      <td>${item.cancelado_por_username || '—'}</td>
+      <td>${fmtBrData(item.cancelado_em)}</td>
     </tr>
-  `).join('') || `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item consolidado.</td></tr>`;
+  `).join('') || `<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item cancelado.</td></tr>`;
 }
 
 // idColunaCache: dfd_colunas_catalogo é fixo (mesmo catálogo pra todos os DFDs)
@@ -720,25 +799,48 @@ function colunaId(slug) {
   } catch { _colunasCatalogo = []; }
 })();
 
-async function alterarStatusExecucao(itemId, status) {
+async function alterarStatusConsolidacao(itemId, status) {
   try {
-    const res = await fetch(`/api/pac/itens/${itemId}/status`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status_execucao: status }),
+    const res = await fetch(`/api/pac/itens/${itemId}/consolidacao`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
     });
-    if (!res.ok) throw new Error();
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
     toast('Status atualizado.');
-  } catch {
-    toast('Erro ao atualizar status', 'error');
     renderConsolidadoDetalhe();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
   }
 }
 
-async function excluirItemConsolidado(itemId) {
-  if (!confirm('O número PAC dos itens seguintes será recalculado automaticamente. Excluir este item?')) return;
+async function cancelarPac(itemId) {
+  const justificativa = prompt('Justificativa do cancelamento (obrigatória):');
+  if (justificativa === null || !justificativa.trim()) return;
   try {
-    const res = await fetch(`/api/pac/itens/${itemId}/consolidado`, { method: 'DELETE' });
+    const res = await fetch(`/api/pac/itens/${itemId}/consolidacao`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'cancelado', justificativa: justificativa.trim() }),
+    });
     if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-    toast('Item excluído e numeração recalculada.');
+    toast('Item cancelado.');
+    renderConsolidadoDetalhe();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+  }
+}
+
+async function salvarObservacaoConsolidacao(itemId, valor) {
+  try {
+    await fetch(`/api/pac/itens/${itemId}/observacao-consolidacao`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ observacao: valor }),
+    });
+  } catch { toast('Erro ao salvar observação', 'error'); }
+}
+
+async function finalizarConsolidacaoSetor(setorId) {
+  if (!confirm('Isso vai reordenar a numeração final do DFD (excluindo os itens cancelados da sequência ativa). Continuar?')) return;
+  try {
+    const res = await fetch(`/api/pac/dfds/${_consolDfdId}/setores/${setorId}/finalizar-consolidacao`, { method: 'POST' });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    toast('Consolidação do setor finalizada — numeração reordenada.');
     renderConsolidadoDetalhe();
   } catch (e) {
     toast('Erro: ' + e.message, 'error');
@@ -915,18 +1017,74 @@ async function excluirSolicitacao(id) {
 /* ── Acompanhamento (DEPLA — visão completa) ─────────────────────────────── */
 
 let _acompDados = null;
+const STATUS_EXECUCAO_OPCOES = ['Não Iniciado', 'Processado DEPLA', 'Fracionamento Aberto', 'Processo Finalizado', 'Cancelado'];
 
 async function carregarAcompanhamento() {
   const dfdId = document.getElementById('acomp-dfd-select').value;
   if (!dfdId) return;
-  document.getElementById('acomp-tbody').innerHTML = `<tr><td colspan="13" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
+  document.getElementById('acomp-tbody').innerHTML = `<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
   try {
     const res = await fetch(`/api/pac/dfds/${dfdId}/acompanhamento`);
     if (!res.ok) throw new Error();
     _acompDados = await res.json();
     renderTabelaAcompanhamento();
+    renderFinalizacaoAcompanhamento(dfdId);
   } catch {
     toast('Erro ao carregar acompanhamento', 'error');
+  }
+}
+
+// Badges de finalização por setor + botão "Gerar Consolidação" — só some
+// depois que a consolidação já existe (nesse ponto o fluxo dela é trabalhado
+// na aba Consolidação, não aqui).
+async function renderFinalizacaoAcompanhamento(dfdId) {
+  const card = document.getElementById('acomp-finalizacao-card');
+  try {
+    const [statusRes, consRes] = await Promise.all([
+      fetch(`/api/pac/dfds/${dfdId}/status-finalizacao`),
+      fetch(`/api/pac/dfds/${dfdId}/consolidado`),
+    ]);
+    const status = statusRes.ok ? await statusRes.json() : { setores: [], todos_finalizados: false };
+    const cons = consRes.ok ? await consRes.json() : { consolidado: false };
+
+    if (cons.consolidado) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+
+    document.getElementById('acomp-fin-badges').innerHTML = status.setores.map(s => s.finalizado_em
+      ? `<span class="pac-fin-badge ok">✅ ${s.setor_nome} — finalizado em ${fmtBrData(s.finalizado_em)}</span>`
+      : `<span class="pac-fin-badge aguardando">🕐 ${s.setor_nome} — aguardando</span>`
+    ).join('') || '<span class="text-muted">Este DFD ainda não tem setores participantes.</span>';
+
+    document.getElementById('acomp-gerar-consolidacao-wrap').innerHTML = status.todos_finalizados
+      ? `<button class="btn btn-primary btn-sm" onclick="gerarConsolidacao(${dfdId})">Gerar Consolidação</button>`
+      : '';
+  } catch { card.style.display = 'none'; }
+}
+
+async function gerarConsolidacao(dfdId) {
+  if (!confirm('Isso irá gerar a numeração consolidada do PAC e carregar a tela de Consolidação. Continuar?')) return;
+  try {
+    const res = await fetch(`/api/pac/dfds/${dfdId}/gerar-consolidacao`, { method: 'POST' });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    toast('Consolidação gerada.');
+    const dfd = _dfds.find(d => d.id === Number(dfdId));
+    mudarAbaPac('consolidacao');
+    if (dfd) await abrirConsolidadoDetalhe(dfd.id, dfd.titulo, dfd.ano_base);
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+  }
+}
+
+async function alterarStatusExecucao(itemId, status) {
+  try {
+    const res = await fetch(`/api/pac/itens/${itemId}/status`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status_execucao: status }),
+    });
+    if (!res.ok) throw new Error();
+    toast('Status atualizado.');
+  } catch {
+    toast('Erro ao atualizar status', 'error');
+    carregarAcompanhamento();
   }
 }
 
@@ -948,12 +1106,17 @@ function renderTabelaAcompanhamento() {
     <tr>
       <td class="acomp-toggle" onclick="toggleAcompLinha(${item.item_id})">${item.solicitacoes.length ? '▸' : ''}</td>
       <td><strong>${item.numero_pac || '—'}</strong></td>
+      <td>${item.codigo_pac || '—'}</td>
       <td>${item.setor_nome}</td>
       <td>${item.descricao_objeto || '—'}</td>
       <td>${item.tipo || '—'}</td>
       <td>${fmtMoeda(item.estimado_tu_mlp)}</td>
       <td>${fmtMoeda(item.estimado_rdc)}</td>
-      <td>${badgeStatusExec(item.status_execucao)}</td>
+      <td>
+        <select onchange="alterarStatusExecucao(${item.item_id}, this.value)">
+          ${STATUS_EXECUCAO_OPCOES.map(s => `<option value="${s}" ${s === item.status_execucao ? 'selected' : ''}>${s}</option>`).join('')}
+        </select>
+      </td>
       <td>${item.solicitacoes.length}</td>
       <td>${fmtMoeda(item.realizado_tu_mlp)}</td>
       <td>${fmtMoeda(item.realizado_rdc)}</td>
@@ -961,7 +1124,7 @@ function renderTabelaAcompanhamento() {
       <td>${linhaSaldo(item.saldo_rdc)}</td>
     </tr>
     <tr class="acomp-sub-row hidden" id="acomp-sub-${item.item_id}">
-      <td colspan="13">
+      <td colspan="14">
         ${item.solicitacoes.length ? `
           <table style="width:100%;">
             <thead><tr><th>Movimento</th><th>Data</th><th>TU+MLP</th><th>RDC</th><th>Observação</th></tr></thead>
@@ -980,7 +1143,7 @@ function renderTabelaAcompanhamento() {
         ` : '<span class="text-muted">Nenhuma solicitação vinculada.</span>'}
       </td>
     </tr>
-  `).join('') || `<tr><td colspan="13" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item consolidado ainda para este DFD.</td></tr>`;
+  `).join('') || `<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item consolidado ainda para este DFD.</td></tr>`;
 
   const t = itens.reduce((acc, i) => ({
     estimado_tu_mlp: acc.estimado_tu_mlp + i.estimado_tu_mlp, estimado_rdc: acc.estimado_rdc + i.estimado_rdc,
@@ -989,7 +1152,7 @@ function renderTabelaAcompanhamento() {
   }), { estimado_tu_mlp: 0, estimado_rdc: 0, realizado_tu_mlp: 0, realizado_rdc: 0, saldo_tu_mlp: 0, saldo_rdc: 0 });
   document.getElementById('acomp-tfoot').innerHTML = `
     <tr>
-      <td colspan="5">Totais (${itens.length} itens)</td>
+      <td colspan="6">Totais (${itens.length} itens)</td>
       <td>${fmtMoeda(t.estimado_tu_mlp)}</td><td>${fmtMoeda(t.estimado_rdc)}</td>
       <td colspan="2"></td>
       <td>${fmtMoeda(t.realizado_tu_mlp)}</td><td>${fmtMoeda(t.realizado_rdc)}</td>

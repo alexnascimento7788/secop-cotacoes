@@ -12,7 +12,8 @@
 // routes/admin.js). PAC só usa a conexão principal (`db`) — nunca depopDb/anexosDb.
 const express = require('express');
 const { db } = require('../database');
-const { registrarLog, requireModulo, requireRotina, ROTINA_FLAGS_VALIDAS, proximoNumeroPac } = require('../middleware');
+const { registrarLog, requireModulo, requireRotina, ROTINA_FLAGS_VALIDAS, gerarCodigoPac } = require('../middleware');
+const crypto = require('crypto');
 
 const router = express.Router();
 const pac = requireModulo('pac');
@@ -52,19 +53,32 @@ function requireRotinaPac(flag) {
   };
 }
 
-// Escrita em itens só com o DFD "aberto". "Fechado" nunca aceita escrita. Em
-// "análise", só passa se houver um pedido de edição APROVADO e ainda não
-// CONSUMIDO pra aquele item+tipo (opts) — usado só no PUT/DELETE de item, não
-// na criação (não existe "pedido de inclusão"). Ao passar por um pedido,
-// marca req.pedidoConsumir pro handler consumir (uso único) na mesma operação.
+// Escrita em itens só com o DFD "aberto" — E o setor do item ainda não tendo
+// clicado "Finalizar meu DFD" (dfd_setores.finalizado_em), que trava do mesmo
+// jeito que o DFD "em análise" mesmo com o DFD continuando aberto pros OUTROS
+// setores (Alex: "o status do DFD global não muda — apenas o registro do
+// setor marca que aquele setor concluiu"). "Fechado" nunca aceita escrita. Em
+// qualquer um dos dois bloqueios (análise OU setor finalizado), só passa se
+// houver um pedido de edição APROVADO e ainda não CONSUMIDO pra aquele
+// item+tipo (opts) — usado só no PUT/DELETE de item, não na criação (não
+// existe "pedido de inclusão", por isso resolveSetorId sozinho já barra a
+// criação sem checar pedido nenhum). Ao passar por um pedido, marca
+// req.pedidoConsumir pro handler consumir (uso único) na mesma operação.
 function requireDfdEditavel(resolveDfdId, opts = {}) {
   return (req, res, next) => {
     const dfd = db.prepare(`SELECT id, status FROM dfds WHERE id = ?`).get(resolveDfdId(req));
     if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
     // master nunca fica bloqueado por status — pode intervir em qualquer situação.
     if (req.user.username === 'master') { req.dfd = dfd; return next(); }
-    if (dfd.status === 'aberto') { req.dfd = dfd; return next(); }
     if (dfd.status === 'fechado') return res.status(409).json({ error: 'Este DFD está fechado — somente leitura.' });
+
+    const setorId = opts.resolveSetorId ? opts.resolveSetorId(req) : null;
+    const setorFinalizado = setorId != null && !!db.prepare(
+      `SELECT 1 FROM dfd_setores WHERE dfd_id = ? AND setor_id = ? AND finalizado_em IS NOT NULL`
+    ).get(dfd.id, setorId);
+
+    if (dfd.status === 'aberto' && !setorFinalizado) { req.dfd = dfd; return next(); }
+
     if (opts.resolveItemId) {
       const pedido = db.prepare(`
         SELECT id FROM dfd_pedidos_edicao
@@ -73,7 +87,12 @@ function requireDfdEditavel(resolveDfdId, opts = {}) {
       `).get(opts.resolveItemId(req), opts.tipo);
       if (pedido) { req.dfd = dfd; req.pedidoConsumir = pedido.id; return next(); }
     }
-    return res.status(409).json({ error: 'DFD em análise — solicite um pedido de edição.', pedeEdicao: true });
+    return res.status(409).json({
+      error: setorFinalizado
+        ? 'Você já finalizou o lançamento deste setor — solicite um pedido de edição ao DEPLA.'
+        : 'DFD em análise — solicite um pedido de edição.',
+      pedeEdicao: true,
+    });
   };
 }
 
@@ -347,23 +366,31 @@ router.get('/api/pac/dfds/:id/itens', pac, requireRotinaPac('ver'), (req, res) =
   res.json(itens.map(i => ({ ...i, valores: valoresPorItem[i.id] || {} })));
 });
 
-router.post('/api/pac/dfds/:id/itens', pac, requireRotina('pac-lancamento', 'incluir'), requireDfdEditavel(req => req.params.id), (req, res) => {
+router.post('/api/pac/dfds/:id/itens', pac, requireRotina('pac-lancamento', 'incluir'),
+  requireDfdEditavel(req => req.params.id, { resolveSetorId: req => req.body?.setor_id }),
+  (req, res) => {
   const dfdId = Number(req.params.id);
   const { setor_id, valores } = req.body || {};
   if (!setor_id) return res.status(400).json({ error: 'Setor é obrigatório' });
   if (req.user.username !== 'master' && !setoresDoUsuario(req.user.user_id).includes(Number(setor_id))) {
     return res.status(403).json({ error: 'Você não pertence a este setor.' });
   }
+  const setor = db.prepare(`SELECT id, nome, sigla FROM setores WHERE id = ?`).get(setor_id);
   const participa = db.prepare(`SELECT 1 FROM dfd_setores WHERE dfd_id = ? AND setor_id = ?`).get(dfdId, setor_id);
   if (!participa) return res.status(400).json({ error: 'Este setor não participa deste DFD.' });
 
-  const anoBase = db.prepare(`SELECT ano_base FROM dfds WHERE id = ?`).get(dfdId).ano_base;
   const max = db.prepare(`SELECT COALESCE(MAX(numero_item), 0) AS m FROM dfd_itens WHERE dfd_id = ? AND setor_id = ?`).get(dfdId, setor_id).m;
-  // numero_pac já nasce aqui, igual na importação — não fica esperando uma
-  // consolidação separada (ver proximoNumeroPac em middleware.js).
-  const numeroPac = proximoNumeroPac(dfdId, anoBase);
-  const info = db.prepare(`INSERT INTO dfd_itens (dfd_id, setor_id, numero_item, criado_por, numero_pac) VALUES (?, ?, ?, ?, ?)`)
-    .run(dfdId, setor_id, max + 1, req.user.user_id, numeroPac);
+  const numeroItem = max + 1;
+  // Momento 1 do numero_pac: nasce igual ao numero_item (sequencial local por
+  // setor) — só vira global quando o DEPLA gerar a consolidação (ver
+  // POST /gerar-consolidacao). codigo_pac (SIGLA-NNNN) é o rótulo ESTÁVEL do
+  // gestor: nunca muda, mesmo depois que numero_pac for reordenado.
+  const idPac = crypto.randomUUID();
+  const codigoPac = gerarCodigoPac(setor, numeroItem);
+  const info = db.prepare(`
+    INSERT INTO dfd_itens (dfd_id, setor_id, numero_item, criado_por, numero_pac, id_pac, codigo_pac)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(dfdId, setor_id, numeroItem, req.user.user_id, String(numeroItem), idPac, codigoPac);
   const itemId = info.lastInsertRowid;
 
   const colunasAtivas = new Set(db.prepare(`SELECT coluna_id FROM dfd_colunas_ativas WHERE dfd_id = ?`).all(dfdId).map(r => r.coluna_id));
@@ -373,8 +400,8 @@ router.post('/api/pac/dfds/:id/itens', pac, requireRotina('pac-lancamento', 'inc
     upsert.run(itemId, Number(colunaId), valor == null ? null : String(valor));
   });
 
-  registrarLog(req, 'PAC', 'CRIOU_ITEM', `Criou o item #${max + 1} no DFD #${dfdId} (setor ${setor_id}) — PAC ${numeroPac}`);
-  res.status(201).json({ id: itemId, numero_item: max + 1, numero_pac: numeroPac });
+  registrarLog(req, 'PAC', 'CRIOU_ITEM', `Criou o item #${numeroItem} no DFD #${dfdId} (setor ${setor_id}) — ${codigoPac}`);
+  res.status(201).json({ id: itemId, numero_item: numeroItem, numero_pac: String(numeroItem), codigo_pac: codigoPac });
 });
 
 router.put('/api/pac/itens/:id',
@@ -386,7 +413,7 @@ router.put('/api/pac/itens/:id',
     req.item = item;
     next();
   },
-  (req, res, next) => requireDfdEditavel(() => req.item.dfd_id, { resolveItemId: () => req.item.id, tipo: 'editar' })(req, res, next),
+  (req, res, next) => requireDfdEditavel(() => req.item.dfd_id, { resolveItemId: () => req.item.id, tipo: 'editar', resolveSetorId: () => req.item.setor_id })(req, res, next),
   (req, res) => {
     const item = req.item;
     if (req.user.username !== 'master' && !setoresDoUsuario(req.user.user_id).includes(item.setor_id)) {
@@ -417,7 +444,7 @@ router.delete('/api/pac/itens/:id',
     req.item = item;
     next();
   },
-  (req, res, next) => requireDfdEditavel(() => req.item.dfd_id, { resolveItemId: () => req.item.id, tipo: 'excluir' })(req, res, next),
+  (req, res, next) => requireDfdEditavel(() => req.item.dfd_id, { resolveItemId: () => req.item.id, tipo: 'excluir', resolveSetorId: () => req.item.setor_id })(req, res, next),
   (req, res) => {
     const item = req.item;
     if (req.user.username !== 'master' && !setoresDoUsuario(req.user.user_id).includes(item.setor_id)) {
@@ -476,40 +503,65 @@ router.patch('/api/pac/pedidos/:id/resposta', pac, requireRotina('pac-gestao', '
   res.json({ ok: true });
 });
 
-// ── PAC: consolidação (numeração global dos itens de um DFD fechado) ─────────
-// Fluxo de execução, construído sobre o DFD já fechado (planejamento
-// congelado): o DEPLA consolida uma vez (numera globalmente), registra
-// solicitações de contratação reais ao longo do exercício e acompanha
-// realizado × planejado. numero_pac nunca é editado à mão — só nasce/muda
-// através de renumerarPac(), sempre dentro de uma consolidação já existente.
+// ── PAC: finalização por setor (gestor) ───────────────────────────────────────
+// O gestor sinaliza que terminou de lançar os itens do seu setor num DFD —
+// dfd_setores.finalizado_em, independente do status global do DFD (que
+// continua manual, controlado só pelo DEPLA). A partir daí, o setor trava
+// pra escrita igual ao DFD "em análise" (ver requireDfdEditavel acima) — pra
+// mudar algo, precisa de pedido de edição.
+router.post('/api/pac/dfds/:dfd_id/setores/:setor_id/finalizar', pac, requireRotina('pac-lancamento', 'incluir'), (req, res) => {
+  const dfdId = Number(req.params.dfd_id);
+  const setorId = Number(req.params.setor_id);
+  const dfd = db.prepare(`SELECT id, status FROM dfds WHERE id = ?`).get(dfdId);
+  if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
+  if (dfd.status !== 'aberto') return res.status(409).json({ error: 'Só é possível finalizar com o DFD aberto.' });
+  if (req.user.username !== 'master' && !setoresDoUsuario(req.user.user_id).includes(setorId)) {
+    return res.status(403).json({ error: 'Você não pertence a este setor.' });
+  }
+  const participa = db.prepare(`SELECT finalizado_em FROM dfd_setores WHERE dfd_id = ? AND setor_id = ?`).get(dfdId, setorId);
+  if (!participa) return res.status(400).json({ error: 'Este setor não participa deste DFD.' });
+  if (participa.finalizado_em) return res.status(409).json({ error: 'Este setor já foi finalizado.' });
+  const totalItens = db.prepare(`SELECT COUNT(*) AS n FROM dfd_itens WHERE dfd_id = ? AND setor_id = ? AND excluido_em IS NULL`).get(dfdId, setorId).n;
+  if (!totalItens) return res.status(400).json({ error: 'Lance ao menos 1 item antes de finalizar.' });
+  db.prepare(`UPDATE dfd_setores SET finalizado_em = datetime('now') WHERE dfd_id = ? AND setor_id = ?`).run(dfdId, setorId);
+  registrarLog(req, 'PAC', 'FINALIZOU_SETOR_DFD', `Finalizou o lançamento do setor #${setorId} no DFD #${dfdId} (${totalItens} item(ns))`);
+  const pendentes = db.prepare(`SELECT COUNT(*) AS n FROM dfd_setores WHERE dfd_id = ? AND finalizado_em IS NULL`).get(dfdId).n;
+  res.json({ ok: true, todos_finalizados: pendentes === 0 });
+});
+
+// Usado tanto pelo Acompanhamento do DEPLA (badges por setor + condição pra
+// mostrar "Gerar Consolidação") quanto pelo próprio Lançamento do gestor
+// (esconder/desabilitar o botão "Finalizar meu DFD" depois de já finalizado).
+router.get('/api/pac/dfds/:id/status-finalizacao', pac, requireRotinaPac('ver'), (req, res) => {
+  const rows = db.prepare(`
+    SELECT s.id AS setor_id, s.nome AS setor_nome, ds.finalizado_em
+    FROM dfd_setores ds JOIN setores s ON s.id = ds.setor_id
+    WHERE ds.dfd_id = ? ORDER BY s.ordem
+  `).all(req.params.id);
+  res.json({ setores: rows, todos_finalizados: rows.length > 0 && rows.every(r => !!r.finalizado_em) });
+});
+
+// ── PAC: consolidação (numeração global + ciclo de aprovação/cancelamento) ───
+// Fluxo: cada setor finaliza (acima) → DEPLA gera a consolidação (numeração
+// global, Momento 2 do numero_pac) → DEPLA trabalha os itens na tela de
+// Consolidação (em análise / finalizado / cancelado, com observação) → ao
+// finalizar a consolidação de um setor, a numeração é reordenada de novo
+// (Momento 3), excluindo cancelados da sequência ativa mas SEM tirar o
+// numero_pac que eles já tinham (ver índice parcial em database.js).
 
 function colunaId(slug) {
   const row = db.prepare(`SELECT id FROM dfd_colunas_catalogo WHERE slug = ?`).get(slug);
   return row ? row.id : null;
 }
 
-// Reatribui numero_pac (AAAA-NNN) a todos os itens não excluídos do DFD, na
-// ordem setores.ordem ASC → dfd_itens.numero_item ASC. Zera tudo pra NULL
-// antes de reatribuir em sequência — evita colidir com o índice único parcial
-// (dfd_id, numero_pac) no meio da renumeração (mesmo risco de "swap" já visto
-// em outras tabelas do projeto, ver memória de migrações homolog: nunca trocar
-// valores de uma coluna UNIQUE diretamente, sempre passar por um estado neutro).
-function renumerarPac(dfdId, anoBase) {
-  const itens = db.prepare(`
-    SELECT di.id FROM dfd_itens di JOIN setores s ON s.id = di.setor_id
-    WHERE di.dfd_id = ? AND di.excluido_em IS NULL
-    ORDER BY s.ordem ASC, di.numero_item ASC
-  `).all(dfdId);
-  db.prepare(`UPDATE dfd_itens SET numero_pac = NULL WHERE dfd_id = ?`).run(dfdId);
-  const upd = db.prepare(`UPDATE dfd_itens SET numero_pac = ? WHERE id = ?`);
-  itens.forEach((item, i) => upd.run(`${anoBase}-${String(i + 1).padStart(3, '0')}`, item.id));
-  return itens.length;
-}
-
 function itensConsolidados(dfdId) {
   const itens = db.prepare(`
-    SELECT di.*, s.nome AS setor_nome FROM dfd_itens di JOIN setores s ON s.id = di.setor_id
-    WHERE di.dfd_id = ? AND di.excluido_em IS NULL ORDER BY di.numero_pac
+    SELECT di.*, s.nome AS setor_nome, s.sigla AS setor_sigla, u.username AS cancelado_por_username
+    FROM dfd_itens di
+    JOIN setores s ON s.id = di.setor_id
+    LEFT JOIN users u ON u.id = di.cancelado_por
+    WHERE di.dfd_id = ? AND di.excluido_em IS NULL
+    ORDER BY s.ordem ASC, CAST(di.numero_pac AS INTEGER) ASC
   `).all(dfdId);
   const ids = itens.map(i => i.id);
   const valoresPorItem = {};
@@ -521,26 +573,29 @@ function itensConsolidados(dfdId) {
   return itens.map(i => ({ ...i, valores: valoresPorItem[i.id] || {} }));
 }
 
-router.post('/api/pac/dfds/:id/consolidar', pac, requireRotina('pac-gestao', 'incluir'), (req, res) => {
-  const dfd = db.prepare(`SELECT id, ano_base, status FROM dfds WHERE id = ?`).get(req.params.id);
+router.post('/api/pac/dfds/:id/gerar-consolidacao', pac, requireRotina('pac-gestao', 'incluir'), (req, res) => {
+  const dfd = db.prepare(`SELECT id, titulo FROM dfds WHERE id = ?`).get(req.params.id);
   if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
-  if (dfd.status !== 'fechado') return res.status(400).json({ error: 'Só é possível consolidar um DFD fechado.' });
   if (db.prepare(`SELECT 1 FROM pac_consolidacoes WHERE dfd_id = ?`).get(dfd.id)) {
     return res.status(409).json({ error: 'Este DFD já foi consolidado.' });
   }
-  // Itens importados via routes/pac-importacao.js já nascem com numero_pac
-  // (sequencial contínuo, atribuído no momento da importação — não depende
-  // mais desta consolidação). renumerarPac() APAGA e reatribui tudo do zero;
-  // rodar isso num DFD que já tem números atribuídos trocaria os números já
-  // comunicados/usados externamente. Trava aqui em vez de deixar acontecer.
-  if (db.prepare(`SELECT 1 FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND numero_pac IS NOT NULL LIMIT 1`).get(dfd.id)) {
-    return res.status(409).json({ error: 'Este DFD já tem itens com número de PAC atribuído (provavelmente pela Importação) — consolidar de novo trocaria os números já existentes.' });
+  const setoresPart = db.prepare(`SELECT finalizado_em FROM dfd_setores WHERE dfd_id = ?`).all(dfd.id);
+  if (!setoresPart.length || setoresPart.some(s => !s.finalizado_em)) {
+    return res.status(409).json({ error: 'Nem todos os setores finalizaram o lançamento ainda.' });
   }
-  const total = renumerarPac(dfd.id, dfd.ano_base);
+  // Momento 2: renumera GLOBALMENTE (setores.ordem ASC → numero_pac local
+  // ASC), 1..N sobre todos os itens ainda não cancelados.
+  const itens = db.prepare(`
+    SELECT di.id FROM dfd_itens di JOIN setores s ON s.id = di.setor_id
+    WHERE di.dfd_id = ? AND di.excluido_em IS NULL AND di.status_consolidacao != 'cancelado'
+    ORDER BY s.ordem ASC, CAST(di.numero_pac AS INTEGER) ASC
+  `).all(dfd.id);
+  const upd = db.prepare(`UPDATE dfd_itens SET numero_pac = ? WHERE id = ?`);
+  itens.forEach((item, i) => upd.run(String(i + 1), item.id));
   db.prepare(`INSERT INTO pac_consolidacoes (dfd_id, consolidado_por, total_itens) VALUES (?, ?, ?)`)
-    .run(dfd.id, req.user.user_id, total);
-  registrarLog(req, 'PAC', 'CONSOLIDOU_DFD', `Consolidou o DFD #${dfd.id} (${total} itens numerados)`);
-  res.json(itensConsolidados(dfd.id));
+    .run(dfd.id, req.user.user_id, itens.length);
+  registrarLog(req, 'PAC', 'GEROU_CONSOLIDACAO', `Gerou a consolidação do DFD "${dfd.titulo}" #${dfd.id} (${itens.length} itens numerados)`);
+  res.json({ ok: true, total_itens: itens.length });
 });
 
 router.get('/api/pac/dfds/:id/consolidado', pac, requireRotina('pac-gestao', 'ver'), (req, res) => {
@@ -550,21 +605,79 @@ router.get('/api/pac/dfds/:id/consolidado', pac, requireRotina('pac-gestao', 've
   res.json({ consolidado: !!consolidacao, consolidacao: consolidacao || null, itens: itensConsolidados(dfd.id) });
 });
 
-// Exclusão de um item JÁ consolidado — diferente do DELETE genérico de item
-// (que só aceita DFD aberto/análise-com-pedido): aqui o DFD já está fechado
-// de propósito, então esta rota ignora requireDfdEditavel e usa seu próprio
-// pré-requisito (precisa haver uma consolidação registrada pro DFD do item).
-router.delete('/api/pac/itens/:id/consolidado', pac, requireRotina('pac-gestao', 'excluir'), (req, res) => {
+const STATUS_CONSOLIDACAO_VALIDOS = new Set(['nao_iniciado', 'em_analise', 'finalizado', 'cancelado']);
+router.patch('/api/pac/itens/:id/consolidacao', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const { status, justificativa } = req.body || {};
+  if (!STATUS_CONSOLIDACAO_VALIDOS.has(status)) return res.status(400).json({ error: 'Status inválido' });
+  if (status === 'cancelado' && !String(justificativa || '').trim()) {
+    return res.status(400).json({ error: 'Justificativa é obrigatória para cancelar.' });
+  }
   const item = db.prepare(`SELECT id, dfd_id FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
   if (!item) return res.status(404).json({ error: 'Item não encontrado' });
-  const dfd = db.prepare(`SELECT ano_base FROM dfds WHERE id = ?`).get(item.dfd_id);
-  const consolidacao = db.prepare(`SELECT id FROM pac_consolidacoes WHERE dfd_id = ?`).get(item.dfd_id);
-  if (!consolidacao) return res.status(400).json({ error: 'Este DFD ainda não foi consolidado.' });
-  db.prepare(`UPDATE dfd_itens SET excluido_em = datetime('now') WHERE id = ?`).run(item.id);
-  const total = renumerarPac(item.dfd_id, dfd.ano_base);
-  db.prepare(`UPDATE pac_consolidacoes SET total_itens = ? WHERE dfd_id = ?`).run(total, item.dfd_id);
-  registrarLog(req, 'PAC', 'EXCLUIU_ITEM_CONSOLIDADO', `Excluiu o item #${item.id} do consolidado (DFD #${item.dfd_id}) — números recalculados`);
-  res.json(itensConsolidados(item.dfd_id));
+  if (status === 'cancelado') {
+    db.prepare(`
+      UPDATE dfd_itens SET status_consolidacao = 'cancelado', justificativa_cancelamento = ?, cancelado_por = ?, cancelado_em = datetime('now')
+      WHERE id = ?
+    `).run(String(justificativa).trim(), req.user.user_id, item.id);
+  } else {
+    db.prepare(`
+      UPDATE dfd_itens SET status_consolidacao = ?, justificativa_cancelamento = NULL, cancelado_por = NULL, cancelado_em = NULL WHERE id = ?
+    `).run(status, item.id);
+  }
+  registrarLog(req, 'PAC', 'ALTEROU_STATUS_CONSOLIDACAO',
+    `Item #${item.id} (DFD #${item.dfd_id}) → ${status}${status === 'cancelado' ? `: ${String(justificativa).trim()}` : ''}`);
+  res.json({ ok: true });
+});
+
+router.patch('/api/pac/itens/:id/observacao-consolidacao', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const item = db.prepare(`SELECT id, dfd_id FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
+  if (!item) return res.status(404).json({ error: 'Item não encontrado' });
+  const observacao = req.body?.observacao;
+  db.prepare(`UPDATE dfd_itens SET observacao_consolidacao = ? WHERE id = ?`).run(observacao ? String(observacao).trim() : null, item.id);
+  res.json({ ok: true });
+});
+
+// Momento 3: reordena de novo, agora excluindo cancelados da sequência ATIVA
+// — mas sem mexer no numero_pac que um item cancelado já tinha (índice único
+// parcial em database.js permite a sobreposição de propósito). Zera pra NULL
+// antes de reatribuir só entre os ativos, mesmo cuidado de sempre passar por
+// um estado neutro antes de reescrever uma coluna com índice único (ver nota
+// em project_secop_homolog_migracoes: nunca fazer "swap" direto).
+function renumerarPacFinal(dfdId) {
+  const itensAtivos = db.prepare(`
+    SELECT di.id FROM dfd_itens di JOIN setores s ON s.id = di.setor_id
+    WHERE di.dfd_id = ? AND di.excluido_em IS NULL AND di.status_consolidacao != 'cancelado'
+    ORDER BY s.ordem ASC, CAST(di.numero_pac AS INTEGER) ASC
+  `).all(dfdId);
+  db.prepare(`
+    UPDATE dfd_itens SET numero_pac = NULL
+    WHERE dfd_id = ? AND excluido_em IS NULL AND status_consolidacao != 'cancelado'
+  `).run(dfdId);
+  const upd = db.prepare(`UPDATE dfd_itens SET numero_pac = ? WHERE id = ?`);
+  itensAtivos.forEach((item, i) => upd.run(String(i + 1), item.id));
+  return itensAtivos.length;
+}
+
+router.post('/api/pac/dfds/:dfd_id/setores/:setor_id/finalizar-consolidacao', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const dfdId = Number(req.params.dfd_id);
+  const setorId = Number(req.params.setor_id);
+  const dfd = db.prepare(`SELECT id FROM dfds WHERE id = ?`).get(dfdId);
+  if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
+  if (!db.prepare(`SELECT 1 FROM pac_consolidacoes WHERE dfd_id = ?`).get(dfdId)) {
+    return res.status(400).json({ error: 'Este DFD ainda não foi consolidado.' });
+  }
+  const pendentes = db.prepare(`
+    SELECT COUNT(*) AS n FROM dfd_itens
+    WHERE dfd_id = ? AND setor_id = ? AND excluido_em IS NULL AND status_consolidacao NOT IN ('finalizado', 'cancelado')
+  `).get(dfdId, setorId).n;
+  if (pendentes > 0) return res.status(409).json({ error: 'Ainda há itens deste setor sem status "Consolidação finalizada" ou "Cancelado".' });
+  // Renumera o DFD inteiro, não só o setor que disparou — o exemplo do Alex é
+  // exatamente esse: cancelar item no DETIN também desloca a numeração do
+  // DEFIN, que vem depois na ordem. Rodar de novo (outro setor finalizando
+  // depois) é seguro — recalcula 1..N determinístico sobre quem ainda está ativo.
+  const total = renumerarPacFinal(dfdId);
+  registrarLog(req, 'PAC', 'FINALIZOU_CONSOLIDACAO_SETOR', `Finalizou a consolidação do setor #${setorId} no DFD #${dfdId} — renumeração final (${total} item(ns) ativo(s))`);
+  res.json({ ok: true, total_itens_ativos: total });
 });
 
 const STATUS_EXECUCAO_VALIDOS = new Set([
@@ -674,10 +787,10 @@ function montarAcompanhamento(dfdId, setorIds) {
   const filtroSetor = setorIds ? ` AND di.setor_id IN (${setorIds.map(() => '?').join(',')})` : '';
   const params = setorIds ? [dfdId, ...setorIds] : [dfdId];
   const itens = db.prepare(`
-    SELECT di.id, di.numero_pac, di.numero_item, di.setor_id, di.status_execucao, s.nome AS setor_nome
+    SELECT di.id, di.numero_pac, di.codigo_pac, di.numero_item, di.setor_id, di.status_execucao, s.nome AS setor_nome
     FROM dfd_itens di JOIN setores s ON s.id = di.setor_id
     WHERE di.dfd_id = ? AND di.excluido_em IS NULL${filtroSetor}
-    ORDER BY di.numero_pac IS NULL, di.numero_pac
+    ORDER BY di.numero_pac IS NULL, CAST(di.numero_pac AS INTEGER)
   `).all(...params);
 
   const ids = itens.map(i => i.id);
@@ -709,7 +822,7 @@ function montarAcompanhamento(dfdId, setorIds) {
     const estimadoTuMlp = fonte === 'RDC' ? 0 : valorEstimado;
     const estimadoRdc = fonte === 'RDC' ? valorEstimado : 0;
     return {
-      item_id: item.id, numero_pac: item.numero_pac, numero_item: item.numero_item,
+      item_id: item.id, numero_pac: item.numero_pac, codigo_pac: item.codigo_pac, numero_item: item.numero_item,
       setor_id: item.setor_id, setor_nome: item.setor_nome, status_execucao: item.status_execucao,
       descricao_objeto: v[idDescricao] ?? null, tipo: v[idTipo] ?? null, fonte_pagadora: fonte,
       valor_estimado: valorEstimado,
