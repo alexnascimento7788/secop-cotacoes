@@ -12,10 +12,15 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { db, depopDb, anexosDb } = require('../database');
-const { registrarLog, requireModulo } = require('../middleware');
+const { registrarLog, requireModulo, proximoNumeroPac } = require('../middleware');
 
 const router = express.Router();
 const pac = requireModulo('pac');
+
+// Campos de contrato (grupo B+C) que ganham "Não informado" em vez de NULL
+// quando vêm em branco na planilha — ver comentário no loop de parsing da
+// Fase 1 pra motivo.
+const SLUGS_CONTRATO_SENTINELA = new Set(['possui_contrato', 'numero_contrato', 'razao_social', 'data_vencimento']);
 
 function requireAdminGlobal(req, res, next) {
   if (req.user.username === 'master' || req.user.role === 'admin_sistema') return next();
@@ -252,31 +257,15 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
 
   // Número de PAC nasce JÁ na importação (Alex: "o número do pac de
   // lançamento seja o mesmo no acompanhamento") — não depende mais de uma
-  // consolidação separada. Sequencial contínuo por DFD/ano, nunca reaproveita
-  // número: cada leva de importação (um setor por vez) pega os próximos
-  // números livres, então importar DETIN primeiro e DEFIN depois produz
-  // DETIN 1,2,3,4 / DEFIN 5,6,7,8 naturalmente — sem precisar reordenar nada.
-  // Olha o histórico INTEIRO (não só itens ativos): um item excluído depois
-  // não libera o número dele pra reuso (idx_dfd_itens_numero_pac é único por
-  // DFD mesmo em linha soft-deletada), então "PAC cancelado" vira só um
-  // buraco na sequência, nunca uma colisão.
-  const prefixoPac = `${dfd.ano_base}-`;
-  let proximoSeqPac = db.prepare(`SELECT numero_pac FROM dfd_itens WHERE dfd_id = ? AND numero_pac LIKE ?`)
-    .all(dfdId, prefixoPac + '%')
-    .map(r => parseInt(String(r.numero_pac).slice(prefixoPac.length), 10))
-    .filter(n => !isNaN(n))
-    .reduce((max, n) => Math.max(max, n), 0) + 1;
-
+  // consolidação separada. Mesma regra/helper de negócio do lançamento manual
+  // (proximoNumeroPac em middleware.js): sequencial contínuo por DFD/ano,
+  // nunca reaproveita número. Chamado uma vez por linha (não computado uma
+  // vez só no início) — cada INSERT já commitado é considerado no próximo
+  // cálculo, então importar DETIN e depois DEFIN produz 1,2,3,4/5,6,7,8
+  // naturalmente, mesmo entre chamadas de rota diferentes.
   let importados = 0, comAlertas = 0, comErro = 0;
   let numeroPacInicial = null, numeroPacFinal = null;
   const log = [];
-
-  // Inferência: planilhas reais (ex.: DEFIN) não têm a coluna "Possui
-  // Contrato?" — só o Nº Contrato preenchido já implica "Sim". Só entra se
-  // a coluna existir nesse DFD e não tiver vindo mapeada/preenchida na
-  // linha (senão prevalece o que a planilha realmente disse).
-  const colunaPossuiContrato = colunasAtivas.find(c => c.slug === 'possui_contrato');
-  const colunaNumeroContrato = colunasAtivas.find(c => c.slug === 'numero_contrato');
 
   registrarLog(req, 'PAC', 'IMPORTACAO_INICIOU',
     `Iniciou importação de lançamentos (Fase 1) — DFD "${dfd.titulo}" (${dfd.ano_base}), setor "${setor.nome}", ${linhas.length} linha(s), modo "${modo}"`);
@@ -293,7 +282,16 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
 
       if (vazio) {
         if (coluna.obrigatoria) { erroLinha = `Campo obrigatório "${coluna.label}" vazio`; break; }
-        valoresFinal[coluna.id] = null;
+        // Dado histórico: célula de contrato em branco não é "ainda não
+        // respondido" (isso é Pendente, pra item lançado ao vivo) — é "nunca
+        // foi capturado nesta planilha". Grava explícito em vez de NULL, pra
+        // não se confundir com pendência real numa auditoria futura. Não
+        // reaproveita a sentinela 1900-01-01 do "Não" deliberado (grupo C
+        // data) — aquela tem outro significado (contrato confirmado
+        // inexistente); aqui simplesmente não sabemos, então a data fica NULL
+        // mesmo (o marcador "Não informado" já vive em possui_contrato).
+        valoresFinal[coluna.id] = SLUGS_CONTRATO_SENTINELA.has(coluna.slug) && coluna.tipo_input !== 'data'
+          ? 'Não informado' : null;
         continue;
       }
 
@@ -318,12 +316,6 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
       }
     }
 
-    if (!erroLinha && colunaPossuiContrato && colunaNumeroContrato
-      && !valoresFinal[colunaPossuiContrato.id] && valoresFinal[colunaNumeroContrato.id]) {
-      valoresFinal[colunaPossuiContrato.id] = 'Sim';
-      alertasLinha.push(`Possui Contrato?: inferido "Sim" a partir do Nº Contrato preenchido (coluna não veio na planilha)`);
-    }
-
     if (erroLinha) {
       comErro++;
       log.push({ tipo: 'erro', linha: numeroLinha, mensagem: erroLinha });
@@ -331,8 +323,7 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
     }
 
     numeroAtual++;
-    const numeroPac = `${prefixoPac}${String(proximoSeqPac).padStart(3, '0')}`;
-    proximoSeqPac++;
+    const numeroPac = proximoNumeroPac(dfdId, dfd.ano_base);
     numeroPacInicial ??= numeroPac;
     numeroPacFinal = numeroPac;
     const itemId = insertItem.run(dfdId, setor_id, numeroAtual, req.user.user_id, numeroPac).lastInsertRowid;

@@ -286,6 +286,7 @@ function formatarValorColuna(coluna, valor) {
 const ICONE_CONTRATO_SIM = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--verde)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg>`;
 const ICONE_CONTRATO_NAO = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-subtle)" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
 const ICONE_CONTRATO_PENDENTE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a15c00" stroke-width="2"><path d="M12 9v4"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L14.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 17h.01"/></svg>`;
+const ICONE_CONTRATO_NAO_INFORMADO = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-subtle)" stroke-width="1.5" stroke-dasharray="3 2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
 
 // Só leitura aqui (quem edita é o gestor em Lançamento) — badge com texto
 // já visível, sem depender de hover; o tooltip complementa listando os
@@ -295,7 +296,7 @@ const ICONE_CONTRATO_PENDENTE = `<svg width="16" height="16" viewBox="0 0 24 24"
 function celulaContratoLeitura(item, colunasContrato, todasColunas) {
   const possuiCol = todasColunas.find(c => c.slug === 'possui_contrato');
   const v = possuiCol ? item.valores[possuiCol.id] : null;
-  const estado = v === 'Sim' ? 'sim' : v === 'Não' ? 'nao' : 'pendente';
+  const estado = v === 'Sim' ? 'sim' : v === 'Não' ? 'nao' : v === 'Não informado' ? 'nao_informado' : 'pendente';
   const preenchidos = colunasContrato.filter(c => {
     const val = item.valores[c.id];
     return val !== null && val !== undefined && val !== '';
@@ -303,6 +304,7 @@ function celulaContratoLeitura(item, colunasContrato, todasColunas) {
   const cfg = {
     sim: { icone: ICONE_CONTRATO_SIM, texto: 'Com contrato', titulo: preenchidos.map(c => `${c.label}: ${formatarValorColuna(c, item.valores[c.id])}`).join(' · ') || 'Com contrato' },
     nao: { icone: ICONE_CONTRATO_NAO, texto: 'Sem contrato', titulo: 'Este item não tem contrato' },
+    nao_informado: { icone: ICONE_CONTRATO_NAO_INFORMADO, texto: 'Não informado', titulo: 'Dado histórico importado sem essa informação na planilha original' },
     pendente: { icone: ICONE_CONTRATO_PENDENTE, texto: 'Pendente', titulo: 'O setor ainda não informou se este item tem contrato' },
   }[estado];
   return `<td style="text-align:center;"><span class="badge-contrato ${estado}" title="${cfg.titulo}">${cfg.icone} ${cfg.texto}</span></td>`;

@@ -864,7 +864,11 @@ function setupDb() {
     seedLista('prioridade', ['Alta', 'Média', 'Baixa']);
     seedLista('fonte_pagadora', ['TU', 'RDC', 'MLP']);
     seedLista('unidade_medida', ['Unidade', 'Mês', 'Anual', 'M²', 'Litros', 'KG', 'Serviço']);
-    seedLista('sim_nao', ['Sim', 'Não']);
+    // "Não informado" — pra dado histórico importado de planilha cuja célula
+    // de contrato veio em branco (não é "ainda não respondido" ao vivo, que
+    // já é o estado "Pendente" por ausência de valor — é "nunca foi
+    // capturado nesta migração"). Ver routes/pac-importacao.js.
+    seedLista('sim_nao', ['Sim', 'Não', 'Não informado']);
   }
 
   // Seed do catálogo fixo de colunas do DFD (17 colunas, 3 grupos visuais).

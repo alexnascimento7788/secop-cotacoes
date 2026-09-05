@@ -12,7 +12,7 @@
 // routes/admin.js). PAC só usa a conexão principal (`db`) — nunca depopDb/anexosDb.
 const express = require('express');
 const { db } = require('../database');
-const { registrarLog, requireModulo, requireRotina, ROTINA_FLAGS_VALIDAS } = require('../middleware');
+const { registrarLog, requireModulo, requireRotina, ROTINA_FLAGS_VALIDAS, proximoNumeroPac } = require('../middleware');
 
 const router = express.Router();
 const pac = requireModulo('pac');
@@ -357,9 +357,13 @@ router.post('/api/pac/dfds/:id/itens', pac, requireRotina('pac-lancamento', 'inc
   const participa = db.prepare(`SELECT 1 FROM dfd_setores WHERE dfd_id = ? AND setor_id = ?`).get(dfdId, setor_id);
   if (!participa) return res.status(400).json({ error: 'Este setor não participa deste DFD.' });
 
+  const anoBase = db.prepare(`SELECT ano_base FROM dfds WHERE id = ?`).get(dfdId).ano_base;
   const max = db.prepare(`SELECT COALESCE(MAX(numero_item), 0) AS m FROM dfd_itens WHERE dfd_id = ? AND setor_id = ?`).get(dfdId, setor_id).m;
-  const info = db.prepare(`INSERT INTO dfd_itens (dfd_id, setor_id, numero_item, criado_por) VALUES (?, ?, ?, ?)`)
-    .run(dfdId, setor_id, max + 1, req.user.user_id);
+  // numero_pac já nasce aqui, igual na importação — não fica esperando uma
+  // consolidação separada (ver proximoNumeroPac em middleware.js).
+  const numeroPac = proximoNumeroPac(dfdId, anoBase);
+  const info = db.prepare(`INSERT INTO dfd_itens (dfd_id, setor_id, numero_item, criado_por, numero_pac) VALUES (?, ?, ?, ?, ?)`)
+    .run(dfdId, setor_id, max + 1, req.user.user_id, numeroPac);
   const itemId = info.lastInsertRowid;
 
   const colunasAtivas = new Set(db.prepare(`SELECT coluna_id FROM dfd_colunas_ativas WHERE dfd_id = ?`).all(dfdId).map(r => r.coluna_id));
@@ -369,8 +373,8 @@ router.post('/api/pac/dfds/:id/itens', pac, requireRotina('pac-lancamento', 'inc
     upsert.run(itemId, Number(colunaId), valor == null ? null : String(valor));
   });
 
-  registrarLog(req, 'PAC', 'CRIOU_ITEM', `Criou o item #${max + 1} no DFD #${dfdId} (setor ${setor_id})`);
-  res.status(201).json({ id: itemId, numero_item: max + 1 });
+  registrarLog(req, 'PAC', 'CRIOU_ITEM', `Criou o item #${max + 1} no DFD #${dfdId} (setor ${setor_id}) — PAC ${numeroPac}`);
+  res.status(201).json({ id: itemId, numero_item: max + 1, numero_pac: numeroPac });
 });
 
 router.put('/api/pac/itens/:id',

@@ -213,6 +213,10 @@ async function renderItens() {
 const ICONE_CONTRATO_SIM = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--verde)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg>`;
 const ICONE_CONTRATO_NAO = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-subtle)" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
 const ICONE_CONTRATO_PENDENTE = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a15c00" stroke-width="2"><path d="M12 9v4"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L14.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 17h.01"/></svg>`;
+// Distinta de "Pendente" (que pede ação — item lançado ao vivo sem resposta
+// ainda) — traço tracejado marca "dado histórico sem essa informação na
+// planilha original", não uma pendência que alguém precisa resolver agora.
+const ICONE_CONTRATO_NAO_INFORMADO = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-subtle)" stroke-width="1.5" stroke-dasharray="3 2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
 
 // "possui_contrato" (grupo B) é a fonte da verdade sobre o estado — não dá
 // mais pra inferir isso pelo preenchimento das colunas de grupo C, porque
@@ -223,6 +227,7 @@ function estadoContrato(item) {
   const v = possuiCol ? item.valores[possuiCol.id] : null;
   if (v === 'Sim') return 'sim';
   if (v === 'Não') return 'nao';
+  if (v === 'Não informado') return 'nao_informado';
   return 'pendente';
 }
 
@@ -231,6 +236,7 @@ function renderCelulaContrato(item, colunasContrato) {
   const cfg = {
     sim: { icone: ICONE_CONTRATO_SIM, texto: 'Com contrato', titulo: 'Clique para ver/editar os dados do contrato' },
     nao: { icone: ICONE_CONTRATO_NAO, texto: 'Sem contrato', titulo: 'Clique para ver/editar os dados do contrato' },
+    nao_informado: { icone: ICONE_CONTRATO_NAO_INFORMADO, texto: 'Não informado', titulo: 'Dado histórico importado sem essa informação na planilha original — clique para preencher se souber' },
     pendente: { icone: ICONE_CONTRATO_PENDENTE, texto: 'Pendente', titulo: 'Contrato ainda não informado — clique para responder' },
   }[estado];
   return `<td data-label="Contrato" style="text-align:center;">
@@ -299,7 +305,12 @@ function abrirModalContrato(itemId) {
   const estado = estadoContrato(item);
 
   const selectPossui = document.getElementById('mc-possui');
-  selectPossui.value = estado === 'sim' ? 'sim' : 'nao';
+  // "Não informado" só aparece como opção quando o item JÁ está nesse estado
+  // (dado histórico importado) — não faz sentido oferecer isso pra alguém
+  // respondendo um item lançado ao vivo, só existe pra não perder a marca
+  // sem querer ao abrir/salvar o popup de um item migrado.
+  document.getElementById('mc-opcao-nao-informado').hidden = estado !== 'nao_informado';
+  selectPossui.value = estado === 'pendente' ? 'nao' : estado;
   selectPossui.disabled = !editavel;
 
   document.getElementById('mc-subtitulo').textContent = '';
@@ -362,14 +373,18 @@ function fecharModalContrato() {
 // deixava a lógica pouco clara. Se "Não", os campos de C são zerados.
 function valoresContratoDoForm() {
   const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
-  const sim = document.getElementById('mc-possui').value === 'sim';
+  const escolha = document.getElementById('mc-possui').value; // 'sim' | 'nao' | 'nao_informado'
   const valores = {};
-  if (sim) {
+  if (escolha === 'sim') {
     document.querySelectorAll('#mc-campos [data-coluna]').forEach(el => {
       let v = el.value;
       if (el.dataset.tipo === 'moeda') { const n = parseMoeda(v); v = n == null ? '' : String(n); }
       valores[el.dataset.coluna] = v === '' ? null : v;
     });
+  } else if (escolha === 'nao_informado') {
+    // Mantém a marca de dado histórico (mesma convenção da importação: texto
+    // vira "Não informado", data fica NULL — ver routes/pac-importacao.js).
+    colunasContrato.forEach(c => { valores[c.id] = c.tipo_input === 'data' ? null : 'Não informado'; });
   } else {
     // "Não" precisa ficar distinguível de "ainda não respondido" (ver
     // estadoContrato) — os campos de texto/número seguem nulos, mas a coluna
@@ -378,7 +393,7 @@ function valoresContratoDoForm() {
     colunasContrato.forEach(c => { valores[c.id] = c.tipo_input === 'data' ? '1900-01-01' : null; });
   }
   const possuiCol = _dfdAtual.colunas.find(c => c.slug === 'possui_contrato');
-  if (possuiCol) valores[possuiCol.id] = sim ? 'Sim' : 'Não';
+  if (possuiCol) valores[possuiCol.id] = escolha === 'sim' ? 'Sim' : escolha === 'nao_informado' ? 'Não informado' : 'Não';
   return valores;
 }
 
