@@ -12,7 +12,14 @@ const {
 } = require('./middleware');
 
 const app = express();
-app.use(express.json());
+// Limite padrão do body-parser é 100kb — pequeno demais pro payload JSON de
+// uma importação de planilha do PAC (linhas + valores de cada coluna, já
+// parseadas no navegador antes de mandar pro servidor): uma planilha real de
+// setor passa fácil dos 100kb e cai em "PayloadTooLargeError" (achado
+// testando a planilha real do DEPAD, 2026-09-06). 10mb cobre qualquer
+// planilha realista com folga, sem impacto em nenhuma outra rota (todas as
+// outras mandam corpos pequenos).
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Nenhuma resposta de /api/ pode ser cacheada por um proxy/CDN no meio do
