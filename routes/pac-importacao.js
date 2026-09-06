@@ -151,13 +151,27 @@ function normalizarTexto(s) {
   return String(s).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
-// Match case-insensitive/sem-acento contra dfd_parametros_lista. Sem match:
-// importa o valor original como texto + alerta sugerindo cadastrar.
+// Match case-insensitive/sem-acento contra dfd_parametros_lista. Sem match
+// exato: achado real testando a planilha real do Alex (2026-09-06) — a
+// coluna "Subitem" de algumas planilhas vem composta com o Tipo do Item
+// junto ("Serviço Continuado", "Material Permanente", "Serviço Não
+// Continuado"), nunca batendo com o cadastro (que só tem a palavra "pura":
+// Permanente/Consumo/Continuado/Não Continuado/Obras). Fallback: se o texto
+// bruto CONTÉM uma opção cadastrada inteira, usa ela — entre várias que
+// batam (ex.: "continuado" também é substring de "não continuado"), fica
+// com a mais específica (a mais longa). Continua transparente: entra um
+// alerta explicando a inferência, não silenciosa.
 function matchParametroLista(lista, bruto) {
   const alvo = normalizarTexto(bruto);
   const opcoes = db.prepare(`SELECT valor FROM dfd_parametros_lista WHERE lista = ? AND ativo = 1`).all(lista);
   const achado = opcoes.find(o => normalizarTexto(o.valor) === alvo);
   if (achado) return { valor: achado.valor, alerta: null };
+
+  const contidas = opcoes.filter(o => alvo.includes(normalizarTexto(o.valor)));
+  if (contidas.length) {
+    const maisEspecifica = contidas.reduce((a, b) => normalizarTexto(b.valor).length > normalizarTexto(a.valor).length ? b : a);
+    return { valor: maisEspecifica.valor, alerta: `"${bruto}" não bate exatamente com nada cadastrado, mas contém "${maisEspecifica.valor}" — usado esse` };
+  }
   return { valor: String(bruto).trim(), alerta: `"${bruto}" não está cadastrado em Parâmetros (lista "${lista}") — importado como texto` };
 }
 
@@ -233,53 +247,79 @@ function cabecalhoSql({ fase, dfdInfo, setorInfo, total }) {
 // espírito do SheetJS já usado em novo-processo.js: parse/mapeamento no
 // navegador, servidor só recebe dado pronto).
 router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
-  const { dfd_id, ano_base, titulo, setor_id, mapeamento, modo, linhas } = req.body || {};
+  const { dfd_id, ano_base, titulo, setor_id, mapeamento, modo, linhas, dry_run } = req.body || {};
   if (!setor_id) return res.status(400).json({ error: 'Setor é obrigatório' });
   if (!Array.isArray(linhas) || !linhas.length) return res.status(400).json({ error: 'Nenhuma linha pra importar' });
   if (!['substituir', 'adicionar'].includes(modo)) return res.status(400).json({ error: 'Modo inválido' });
+  // Simulação — pedido do Alex (2026-09-06): o alerta de valor não
+  // reconhecido só aparecia DEPOIS de já ter gravado no banco, sem chance de
+  // corrigir antes. Com dry_run:true roda a MESMA lógica (parsing, matching,
+  // resumo por coluna) mas não grava nada — nem cria DFD novo, nem
+  // soft-delete, nem INSERT de item/valor. Front chama isso a partir de um
+  // botão "Simular" antes de liberar o "Importar de verdade".
+  const dryRun = !!dry_run;
 
   const setor = db.prepare(`SELECT id, nome FROM setores WHERE id = ?`).get(setor_id);
   if (!setor) return res.status(404).json({ error: 'Setor não encontrado' });
 
-  let dfdId;
+  let dfdId, dfd, colunasAtivas;
   if (dfd_id === 'novo') {
     if (!ano_base || !titulo) return res.status(400).json({ error: 'Ano base e título são obrigatórios pra criar o DFD' });
-    const info = db.prepare(`INSERT INTO dfds (ano_base, titulo, criado_por) VALUES (?, ?, ?)`)
-      .run(Number(ano_base), String(titulo).trim(), req.user.user_id);
-    dfdId = info.lastInsertRowid;
-    // Mesmo comportamento de POST /api/pac/dfds (routes/pac.js): colunas ativas
-    // começam todas pré-selecionadas — sem isso o DFD nasce sem NENHUMA coluna
-    // mapeável e a importação falharia sempre.
-    const colunasCatalogo = db.prepare(`SELECT id, ordem_padrao FROM dfd_colunas_catalogo WHERE ativa = 1 ORDER BY ordem_padrao`).all();
-    const insColunaAtiva = db.prepare(`INSERT INTO dfd_colunas_ativas (dfd_id, coluna_id, ordem) VALUES (?, ?, ?)`);
-    colunasCatalogo.forEach(c => insColunaAtiva.run(dfdId, c.id, c.ordem_padrao));
+    if (dryRun) {
+      // Nada é criado — colunas "ativas" de um DFD que ainda não existe são,
+      // por definição, todo o catálogo ativo (mesmo cálculo que rodaria de
+      // verdade ao criar o DFD, só sem persistir).
+      dfdId = null;
+      dfd = { ano_base: Number(ano_base), titulo: String(titulo).trim() };
+      colunasAtivas = db.prepare(`
+        SELECT id, slug, label, obrigatoria, tipo_input, lista FROM dfd_colunas_catalogo
+        WHERE ativa = 1 AND slug != 'numero_item' ORDER BY ordem_padrao
+      `).all();
+    } else {
+      const info = db.prepare(`INSERT INTO dfds (ano_base, titulo, criado_por) VALUES (?, ?, ?)`)
+        .run(Number(ano_base), String(titulo).trim(), req.user.user_id);
+      dfdId = info.lastInsertRowid;
+      // Mesmo comportamento de POST /api/pac/dfds (routes/pac.js): colunas
+      // ativas começam todas pré-selecionadas — sem isso o DFD nasce sem
+      // NENHUMA coluna mapeável e a importação falharia sempre.
+      const colunasCatalogo = db.prepare(`SELECT id, ordem_padrao FROM dfd_colunas_catalogo WHERE ativa = 1 ORDER BY ordem_padrao`).all();
+      const insColunaAtiva = db.prepare(`INSERT INTO dfd_colunas_ativas (dfd_id, coluna_id, ordem) VALUES (?, ?, ?)`);
+      colunasCatalogo.forEach(c => insColunaAtiva.run(dfdId, c.id, c.ordem_padrao));
+      dfd = db.prepare(`SELECT ano_base, titulo FROM dfds WHERE id = ?`).get(dfdId);
+      colunasAtivas = db.prepare(`
+        SELECT c.id, c.slug, c.label, c.obrigatoria, c.tipo_input, c.lista
+        FROM dfd_colunas_ativas ca JOIN dfd_colunas_catalogo c ON c.id = ca.coluna_id
+        WHERE ca.dfd_id = ? AND c.slug != 'numero_item'
+      `).all(dfdId);
+    }
   } else {
     dfdId = Number(dfd_id);
-    if (!db.prepare(`SELECT id FROM dfds WHERE id = ?`).get(dfdId)) return res.status(404).json({ error: 'DFD não encontrado' });
+    dfd = db.prepare(`SELECT ano_base, titulo FROM dfds WHERE id = ?`).get(dfdId);
+    if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
+    colunasAtivas = db.prepare(`
+      SELECT c.id, c.slug, c.label, c.obrigatoria, c.tipo_input, c.lista
+      FROM dfd_colunas_ativas ca JOIN dfd_colunas_catalogo c ON c.id = ca.coluna_id
+      WHERE ca.dfd_id = ? AND c.slug != 'numero_item'
+    `).all(dfdId);
+    if (!dryRun) db.prepare(`INSERT OR IGNORE INTO dfd_setores (dfd_id, setor_id) VALUES (?, ?)`).run(dfdId, setor_id);
   }
-  const dfd = db.prepare(`SELECT ano_base, titulo FROM dfds WHERE id = ?`).get(dfdId);
-
-  db.prepare(`INSERT OR IGNORE INTO dfd_setores (dfd_id, setor_id) VALUES (?, ?)`).run(dfdId, setor_id);
-
-  const colunasAtivas = db.prepare(`
-    SELECT c.id, c.slug, c.label, c.obrigatoria, c.tipo_input, c.lista
-    FROM dfd_colunas_ativas ca JOIN dfd_colunas_catalogo c ON c.id = ca.coluna_id
-    WHERE ca.dfd_id = ? AND c.slug != 'numero_item'
-  `).all(dfdId);
   if (!colunasAtivas.length) return res.status(400).json({ error: 'Este DFD ainda não tem nenhuma coluna ativa configurada.' });
 
   const sqlPartes = [];
   let numeroAtual;
   if (modo === 'substituir') {
-    db.prepare(`UPDATE dfd_itens SET excluido_em = datetime('now') WHERE dfd_id = ? AND setor_id = ? AND excluido_em IS NULL`)
-      .run(dfdId, setor_id);
-    // Idempotente por natureza: reaplicar o mesmo UPDATE 2x não faz nada da
-    // 2ª vez em diante (a condição "excluido_em IS NULL" já não bate mais).
-    sqlPartes.push(`UPDATE dfd_itens SET excluido_em = datetime('now') WHERE dfd_id = ${dfdId} AND setor_id = ${setor_id} AND excluido_em IS NULL;`, ``);
+    if (!dryRun) {
+      db.prepare(`UPDATE dfd_itens SET excluido_em = datetime('now') WHERE dfd_id = ? AND setor_id = ? AND excluido_em IS NULL`)
+        .run(dfdId, setor_id);
+      // Idempotente por natureza: reaplicar o mesmo UPDATE 2x não faz nada da
+      // 2ª vez em diante (a condição "excluido_em IS NULL" já não bate mais).
+      sqlPartes.push(`UPDATE dfd_itens SET excluido_em = datetime('now') WHERE dfd_id = ${dfdId} AND setor_id = ${setor_id} AND excluido_em IS NULL;`, ``);
+    }
     numeroAtual = 0; // recomeça a numeração do zero pra esse setor neste DFD
   } else {
-    numeroAtual = db.prepare(`SELECT COALESCE(MAX(numero_item), 0) AS m FROM dfd_itens WHERE dfd_id = ? AND setor_id = ?`)
-      .get(dfdId, setor_id).m;
+    numeroAtual = dfdId
+      ? db.prepare(`SELECT COALESCE(MAX(numero_item), 0) AS m FROM dfd_itens WHERE dfd_id = ? AND setor_id = ?`).get(dfdId, setor_id).m
+      : 0;
   }
 
   // INSERT normal (id autoincrement, igual todo resto do sistema) pra execução
@@ -316,8 +356,10 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
     preenchidas: 0, vazias: 0, naoReconhecidos: new Map(),
   }]));
 
-  registrarLog(req, 'PAC', 'IMPORTACAO_INICIOU',
-    `Iniciou importação de lançamentos (Fase 1) — DFD "${dfd.titulo}" (${dfd.ano_base}), setor "${setor.nome}", ${linhas.length} linha(s), modo "${modo}"`);
+  if (!dryRun) {
+    registrarLog(req, 'PAC', 'IMPORTACAO_INICIOU',
+      `Iniciou importação de lançamentos (Fase 1) — DFD "${dfd.titulo}" (${dfd.ano_base}), setor "${setor.nome}", ${linhas.length} linha(s), modo "${modo}"`);
+  }
 
   linhas.forEach((linha, idx) => {
     const numeroLinha = idx + 1;
@@ -376,39 +418,48 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
 
     numeroAtual++;
     const numeroPac = String(numeroAtual);
-    const idPac = crypto.randomUUID();
-    const codigoPac = gerarCodigoPac(setor, numeroAtual);
     numeroPacInicial ??= numeroPac;
     numeroPacFinal = numeroPac;
-    const itemId = insertItem.run(dfdId, setor_id, numeroAtual, req.user.user_id, numeroPac, idPac, codigoPac).lastInsertRowid;
-    sqlPartes.push(`INSERT OR IGNORE INTO dfd_itens (id, dfd_id, setor_id, numero_item, criado_por, numero_pac, id_pac, codigo_pac) VALUES (${itemId}, ${dfdId}, ${setor_id}, ${numeroAtual}, ${req.user.user_id}, ${sqlLit(numeroPac)}, ${sqlLit(idPac)}, ${sqlLit(codigoPac)});`);
 
-    Object.entries(valoresFinal).forEach(([colunaId, valor]) => {
-      insertValor.run(itemId, Number(colunaId), valor);
-      sqlPartes.push(`INSERT OR IGNORE INTO dfd_itens_valores (item_id, coluna_id, valor) VALUES (${itemId}, ${colunaId}, ${sqlLit(valor)});`);
-    });
+    if (!dryRun) {
+      const idPac = crypto.randomUUID();
+      const codigoPac = gerarCodigoPac(setor, numeroAtual);
+      const itemId = insertItem.run(dfdId, setor_id, numeroAtual, req.user.user_id, numeroPac, idPac, codigoPac).lastInsertRowid;
+      sqlPartes.push(`INSERT OR IGNORE INTO dfd_itens (id, dfd_id, setor_id, numero_item, criado_por, numero_pac, id_pac, codigo_pac) VALUES (${itemId}, ${dfdId}, ${setor_id}, ${numeroAtual}, ${req.user.user_id}, ${sqlLit(numeroPac)}, ${sqlLit(idPac)}, ${sqlLit(codigoPac)});`);
+
+      Object.entries(valoresFinal).forEach(([colunaId, valor]) => {
+        insertValor.run(itemId, Number(colunaId), valor);
+        sqlPartes.push(`INSERT OR IGNORE INTO dfd_itens_valores (item_id, coluna_id, valor) VALUES (${itemId}, ${colunaId}, ${sqlLit(valor)});`);
+      });
+    }
 
     importados++;
+    const acao = dryRun ? 'ficaria' : 'foi';
     if (alertasLinha.length) {
       comAlertas++;
       log.push({ tipo: 'alerta', linha: numeroLinha, mensagem: alertasLinha.join('; ') });
     } else {
-      log.push({ tipo: 'sucesso', linha: numeroLinha, mensagem: `Item #${numeroAtual} importado` });
+      log.push({ tipo: 'sucesso', linha: numeroLinha, mensagem: `Item #${numeroAtual} ${acao} importado` });
     }
   });
 
-  const sqlGerado = cabecalhoSql({
+  // Sem gravação, o .sql (que referencia id real via lastInsertRowid) não faz
+  // sentido — o botão de baixar/aplicar só aparece depois do "Importar de
+  // verdade".
+  const sqlGerado = dryRun ? null : cabecalhoSql({
     fase: '1 - Lançamentos DFD',
     dfdInfo: `${dfd.titulo} (${dfd.ano_base})`,
     setorInfo: setor.nome,
     total: importados,
   }) + sqlPartes.join('\n') + '\n\nCOMMIT;\n';
 
-  registrarLog(req, 'PAC', 'IMPORTACAO_CONCLUIU',
-    `Concluiu importação de lançamentos (Fase 1) — DFD #${dfdId}: ${importados} importados, ${comAlertas} com alerta, ${comErro} com erro`);
+  if (!dryRun) {
+    registrarLog(req, 'PAC', 'IMPORTACAO_CONCLUIU',
+      `Concluiu importação de lançamentos (Fase 1) — DFD #${dfdId}: ${importados} importados, ${comAlertas} com alerta, ${comErro} com erro`);
+  }
 
   res.json({
-    dfd_id: dfdId, importados, alertas: comAlertas, erros: comErro, log, sql_gerado: sqlGerado, mapeamento,
+    dfd_id: dfdId, dry_run: dryRun, importados, alertas: comAlertas, erros: comErro, log, sql_gerado: sqlGerado, mapeamento,
     numero_pac_inicial: numeroPacInicial, numero_pac_final: numeroPacFinal,
     resumo_colunas: montarResumoColunas(statsColunas, linhas.length),
   });

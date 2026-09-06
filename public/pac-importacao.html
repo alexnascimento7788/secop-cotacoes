@@ -249,7 +249,25 @@
               </div>
               <div style="margin-top:16px;display:flex;gap:8px;">
                 <button class="btn btn-secondary" onclick="f1Voltar()">← Voltar</button>
-                <button class="btn btn-primary" id="f1-btn-importar" onclick="f1Importar()"><span class="imp-spinner" id="f1-spinner" hidden></span><span id="f1-btn-importar-label">Importar agora</span></button>
+                <button class="btn btn-secondary" id="f1-btn-simular" onclick="f1Importar(true)"><span class="imp-spinner" id="f1-spinner-sim" hidden></span><span id="f1-btn-simular-label">🔍 Simular (sem gravar)</span></button>
+                <button class="btn btn-primary" id="f1-btn-importar" onclick="f1Importar(false)"><span class="imp-spinner" id="f1-spinner" hidden></span><span id="f1-btn-importar-label">Importar de verdade</span></button>
+              </div>
+              <!-- Resultado da simulação — mesmo painel de resumo por coluna
+                   do passo 3, só que ANTES de gravar qualquer coisa. Pedido
+                   do Alex (2026-09-06): o alerta só aparecia depois de já
+                   ter sido gravado, sem chance de corrigir mapeamento/dado
+                   antes. -->
+              <div id="f1-simulacao-wrap" style="display:none;margin-top:18px;border-top:1px solid var(--cinza-b);padding-top:16px;">
+                <div class="pac-card-title">Resultado da simulação (nada foi gravado)</div>
+                <div class="imp-contadores">
+                  <span class="imp-contador">✅ Ficariam importados: <span id="f1-sim-cnt-importados">0</span></span>
+                  <span class="imp-contador">⚠️ Com alertas: <span id="f1-sim-cnt-alertas">0</span></span>
+                  <span class="imp-contador">❌ Com erro: <span id="f1-sim-cnt-erros">0</span></span>
+                </div>
+                <div id="f1-sim-resumo-colunas" style="margin:14px 0;"></div>
+                <details><summary style="cursor:pointer;font-size:13px;font-weight:600;">Ver detalhes (linha a linha)</summary>
+                  <div id="f1-sim-log" style="margin-top:10px;max-height:260px;overflow-y:auto;"></div>
+                </details>
               </div>
             </div>
           </div>
