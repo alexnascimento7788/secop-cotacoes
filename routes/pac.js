@@ -503,6 +503,40 @@ router.patch('/api/pac/pedidos/:id/resposta', pac, requireRotina('pac-gestao', '
   res.json({ ok: true });
 });
 
+// Itens do setor com algum campo do grupo A (o "corpo" do lançamento —
+// Item/Subitem/Unidade/Prioridade/Data Desejada/Dependência etc.) ainda em
+// branco — pedido do Alex, 2026-09-06: dado importado de planilha pode ter
+// vindo com colunas opcionais nulas (célula vazia na origem, ou cabeçalho não
+// reconhecido no mapeamento) e isso precisa ser IDENTIFICADO e TRATADO antes
+// do setor fechar o lançamento, não descoberto só depois na Consolidação.
+// Contrato (grupo C) fica DE FORA de propósito — já tem seu próprio estado
+// (Sim/Não/Pendente/Não informado), gerido por regra própria, não por esta.
+function itensComPendencia(dfdId, setorId) {
+  const colunas = db.prepare(`
+    SELECT c.id, c.label FROM dfd_colunas_ativas ca JOIN dfd_colunas_catalogo c ON c.id = ca.coluna_id
+    WHERE ca.dfd_id = ? AND c.grupo = 'A' AND c.slug != 'numero_item'
+  `).all(dfdId);
+  if (!colunas.length) return [];
+
+  const itens = db.prepare(`SELECT id, numero_item, codigo_pac FROM dfd_itens WHERE dfd_id = ? AND setor_id = ? AND excluido_em IS NULL`).all(dfdId, setorId);
+  if (!itens.length) return [];
+  const ids = itens.map(i => i.id);
+  const ph = ids.map(() => '?').join(',');
+  const valores = db.prepare(`SELECT item_id, coluna_id, valor FROM dfd_itens_valores WHERE item_id IN (${ph})`).all(...ids);
+  const porItem = {};
+  valores.forEach(v => { (porItem[v.item_id] ??= {})[v.coluna_id] = v.valor; });
+
+  return itens.map(item => {
+    const v = porItem[item.id] || {};
+    const faltando = colunas.filter(c => v[c.id] === undefined || v[c.id] === null || String(v[c.id]).trim() === '');
+    return faltando.length ? { item_id: item.id, numero_item: item.numero_item, codigo_pac: item.codigo_pac, campos: faltando.map(c => c.label) } : null;
+  }).filter(Boolean);
+}
+
+router.get('/api/pac/dfds/:dfd_id/setores/:setor_id/pendencias', pac, requireRotinaPac('ver'), (req, res) => {
+  res.json({ itens: itensComPendencia(Number(req.params.dfd_id), Number(req.params.setor_id)) });
+});
+
 // ── PAC: finalização por setor (gestor) ───────────────────────────────────────
 // O gestor sinaliza que terminou de lançar os itens do seu setor num DFD —
 // dfd_setores.finalizado_em, independente do status global do DFD (que
@@ -523,8 +557,23 @@ router.post('/api/pac/dfds/:dfd_id/setores/:setor_id/finalizar', pac, requireRot
   if (participa.finalizado_em) return res.status(409).json({ error: 'Este setor já foi finalizado.' });
   const totalItens = db.prepare(`SELECT COUNT(*) AS n FROM dfd_itens WHERE dfd_id = ? AND setor_id = ? AND excluido_em IS NULL`).get(dfdId, setorId).n;
   if (!totalItens) return res.status(400).json({ error: 'Lance ao menos 1 item antes de finalizar.' });
+  const pendencias = itensComPendencia(dfdId, setorId);
+  // Válvula de escape só pro master (mesmo nível de confiança que já ignora a
+  // trava de "pertence ao setor" logo acima) — regra nova (2026-09-06), sem
+  // ainda ter passado por uso real; sem isso um caso de negócio legítimo que a
+  // regra não previu travaria o teste do Alex sem ninguém disponível pra
+  // ajustar a regra no meio do caminho.
+  const forcar = req.user.username === 'master' && !!req.body?.forcar;
+  if (pendencias.length && !forcar) {
+    return res.status(409).json({
+      error: `${pendencias.length} item(ns) ainda tem campo(s) em branco (ex.: item #${pendencias[0].numero_item} — ${pendencias[0].campos.join(', ')}). Preencha antes de finalizar.`,
+      pendencias,
+    });
+  }
   db.prepare(`UPDATE dfd_setores SET finalizado_em = datetime('now') WHERE dfd_id = ? AND setor_id = ?`).run(dfdId, setorId);
-  registrarLog(req, 'PAC', 'FINALIZOU_SETOR_DFD', `Finalizou o lançamento do setor #${setorId} no DFD #${dfdId} (${totalItens} item(ns))`);
+  registrarLog(req, 'PAC', 'FINALIZOU_SETOR_DFD',
+    `Finalizou o lançamento do setor #${setorId} no DFD #${dfdId} (${totalItens} item(ns))` +
+    (forcar && pendencias.length ? ` — FORÇADO com ${pendencias.length} pendência(s) ignorada(s)` : ''));
   const pendentes = db.prepare(`SELECT COUNT(*) AS n FROM dfd_setores WHERE dfd_id = ? AND finalizado_em IS NULL`).get(dfdId).n;
   res.json({ ok: true, todos_finalizados: pendentes === 0 });
 });

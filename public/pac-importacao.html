@@ -36,6 +36,12 @@
     .imp-log-erro    { background: #fde8e8; color: #b91c1c; }
     [data-theme="dark"] .imp-log-alerta { background: rgba(202,138,4,.18); color: #fde047; }
     [data-theme="dark"] .imp-log-erro   { background: rgba(185,28,28,.18); color: #fca5a5; }
+    /* Correção inline por linha+coluna, dentro do log do "Simular" — pedido
+       do Alex, 2026-09-06: poder corrigir o valor ali mesmo, sem editar a
+       planilha e reimportar do zero. */
+    .imp-correcao-linha { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+    .imp-correcao-campo { display: flex; flex-direction: column; gap: 2px; font-size: 11px; font-weight: 600; color: var(--text-subtle); }
+    .imp-correcao-campo input { font-size: 12px; padding: 3px 6px; border: 1px solid var(--cinza-b); border-radius: 4px; background: var(--surface); color: var(--text); min-width: 140px; }
     .imp-banner { padding: 14px 16px; border-radius: 8px; font-weight: 600; margin-bottom: 14px; }
     .imp-banner-verde    { background: #dcfce7; color: #166534; }
     .imp-banner-amarelo  { background: #fef9c3; color: #854d0e; }
@@ -265,7 +271,11 @@
                   <span class="imp-contador">❌ Com erro: <span id="f1-sim-cnt-erros">0</span></span>
                 </div>
                 <div id="f1-sim-resumo-colunas" style="margin:14px 0;"></div>
-                <details><summary style="cursor:pointer;font-size:13px;font-weight:600;">Ver detalhes (linha a linha)</summary>
+                <div id="f1-sim-btn-corrigir-wrap" style="display:none;margin-bottom:10px;">
+                  <button class="btn btn-secondary btn-sm" onclick="f1AplicarCorrecoesESimular()">🔧 Aplicar correções e simular novamente</button>
+                  <span class="text-muted" style="font-size:11.5px;margin-left:6px;">Corrija o(s) valor(es) abaixo, direto aqui — sem precisar editar a planilha.</span>
+                </div>
+                <details open><summary style="cursor:pointer;font-size:13px;font-weight:600;">Ver detalhes (linha a linha)</summary>
                   <div id="f1-sim-log" style="margin-top:10px;max-height:260px;overflow-y:auto;"></div>
                 </details>
               </div>

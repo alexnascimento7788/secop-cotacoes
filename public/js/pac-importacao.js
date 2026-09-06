@@ -253,10 +253,21 @@ function f1MontarPreview(setorId, dfdSel) {
     }
   }
 
+  // Preenchimento por coluna da PLANILHA, calculado ANTES de importar (não só
+  // depois, no resumo por coluna do resultado) — pedido do Alex, 2026-09-06:
+  // "Unidade"/"Prioridade" vieram em branco numa importação real e ele só
+  // percebeu depois de já ter gravado. Aqui fica visível já no mapeamento,
+  // pra decidir ANTES se o cabeçalho foi bem reconhecido ou se a planilha
+  // mesmo veio vazia naquela coluna.
+  const preenchidasPorIdx = headers.map((_, i) => dataRows.filter(r => String(r[i] ?? '').trim() !== '').length);
+
   document.getElementById('f1-mapa-tbody').innerHTML = headers.map((h, i) => {
     const auto = autoMatches[i];
+    const preenchidas = preenchidasPorIdx[i];
+    const pct = dataRows.length ? Math.round((preenchidas / dataRows.length) * 100) : 0;
+    const cor = pct === 0 ? '#c00' : pct < 50 ? '#a15c00' : 'var(--text-subtle)';
     return `<tr>
-      <td>${h || `(coluna ${i + 1})`}</td>
+      <td>${h || `(coluna ${i + 1})`}<div style="font-size:11px;color:${cor};">${preenchidas}/${dataRows.length} preenchida(s) na planilha (${pct}%)</div></td>
       <td><select data-idx="${i}" onchange="f1RecalcularIndicadores()">
         <option value="">Ignorar</option>
         ${candidatos.map(c => `<option value="${c.slug}" ${c.slug === auto ? 'selected' : ''}>${c.label}</option>`).join('')}
@@ -361,13 +372,57 @@ async function f1Importar(dryRun) {
   }
 }
 
+// Índice (posição) da coluna da PLANILHA mapeada pro slug do sistema, olhando
+// o mapeamento atual em tela — usado pra escrever a correção de volta na
+// linha certa de _f1Linhas (ver f1AplicarCorrecoes).
+function f1ObterIdxColuna(slug) {
+  const sel = [...document.querySelectorAll('#f1-mapa-tbody select')].find(s => s.value === slug);
+  return sel ? Number(sel.dataset.idx) : null;
+}
+
+// Autonomia de corrigir já na tela de importação (pedido do Alex,
+// 2026-09-06: "não ter autonomia de alterar já na importação e não na
+// planilha, não consigo seguir") — cada linha com alerta/erro no "Simular"
+// ganha um campo de correção por coluna afetada (pré-preenchido com o valor
+// bruto da planilha). "Aplicar correções e simular novamente" escreve o valor
+// direto na linha em memória (_f1Linhas — a mesma referência que alimenta o
+// payload de importar de verdade) e reroda o "Simular" automaticamente.
+function f1LinhaCorrecoes(l) {
+  if (!l.campos || !l.campos.length) return '';
+  return `<div class="imp-correcao-linha">
+    ${l.campos.map(c => `
+      <label class="imp-correcao-campo">
+        <span>${c.label}</span>
+        <input type="text" data-linha="${l.linha}" data-slug="${c.slug}" value="${String(c.bruto ?? '').replace(/"/g, '&quot;')}" placeholder="(vazio)">
+      </label>
+    `).join('')}
+  </div>`;
+}
+
+async function f1AplicarCorrecoesESimular() {
+  const dataRows = _f1Linhas.slice(1).filter(r => r.some(c => String(c || '').trim() !== ''));
+  let aplicadas = 0;
+  document.querySelectorAll('#f1-sim-log .imp-correcao-campo input').forEach(input => {
+    const linha = Number(input.dataset.linha);
+    const idxCol = f1ObterIdxColuna(input.dataset.slug);
+    if (!linha || idxCol === null || !dataRows[linha - 1]) return;
+    dataRows[linha - 1][idxCol] = input.value;
+    aplicadas++;
+  });
+  if (!aplicadas) { toast('Nenhuma correção pra aplicar', 'error'); return; }
+  toast(`${aplicadas} correção(ões) aplicada(s) — simulando de novo...`);
+  await f1Importar(true);
+}
+
 function f1MostrarSimulacao(r) {
   document.getElementById('f1-simulacao-wrap').style.display = '';
   document.getElementById('f1-sim-cnt-importados').textContent = r.importados;
   document.getElementById('f1-sim-cnt-alertas').textContent = r.alertas;
   document.getElementById('f1-sim-cnt-erros').textContent = r.erros;
+  const temCorrecao = (r.log || []).some(l => l.campos && l.campos.length);
+  document.getElementById('f1-sim-btn-corrigir-wrap').style.display = temCorrecao ? '' : 'none';
   document.getElementById('f1-sim-log').innerHTML = (r.log || []).map(l =>
-    `<div class="imp-log-linha imp-log-${l.tipo}">${l.tipo === 'erro' ? '❌' : l.tipo === 'alerta' ? '⚠️' : '✅'} Linha ${l.linha} — ${l.mensagem}</div>`
+    `<div class="imp-log-linha imp-log-${l.tipo}">${l.tipo === 'erro' ? '❌' : l.tipo === 'alerta' ? '⚠️' : '✅'} Linha ${l.linha} — ${l.mensagem}${f1LinhaCorrecoes(l)}</div>`
   ).join('');
   renderResumoColunas(r.resumo_colunas || [], 'f1-sim-resumo-colunas');
   document.getElementById('f1-simulacao-wrap').scrollIntoView({ behavior: 'smooth', block: 'nearest' });

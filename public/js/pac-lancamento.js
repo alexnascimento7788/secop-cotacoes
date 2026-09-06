@@ -69,9 +69,12 @@ document.addEventListener('DOMContentLoaded', () => {
 // (master/admin_sistema, ver routes/pac-importacao.js), não Perfil/Rotina;
 // mesma checagem duplicada em pac-gestao.js/pac-acompanhamento.js (cada
 // página tem sua própria sidebar, sem componente compartilhado).
+let _usuarioPac = null; // guardado pra decidir a válvula de escape do master no bloqueio de pendências (ver renderFinalizacao)
+
 async function aplicarAcessoImportacao() {
   try {
     const user = await window.getCurrentUser();
+    _usuarioPac = user;
     const el = document.getElementById('nav-pac-importacao');
     if (el && user && (user.username === 'master' || user.role === 'admin_sistema')) el.style.display = '';
   } catch {}
@@ -701,6 +704,22 @@ async function carregarStatusFinalizacao() {
   } catch { _finalizacaoPorSetor = {}; }
 }
 
+// Itens do setor com algum campo do grupo A (o "corpo" do lançamento, exceto
+// Contrato — que tem regra própria) ainda em branco — mesmo critério de
+// itensComPendencia() no servidor (routes/pac.js), calculado aqui client-side
+// reaproveitando o que já está carregado (_itensAtuais/_dfdAtual.colunas),
+// sem round-trip extra. Pedido do Alex, 2026-09-06: precisa aparecer ANTES de
+// tentar finalizar, não só como erro depois do clique.
+function pendenciasDoSetor(setorId) {
+  const colunas = (_dfdAtual.colunas || []).filter(c => c.grupo === 'A' && c.slug !== 'numero_item');
+  return _itensAtuais.filter(i => i.setor_id === setorId).filter(item =>
+    colunas.some(c => {
+      const v = (item.valores || {})[c.id];
+      return v === undefined || v === null || String(v).trim() === '';
+    })
+  );
+}
+
 // Chamado DEPOIS de renderItens() — precisa de _itensAtuais pra só oferecer o
 // botão quando o setor já tem ao menos 1 item lançado (Alex: "visível somente
 // quando... o gestor tem ao menos 1 item lançado").
@@ -714,14 +733,30 @@ function renderFinalizacao() {
     if (fin) return `<div class="lanc-fin-linha"><strong>${s.nome}:</strong> <span class="badge badge-aberto">✅ Finalizado em ${fmtBr(String(fin).split(' ')[0])}</span></div>`;
     const temItem = _itensAtuais.some(i => i.setor_id === s.id);
     if (!temItem) return '';
+    const pendentes = pendenciasDoSetor(s.id);
+    if (pendentes.length) {
+      const souMaster = _usuarioPac && _usuarioPac.username === 'master';
+      return `<div class="lanc-fin-linha lanc-fin-pendente">
+        <strong>${s.nome}:</strong>
+        <span class="text-muted">⚠️ ${pendentes.length} item(ns) com campo(s) em branco — preencha antes de finalizar (nº ${pendentes.slice(0, 5).map(i => i.numero_pac || i.numero_item).join(', ')}${pendentes.length > 5 ? '...' : ''}).</span>
+        ${souMaster
+          ? `<button class="btn btn-secondary btn-xs" onclick="finalizarMeuSetor(${s.id}, true)" title="Só master: finaliza mesmo com pendência">Finalizar assim mesmo (master)</button>`
+          : `<button class="btn btn-secondary btn-xs" disabled title="Preencha os campos em branco antes de finalizar">Finalizar meu DFD</button>`}
+      </div>`;
+    }
     return `<div class="lanc-fin-linha"><strong>${s.nome}:</strong> <button class="btn btn-secondary btn-xs" onclick="finalizarMeuSetor(${s.id})">Finalizar meu DFD</button></div>`;
   }).join('');
 }
 
-async function finalizarMeuSetor(setorId) {
-  if (!confirm('Ao finalizar, você não poderá mais incluir ou editar itens deste setor sem solicitar autorização ao DEPLA. Confirmar?')) return;
+async function finalizarMeuSetor(setorId, forcar) {
+  const aviso = forcar
+    ? 'Existem itens com campo(s) em branco. Como master, você pode finalizar assim mesmo — confirma?'
+    : 'Ao finalizar, você não poderá mais incluir ou editar itens deste setor sem solicitar autorização ao DEPLA. Confirmar?';
+  if (!confirm(aviso)) return;
   try {
-    const res = await fetch(`/api/pac/dfds/${_dfdAtualId}/setores/${setorId}/finalizar`, { method: 'POST' });
+    const res = await fetch(`/api/pac/dfds/${_dfdAtualId}/setores/${setorId}/finalizar`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ forcar: !!forcar }),
+    });
     if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
     toast('Setor finalizado.');
     await carregarStatusFinalizacao();

@@ -406,6 +406,12 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
     const numeroLinha = idx + 1;
     const valoresFinal = {}; // coluna_id -> valor tratado (string ou null)
     const alertasLinha = [];
+    // Campos flagados (alerta OU erro) desta linha, um item por coluna —
+    // pedido do Alex, 2026-09-06: "não ter autonomia de alterar já na
+    // importação e não na planilha". Guarda slug/bruto pra o front (só no
+    // "Simular") oferecer um campo de correção inline por linha+coluna, sem
+    // precisar editar a planilha e reimportar do zero.
+    const camposLinha = [];
     let erroLinha = null;
 
     for (const coluna of colunasAtivas) {
@@ -415,7 +421,11 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
 
       if (vazio) {
         if (stat) stat.vazias++;
-        if (coluna.obrigatoria) { erroLinha = `Campo obrigatório "${coluna.label}" vazio`; break; }
+        if (coluna.obrigatoria) {
+          erroLinha = `Campo obrigatório "${coluna.label}" vazio`;
+          camposLinha.push({ coluna_id: coluna.id, slug: coluna.slug, label: coluna.label, bruto: '', mensagem: erroLinha });
+          break;
+        }
         // Dado histórico: célula de contrato em branco não é "ainda não
         // respondido" (isso é Pendente, pra item lançado ao vivo) — é "nunca
         // foi capturado nesta planilha". Grava explícito em vez de NULL, pra
@@ -433,19 +443,19 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
       if (coluna.tipo_input === 'data') {
         const r = parseDataSerial(bruto);
         valoresFinal[coluna.id] = r.valor;
-        if (r.alerta) alertasLinha.push(`${coluna.label}: ${r.alerta}`);
+        if (r.alerta) { alertasLinha.push(`${coluna.label}: ${r.alerta}`); camposLinha.push({ coluna_id: coluna.id, slug: coluna.slug, label: coluna.label, bruto: String(bruto), mensagem: r.alerta }); }
       } else if (coluna.tipo_input === 'moeda') {
         const r = parseMoedaServidor(bruto);
         valoresFinal[coluna.id] = String(r.valor);
-        if (r.alerta) alertasLinha.push(`${coluna.label}: ${r.alerta}`);
+        if (r.alerta) { alertasLinha.push(`${coluna.label}: ${r.alerta}`); camposLinha.push({ coluna_id: coluna.id, slug: coluna.slug, label: coluna.label, bruto: String(bruto), mensagem: r.alerta }); }
       } else if (coluna.slug === 'fonte_pagadora') {
         const r = parseFontePagadora(bruto);
         valoresFinal[coluna.id] = r.valor;
-        if (r.alerta) { alertasLinha.push(`${coluna.label}: ${r.alerta}`); registrarNaoReconhecido(stat, bruto); }
+        if (r.alerta) { alertasLinha.push(`${coluna.label}: ${r.alerta}`); registrarNaoReconhecido(stat, bruto); camposLinha.push({ coluna_id: coluna.id, slug: coluna.slug, label: coluna.label, bruto: String(bruto), mensagem: r.alerta }); }
       } else if (coluna.tipo_input === 'select' && coluna.lista) {
         const r = matchParametroLista(coluna.lista, bruto, dryRun);
         valoresFinal[coluna.id] = r.valor;
-        if (r.alerta) { alertasLinha.push(`${coluna.label}: ${r.alerta}`); registrarNaoReconhecido(stat, bruto, r.tipo); }
+        if (r.alerta) { alertasLinha.push(`${coluna.label}: ${r.alerta}`); registrarNaoReconhecido(stat, bruto, r.tipo); camposLinha.push({ coluna_id: coluna.id, slug: coluna.slug, label: coluna.label, bruto: String(bruto), mensagem: r.alerta }); }
       } else {
         valoresFinal[coluna.id] = String(bruto).trim();
       }
@@ -453,7 +463,7 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
 
     if (erroLinha) {
       comErro++;
-      log.push({ tipo: 'erro', linha: numeroLinha, mensagem: erroLinha });
+      log.push({ tipo: 'erro', linha: numeroLinha, mensagem: erroLinha, campos: camposLinha });
       return;
     }
 
@@ -478,7 +488,7 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
     const acao = dryRun ? 'ficaria' : 'foi';
     if (alertasLinha.length) {
       comAlertas++;
-      log.push({ tipo: 'alerta', linha: numeroLinha, mensagem: alertasLinha.join('; ') });
+      log.push({ tipo: 'alerta', linha: numeroLinha, mensagem: alertasLinha.join('; '), campos: camposLinha });
     } else {
       log.push({ tipo: 'sucesso', linha: numeroLinha, mensagem: `Item #${numeroAtual} ${acao} importado` });
     }
