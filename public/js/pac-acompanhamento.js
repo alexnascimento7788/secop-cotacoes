@@ -52,7 +52,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       fetch('/api/pac/meus-setores'),
     ]);
     const dfds = dfdsRes.ok ? await dfdsRes.json() : [];
-    document.getElementById('acomp-dfd-select').innerHTML = dfds.map(d => `<option value="${d.id}">${d.titulo} (${d.ano_base})</option>`).join('')
+    document.getElementById('acomp-dfd-select').innerHTML = dfds.map(d => `<option value="${d.id}">DFD-${String(d.id).padStart(3, '0')}-${d.ano_base} — ${d.titulo}</option>`).join('')
       || '<option value="">Nenhum DFD disponível</option>';
 
     const setores = setoresRes.ok ? await setoresRes.json() : [];

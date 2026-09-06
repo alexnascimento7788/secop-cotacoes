@@ -91,18 +91,29 @@ async function aplicarAcessoImportacao() {
 
 let _dfds = [];
 
+// Código estável do DFD (nunca some/reaparece com outro dono) — pedido do
+// Alex, 2026-09-06: testando com vários DFDs criados/apagados, sem número
+// nenhum na tela ficava difícil saber qual é qual. Deriva de `id`
+// (AUTOINCREMENT de verdade — SQLite nunca reusa esse número, mesmo depois
+// de excluir uma linha) + ano_base; não é coluna nova no banco, é só
+// formatação (sempre reproduzível a partir do que já existe).
+function codigoDfd(d) {
+  return `DFD-${String(d.id).padStart(3, '0')}-${d.ano_base}`;
+}
+
 async function carregarDfds() {
   try {
     const res = await fetch('/api/pac/dfds');
     _dfds = res.ok ? await res.json() : [];
     document.getElementById('dfds-tbody').innerHTML = _dfds.map(d => `
       <tr>
-        <td><strong>${d.titulo}</strong></td>
+        <td><strong>${codigoDfd(d)}</strong></td>
+        <td>${d.titulo}</td>
         <td>${d.ano_base}</td>
         <td>${badgeStatusDfd(d.status)}</td>
         <td style="text-align:right;"><button class="btn btn-secondary btn-sm" onclick="abrirDetalheDfd(${d.id})">Abrir</button></td>
       </tr>
-    `).join('') || `<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum DFD criado ainda.</td></tr>`;
+    `).join('') || `<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum DFD criado ainda.</td></tr>`;
   } catch {
     toast('Erro ao carregar DFDs', 'error');
   }
@@ -152,7 +163,7 @@ async function carregarDetalheDfd() {
   const res = await fetch(`/api/pac/dfds/${_dfdAtualId}`);
   if (!res.ok) { toast('Erro ao carregar DFD', 'error'); return; }
   const dfd = await res.json();
-  document.getElementById('dfd-det-titulo').textContent = `${dfd.titulo} (${dfd.ano_base})`;
+  document.getElementById('dfd-det-titulo').textContent = `${codigoDfd(dfd)} — ${dfd.titulo}`;
   const badge = document.getElementById('dfd-det-badge');
   const map = { aberto: 'Aberto', analise: 'Em análise', fechado: 'Fechado' };
   badge.className = `badge badge-${dfd.status}`;
@@ -634,7 +645,7 @@ function badgeStatusExec(status) {
 // numero_pac — sobrevive à consolidação/recálculo que vier depois).
 async function popularSelectDfdsExecucao() {
   if (!_dfds.length) await carregarDfds();
-  const opts = _dfds.map(d => `<option value="${d.id}">${d.titulo} (${d.ano_base})</option>`).join('');
+  const opts = _dfds.map(d => `<option value="${d.id}">${codigoDfd(d)} — ${d.titulo}</option>`).join('');
   const solSel = document.getElementById('sol-dfd-select');
   const acompSel = document.getElementById('acomp-dfd-select');
   if (solSel) solSel.innerHTML = opts;
@@ -681,12 +692,13 @@ async function carregarConsolidacaoLista() {
     return info.consolidado ? { dfd: d, info } : null;
   }))).filter(Boolean);
   if (!linhas.length) {
-    tbody.innerHTML = `<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum DFD consolidado ainda.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum DFD consolidado ainda.</td></tr>`;
     return;
   }
   tbody.innerHTML = linhas.map(({ dfd, info }) => `
     <tr>
-      <td><strong>${dfd.titulo}</strong></td>
+      <td><strong>${codigoDfd(dfd)}</strong></td>
+      <td>${dfd.titulo}</td>
       <td>${dfd.ano_base}</td>
       <td>${info.itens.length}</td>
       <td>Consolidado em ${fmtBrData(info.consolidacao.consolidado_em)}</td>
@@ -706,7 +718,7 @@ async function abrirConsolidadoDetalhe(dfdId, titulo, anoBase) {
   _consolSubtabAtual = 'ativos';
   document.getElementById('consol-lista').style.display = 'none';
   document.getElementById('consol-detalhe').style.display = 'block';
-  document.getElementById('consol-det-titulo').textContent = `${titulo} (${anoBase}) — Consolidado`;
+  document.getElementById('consol-det-titulo').textContent = `${codigoDfd({ id: dfdId, ano_base: anoBase })} — ${titulo} — Consolidado`;
   // Reseta o filtro de setor (dataset.montado força remontar as <option> pra
   // este DFD — sem isso, abrir um 2º DFD reaproveitaria a lista de setores do
   // 1º) e a aba de volta pra "Ativos".

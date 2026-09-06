@@ -135,12 +135,18 @@ async function recarregarDfdsESetores() {
 
   const f1Select = document.getElementById('f1-dfd-select');
   f1Select.innerHTML = '<option value="novo">+ Criar novo DFD</option>' +
-    _dfds.filter(d => d.status === 'aberto').map(d => `<option value="${d.id}">${d.titulo} (${d.ano_base})</option>`).join('');
+    _dfds.filter(d => d.status === 'aberto').map(d => `<option value="${d.id}">${codigoDfd(d)} — ${d.titulo}</option>`).join('');
   f1MudarDfd();
 
   document.getElementById('f1-setor-select').innerHTML = _setores.map(s => `<option value="${s.id}">${s.nome}</option>`).join('');
 
-  document.getElementById('f2-dfd-select').innerHTML = _dfds.map(d => `<option value="${d.id}">${d.titulo} (${d.ano_base}) — ${d.status}</option>`).join('');
+  document.getElementById('f2-dfd-select').innerHTML = _dfds.map(d => `<option value="${d.id}">${codigoDfd(d)} — ${d.titulo} — ${d.status}</option>`).join('');
+}
+
+// Código estável do DFD (nunca some/reaparece com outro dono) — pedido do
+// Alex, 2026-09-06, ver mesma função em pac-lancamento.js/pac-gestao.js.
+function codigoDfd(d) {
+  return `DFD-${String(d.id).padStart(3, '0')}-${d.ano_base}`;
 }
 
 async function inicializar() {
