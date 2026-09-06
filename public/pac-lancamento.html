@@ -29,10 +29,6 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
         Lançamento
       </a>
-      <a href="pac-acompanhamento.html" class="nav-item">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
-        Acompanhamento
-      </a>
       <details class="pac-nav-galho" id="nav-gestao-galho">
         <summary>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
@@ -97,7 +93,13 @@
 
     <!-- Itens do DFD aberto -->
     <div id="pac-dfd-itens" style="display:none;">
-      <button class="btn btn-secondary btn-sm" onclick="fecharDfd()" style="margin-bottom:14px;">← Voltar aos DFDs</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <button class="btn btn-secondary btn-sm" onclick="fecharDfd()">← Voltar aos DFDs</button>
+        <button class="btn btn-secondary btn-sm" onclick="abrirAcompanhamentoPopup()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px;"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
+          Acompanhamento
+        </button>
+      </div>
 
       <div class="card" id="lanc-pedidos-card" style="display:none;margin-bottom:16px;">
         <div class="card-header"><span class="card-title">Meus pedidos de edição</span></div>
@@ -147,6 +149,33 @@
     <div style="display:flex;gap:8px;justify-content:flex-end;">
       <button type="button" class="btn btn-secondary" onclick="fecharModalContrato()">Fechar</button>
       <button type="button" class="btn btn-primary" id="mc-salvar" onclick="salvarContrato()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- "Acompanhamento" do meu setor — popup somente-leitura com as MESMAS colunas
+     de Lançamento (dados congelados pra consulta/impressão). Substitui a
+     antiga página/rotina "pac-acompanhamento" separada (2026-09-06). -->
+<div class="modal-overlay modal-overlay-print" id="modal-acompanhamento">
+  <div class="modal-box modal-box-lg">
+    <div class="print-only prt-titulo" style="font-size:14pt;letter-spacing:2px;">CEASA CONECTA — PAC</div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+      <div>
+        <h3 style="margin-bottom:2px;">Acompanhamento</h3>
+        <p id="acomp-pop-subtitulo" class="text-muted" style="font-size:12.5px;margin:0;"></p>
+      </div>
+      <div class="no-print" style="display:flex;gap:8px;flex-shrink:0;">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="window.print()">🖨 Imprimir</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="fecharAcompanhamentoPopup()">Fechar</button>
+      </div>
+    </div>
+    <div class="modal-box-lg-corpo" style="margin-top:14px;">
+      <div class="table-wrap dfd-table-wrap">
+        <table class="dfd-table" id="acomp-pop-table">
+          <thead id="acomp-pop-thead"></thead>
+          <tbody id="acomp-pop-tbody"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>

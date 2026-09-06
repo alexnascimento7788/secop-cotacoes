@@ -269,26 +269,23 @@ async function renderItensDfd(colunasParam) {
   const setores = setoresRes.ok ? await setoresRes.json() : [];
   const nomeSetor = id => (setores.find(s => s.id === id) || {}).nome || `#${id}`;
 
-  // "Nº" primeiro, "Setor" segundo — mesma ordem de sempre em Lançamento
-  // (onde Nº é a 1ª coluna fixa; Setor nem existe lá, é escopo de um setor só).
-  // Tinha ficado invertido aqui (Setor antes de Nº), único lugar do sistema
-  // assim — Alex reportou como "setor e número estão invertidos".
-  const colunaNumero = colunas.find(c => c.slug === 'numero_item');
+  // "Setor" primeiro, depois ID PAC/Nº PAC — "Número" (numero_item, sequencial
+  // interno) não aparece mais aqui, mesma decisão da tela de Lançamento
+  // (instrução do Alex era só ID_PAC + NUMERO_PAC visíveis pro usuário final).
   const colunasResto = colunas.filter(c => c.slug !== 'numero_item');
 
   document.getElementById('dfd-det-itens-thead').innerHTML =
-    `<tr><th>${colunaNumero ? colunaNumero.label : 'Nº'}</th><th>Setor</th><th>Código PAC</th><th>Nº PAC</th>${colunasResto.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}</tr>`;
+    `<tr><th>Setor</th><th>ID PAC</th><th>Nº PAC</th>${colunasResto.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}</tr>`;
 
   document.getElementById('dfd-det-itens-tbody').innerHTML = itens.map(item => `
     <tr>
-      <td>${item.numero_item}</td>
       <td>${nomeSetor(item.setor_id)}</td>
       <td>${item.codigo_pac || '—'}</td>
       <td>${item.numero_pac || '—'}</td>
       ${colunasResto.map(c => `<td>${formatarValorColuna(c, item.valores[c.id])}</td>`).join('')}
       ${temColContrato ? celulaContratoLeitura(item, colunasContrato, todasColunas) : ''}
     </tr>
-  `).join('') || `<tr><td colspan="${colunas.length + 2 + (temColContrato ? 2 : 1)}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`;
+  `).join('') || `<tr><td colspan="${colunasResto.length + 3 + (temColContrato ? 1 : 0)}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`;
 }
 
 /* ── Formatação por tipo de coluna (mesma ideia de fmtBr/fmtMoeda do resto do

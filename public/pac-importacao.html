@@ -131,10 +131,6 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
         Lançamento
       </a>
-      <a href="pac-acompanhamento.html" class="nav-item">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
-        Acompanhamento
-      </a>
       <details class="pac-nav-galho" id="nav-gestao-galho" open>
         <summary>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
@@ -268,7 +264,8 @@
                 <span class="imp-contador">⚠️ Com alertas: <span id="f1-cnt-alertas">0</span></span>
                 <span class="imp-contador">❌ Com erro: <span id="f1-cnt-erros">0</span></span>
               </div>
-              <details><summary style="cursor:pointer;font-size:13px;font-weight:600;">Ver detalhes</summary>
+              <div id="f1-resumo-colunas" style="margin:14px 0;"></div>
+              <details><summary style="cursor:pointer;font-size:13px;font-weight:600;">Ver detalhes (linha a linha)</summary>
                 <div id="f1-log" style="margin-top:10px;max-height:300px;overflow-y:auto;"></div>
               </details>
               <div id="f1-sql-wrap" class="pac-card" style="margin-top:16px;background:var(--surface-2);">

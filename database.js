@@ -902,8 +902,16 @@ function setupDb() {
     -- de cancelar (ver renumerarPacFinal em routes/pac.js) mesmo depois que os
     -- itens ativos são renumerados por cima — sem excluir cancelados do
     -- índice, essa sobreposição intencional violaria a unicidade.
+    -- Bug #3 achado testando reimportação (2026-09-06): faltava excluir
+    -- também EXCLUÍDO (soft-delete). A Fase 1 em modo "substituir" marca os
+    -- itens antigos com excluido_em em vez de apagar de verdade, mas eles
+    -- continuavam contando nesse índice — reimportar pro MESMO setor uma
+    -- segunda vez sempre colidia com o próprio numero_pac que tinha acabado
+    -- de "substituir", porque o item antigo (excluído) ainda segurava aquele
+    -- número. Item excluído não deveria disputar unicidade com nada.
     CREATE UNIQUE INDEX IF NOT EXISTS idx_dfd_itens_numero_pac_ativo
-      ON dfd_itens(dfd_id, setor_id, numero_pac) WHERE numero_pac IS NOT NULL AND status_consolidacao != 'cancelado';
+      ON dfd_itens(dfd_id, setor_id, numero_pac)
+      WHERE numero_pac IS NOT NULL AND status_consolidacao != 'cancelado' AND excluido_em IS NULL;
   `);
 
   // Nº SEI — só esse era realmente novo. numero_movimento já existia rotulado
@@ -969,7 +977,47 @@ function setupDb() {
     seedColuna('numero_contrato',  'Nº Contrato',              'C', 'texto',    null,             0, 15);
     seedColuna('razao_social',     'Razão Social',             'C', 'texto',    null,             0, 16);
     seedColuna('data_vencimento',  'Vencimento',                'C', 'data',     null,             0, 17);
+    // Grupo C (mesmo tratamento de "Possui Contrato?": some do popup quando
+    // "Não" está selecionado, ganha sentinela "Não informado" em vez de NULL
+    // pra dado histórico em branco — ver SLUGS_CONTRATO_SENTINELA em
+    // routes/pac-importacao.js e valoresContratoDoForm() em pac-lancamento.js,
+    // que já trata QUALQUER coluna do grupo C genericamente, sem código novo).
+    seedColuna('contrato_renovado', 'O contrato será renovado?', 'C', 'select', 'sim_nao',        0, 18);
   }
+
+  // Um DFD novo herda automaticamente toda coluna ativa=1 do catálogo (ver
+  // POST /dfds em routes/pac.js), mas um DFD que já existia ANTES desta
+  // coluna ser criada não ganha ela sozinho — precisa de backfill explícito
+  // em dfd_colunas_ativas, senão "O contrato será renovado?" nunca aparece
+  // nos DFDs que o Alex já estava testando.
+  try {
+    const col = _db.prepare(`SELECT id FROM dfd_colunas_catalogo WHERE slug = 'contrato_renovado'`).get();
+    if (col) {
+      const semColuna = _db.prepare(`
+        SELECT d.id FROM dfds d
+        WHERE NOT EXISTS (SELECT 1 FROM dfd_colunas_ativas dca WHERE dca.dfd_id = d.id AND dca.coluna_id = ?)
+      `).all(col.id);
+      const insBackfill = _db.prepare(`INSERT INTO dfd_colunas_ativas (dfd_id, coluna_id, ordem) VALUES (?, ?, 18)`);
+      semColuna.forEach(d => insBackfill.run(d.id, col.id));
+    }
+  } catch {}
+
+  // "Encaminhar para" — coluna do catálogo original cujo propósito de negócio
+  // ninguém aqui sabe explicar mais (2026-09-06, pedido do Alex). Desativada
+  // no catálogo (não entra em DFD novo, some do seletor de colunas do DEPLA)
+  // E removida dos DFDs que já tinham ela ativada — sem isso continuaria
+  // aparecendo nos DFDs existentes, porque a leitura das colunas ativas de um
+  // DFD (routes/pac.js) junta com o catálogo sem filtrar por `ativa`. Dado já
+  // digitado em dfd_itens_valores fica órfão (não apagado), sem efeito
+  // colateral: só não some de exibição em lugar nenhum enquanto a coluna
+  // permanecer desativada.
+  try {
+    _db.exec(`UPDATE dfd_colunas_catalogo SET ativa = 0 WHERE slug = 'encaminhar_para'`);
+    _db.exec(`
+      DELETE FROM dfd_colunas_ativas WHERE coluna_id IN
+      (SELECT id FROM dfd_colunas_catalogo WHERE slug = 'encaminhar_para')
+    `);
+  } catch {}
 
   _db.exec(`
     CREATE TABLE IF NOT EXISTS logs (
