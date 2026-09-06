@@ -38,6 +38,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (!user) return;
   document.getElementById('acomp-subtitulo').textContent = `${user.nome_completo || user.username}`;
 
+  // Link "Importação" dentro do galho Gestão da sidebar — acesso é só por
+  // role (master/admin_sistema, ver routes/pac-importacao.js), não Perfil/
+  // Rotina; mesma checagem duplicada em pac-gestao.js/pac-lancamento.js.
+  if (user.username === 'master' || user.role === 'admin_sistema') {
+    const el = document.getElementById('nav-pac-importacao');
+    if (el) el.style.display = '';
+  }
+
   try {
     const [dfdsRes, setoresRes] = await Promise.all([
       fetch('/api/pac/dfds'),

@@ -62,7 +62,20 @@ document.addEventListener('DOMContentLoaded', () => {
   atualizarRelogioHeader();
   setInterval(atualizarRelogioHeader, 60 * 1000);
   carregarDfds();
+  aplicarAcessoImportacao();
 });
+
+// Link "Importação" dentro do galho Gestão da sidebar — acesso é só por role
+// (master/admin_sistema, ver routes/pac-importacao.js), não Perfil/Rotina;
+// mesma checagem duplicada em pac-gestao.js/pac-acompanhamento.js (cada
+// página tem sua própria sidebar, sem componente compartilhado).
+async function aplicarAcessoImportacao() {
+  try {
+    const user = await window.getCurrentUser();
+    const el = document.getElementById('nav-pac-importacao');
+    if (el && user && (user.username === 'master' || user.role === 'admin_sistema')) el.style.display = '';
+  } catch {}
+}
 
 const MESES_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 

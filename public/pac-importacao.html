@@ -135,14 +135,24 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
         Acompanhamento
       </a>
-      <a href="pac-gestao.html" class="nav-item">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
-        Gestão
-      </a>
-      <a href="pac-importacao.html" class="nav-item active">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Importação
-      </a>
+      <details class="pac-nav-galho" id="nav-gestao-galho" open>
+        <summary>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
+          Gestão
+          <svg class="pac-nav-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </summary>
+        <a href="pac-gestao.html#acompanhamento" class="nav-item pac-nav-sub">Acompanhamento</a>
+        <a href="pac-gestao.html#consolidacao" class="nav-item pac-nav-sub2">Consolidação</a>
+        <details class="pac-nav-galho">
+          <summary>Administração <svg class="pac-nav-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></summary>
+          <a href="pac-gestao.html#dfds" class="nav-item pac-nav-sub2">DFDs</a>
+          <a href="pac-gestao.html#solicitacoes" class="nav-item pac-nav-sub2">Solicitações</a>
+          <a href="pac-gestao.html#setores" class="nav-item pac-nav-sub2">Setores</a>
+          <a href="pac-gestao.html#parametros" class="nav-item pac-nav-sub2">Parâmetros</a>
+          <a href="pac-gestao.html#pedidos" class="nav-item pac-nav-sub2">Pedidos</a>
+        </details>
+        <a href="pac-importacao.html" class="nav-item pac-nav-sub active">Importação</a>
+      </details>
     </nav>
     <div class="sidebar-footer">
       <span id="sidebar-username" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;">—</span>

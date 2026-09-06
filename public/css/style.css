@@ -148,6 +148,26 @@ button { cursor: pointer; }
 
 .nav-item svg { flex-shrink: 0; }
 
+/* ── Sidebar: galho "Gestão" em árvore (PAC) ─────────────────────────────
+   <details> nativo, zero JS de UI pro collapse/expand. Gestão fica FECHADA
+   por padrão (economiza espaço nas outras páginas do PAC) e só o
+   pac-gestao.js abre/marca o item ativo via JS, porque só ele sabe qual aba
+   está selecionada. */
+.pac-nav-galho summary {
+  display: flex; align-items: center; gap: 10px; padding: 10px 20px;
+  color: var(--cinza-t); font-size: 13.5px; cursor: pointer; list-style: none;
+  -webkit-user-select: none; user-select: none; border-left: 3px solid transparent;
+}
+.pac-nav-galho summary::-webkit-details-marker { display: none; }
+.pac-nav-galho summary:hover { background: var(--surface-2); color: var(--text); }
+.pac-nav-galho summary .pac-nav-caret { flex-shrink: 0; transition: transform .15s; margin-left: auto; }
+.pac-nav-galho[open] > summary .pac-nav-caret { transform: rotate(90deg); }
+.pac-nav-galho.active > summary { border-left-color: var(--verde); color: var(--verde); background: var(--surface-2); font-weight: 600; }
+
+.nav-item.pac-nav-sub { padding-left: 34px; font-size: 12.5px; }
+.nav-item.pac-nav-sub2 { padding-left: 48px; font-size: 12px; }
+.pac-nav-galho .pac-nav-galho > summary { padding-left: 34px; font-size: 12.5px; }
+
 .sidebar-footer {
   padding: 12px 20px;
   border-top: 1px solid var(--cinza-b);
@@ -1061,12 +1081,28 @@ textarea:focus::placeholder { color: transparent; }
 #app-footer { margin-top: auto; }
 
 .app-footer {
+  position: relative;
   padding: 20px 24px 16px;
   border-radius: 10px;
   background: var(--surface);
   border: 1px solid var(--cinza-b);
   color: var(--text-muted);
   font-size: 0.8rem;
+}
+
+/* Marca d'água discreta, canto inferior esquerdo — pedido permanente do Alex,
+   presente em todo rodapé do sistema: "número 7, à honra e glória de Deus".
+   Deliberadamente quase invisível (baixo contraste, sem negrito) — não é um
+   elemento de marca, é um sinal discreto. */
+.app-footer-marca {
+  position: absolute;
+  left: 10px;
+  bottom: 6px;
+  font-size: 10px;
+  color: var(--text-subtle);
+  opacity: .45;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .app-footer-grid {

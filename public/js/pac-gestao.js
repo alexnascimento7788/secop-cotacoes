@@ -14,8 +14,21 @@ function badgeStatusDfd(status) {
   return `<span class="badge badge-${status}">${map[status] || status}</span>`;
 }
 
+const ABAS_PAC_VALIDAS = new Set(['acompanhamento', 'consolidacao', 'dfds', 'solicitacoes', 'setores', 'parametros', 'pedidos']);
+
 document.addEventListener('DOMContentLoaded', async () => {
-  document.querySelectorAll('#pac-tabs .pac-nav-item[data-tab]').forEach(t => t.addEventListener('click', () => mudarAbaPac(t.dataset.tab)));
+  // Navegação agora mora na sidebar (galho "Gestão" em árvore, ver
+  // pac-gestao.html) — os links de aba (<a data-tab>) apontam pra
+  // "pac-gestao.html#aba" (funciona vindo de fora, ex.: Lançamento) e, como
+  // já estamos NESTA página, interceptamos o clique pra trocar de aba sem
+  // recarregar (só ajusta o hash via replaceState, sem disparar hashchange).
+  document.querySelectorAll('#nav-gestao-galho [data-tab]').forEach(t => t.addEventListener('click', e => {
+    e.preventDefault();
+    mudarAbaPac(t.dataset.tab);
+  }));
+  // Voltar/avançar do navegador (ou colar um link com #aba) troca de aba também.
+  window.addEventListener('hashchange', () => mudarAbaPac(abaDoHash()));
+
   await carregarDfds();
   carregarSetores();
   popularSelectListas();
@@ -25,12 +38,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   await popularSelectDfdsExecucao();
   // Acompanhamento/Consolidação são as abas operacionais (menu em árvore,
   // ver item 2 do prompt) — landing page da Gestão, em vez de DFDs (que virou
-  // uma sub-aba administrativa, dentro do galho "Administração").
-  mudarAbaPac('acompanhamento');
+  // uma sub-aba administrativa, dentro do galho "Administração"). Se a URL
+  // já veio com um #hash (ex.: link direto de outra página), respeita ele.
+  mudarAbaPac(abaDoHash());
 });
 
+function abaDoHash() {
+  const aba = location.hash.replace('#', '');
+  return ABAS_PAC_VALIDAS.has(aba) ? aba : 'acompanhamento';
+}
+
 function mudarAbaPac(aba) {
-  document.querySelectorAll('#pac-tabs .pac-nav-item[data-tab]').forEach(t => t.classList.toggle('active', t.dataset.tab === aba));
+  if (!ABAS_PAC_VALIDAS.has(aba)) aba = 'acompanhamento';
+  history.replaceState(null, '', `#${aba}`);
+  document.querySelectorAll('#nav-gestao-galho [data-tab]').forEach(t => t.classList.toggle('active', t.dataset.tab === aba));
   document.querySelectorAll('.pac-pane').forEach(p => p.classList.toggle('active', p.id === `pane-${aba}`));
   if (aba === 'setores') carregarSetores();
   if (aba === 'parametros') carregarParametros();

@@ -32,26 +32,6 @@
     .pac-grids { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
     @media (max-width: 900px) { .pac-grids { grid-template-columns: 1fr; } }
 
-    /* ── Menu de Gestão em árvore: Acompanhamento/Consolidação (operacional)
-       soltos, resto (cadastro/config) agrupado num galho colapsável ──────────── */
-    .pac-gestao-layout { display: flex; gap: 22px; align-items: flex-start; }
-    .pac-nav-lateral { width: 200px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px; position: sticky; top: 16px; }
-    .pac-nav-item { display: block; width: 100%; text-align: left; padding: 9px 12px; border: none; background: none; border-radius: 7px; font-size: 13.5px; font-weight: 600; color: var(--text); cursor: pointer; }
-    .pac-nav-item:hover { background: var(--surface-2); }
-    .pac-nav-item.active { background: var(--verde); color: #fff; }
-    .pac-nav-galho { border-top: 1px solid var(--cinza-b); margin-top: 6px; padding-top: 6px; }
-    .pac-nav-galho summary { padding: 9px 12px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--text-subtle); cursor: pointer; list-style: none; user-select: none; }
-    .pac-nav-galho summary::-webkit-details-marker { display: none; }
-    .pac-nav-galho summary::before { content: '▸ '; }
-    .pac-nav-galho[open] summary::before { content: '▾ '; }
-    .pac-nav-galho .pac-nav-item { padding-left: 22px; }
-    .pac-nav-content { flex: 1; min-width: 0; }
-    @media (max-width: 860px) {
-      .pac-gestao-layout { flex-direction: column; }
-      .pac-nav-lateral { width: 100%; position: static; flex-direction: row; flex-wrap: wrap; }
-      .pac-nav-galho { border-top: none; margin-top: 0; padding-top: 0; width: 100%; }
-    }
-
     /* ── Consolidação / Solicitações / Acompanhamento (execução do PAC) ──────── */
     .pac-filtros { display: flex; gap: 14px; flex-wrap: wrap; align-items: end; }
     .pac-filtros .form-group { margin: 0; min-width: 160px; }
@@ -106,14 +86,24 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
         Acompanhamento
       </a>
-      <a href="pac-gestao.html" class="nav-item active">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
-        Gestão
-      </a>
-      <a href="pac-importacao.html" class="nav-item" id="nav-pac-importacao" style="display:none;">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Importação
-      </a>
+      <details class="pac-nav-galho" id="nav-gestao-galho" open>
+        <summary>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
+          Gestão
+          <svg class="pac-nav-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </summary>
+        <a href="pac-gestao.html#acompanhamento" class="nav-item pac-nav-sub" data-tab="acompanhamento">Acompanhamento</a>
+        <a href="pac-gestao.html#consolidacao" class="nav-item pac-nav-sub2" data-tab="consolidacao">Consolidação</a>
+        <details class="pac-nav-galho" id="nav-administracao-galho" open>
+          <summary>Administração <svg class="pac-nav-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></summary>
+          <a href="pac-gestao.html#dfds" class="nav-item pac-nav-sub2" data-tab="dfds">DFDs</a>
+          <a href="pac-gestao.html#solicitacoes" class="nav-item pac-nav-sub2" data-tab="solicitacoes">Solicitações</a>
+          <a href="pac-gestao.html#setores" class="nav-item pac-nav-sub2" data-tab="setores">Setores</a>
+          <a href="pac-gestao.html#parametros" class="nav-item pac-nav-sub2" data-tab="parametros">Parâmetros</a>
+          <a href="pac-gestao.html#pedidos" class="nav-item pac-nav-sub2" data-tab="pedidos">Pedidos <span class="page-tab-count" id="pac-cnt-pedidos">0</span></a>
+        </details>
+        <a href="pac-importacao.html" class="nav-item pac-nav-sub" id="nav-pac-importacao" style="display:none;">Importação</a>
+      </details>
     </nav>
     <div class="sidebar-footer">
       <span id="sidebar-username" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;">—</span>
@@ -136,21 +126,6 @@
         <div class="page-subtitle">Departamento de Planejamento (DEPLA)</div>
       </div>
     </div>
-
-    <div class="pac-gestao-layout">
-      <nav class="pac-nav-lateral" id="pac-tabs">
-        <button class="pac-nav-item" data-tab="acompanhamento">Acompanhamento</button>
-        <button class="pac-nav-item" data-tab="consolidacao">Consolidação</button>
-        <details class="pac-nav-galho" open>
-          <summary>Administração</summary>
-          <button class="pac-nav-item" data-tab="dfds">DFDs</button>
-          <button class="pac-nav-item" data-tab="solicitacoes">Solicitações</button>
-          <button class="pac-nav-item" data-tab="setores">Setores</button>
-          <button class="pac-nav-item" data-tab="parametros">Parâmetros</button>
-          <button class="pac-nav-item" data-tab="pedidos">Pedidos <span class="page-tab-count" id="pac-cnt-pedidos">0</span></button>
-        </details>
-      </nav>
-      <div class="pac-nav-content">
 
     <!-- ═══ DFDs ═══ -->
     <div id="pane-dfds" class="pac-pane">
@@ -417,8 +392,6 @@
       </div>
     </div>
 
-      </div><!-- /.pac-nav-content -->
-    </div><!-- /.pac-gestao-layout -->
     <div id="app-footer"></div>
   </main>
 </div>
