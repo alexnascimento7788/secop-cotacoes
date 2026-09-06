@@ -1102,8 +1102,21 @@ async function renderFinalizacaoAcompanhamento(dfdId) {
     const status = statusRes.ok ? await statusRes.json() : { setores: [], todos_finalizados: false };
     const cons = consRes.ok ? await consRes.json() : { consolidado: false };
 
+    renderKpisAcompanhamento(dfdId, status);
+
     if (cons.consolidado) { card.style.display = 'none'; return; }
     card.style.display = 'block';
+
+    // Resumo com barra de progresso geral primeiro (pedido do Alex,
+    // 2026-09-06: com muitos setores participantes a parede de chips sozinha
+    // fica ilegível) — os chips continuam abaixo, focados em apontar quem
+    // ainda falta finalizar.
+    const total = status.setores.length;
+    const finalizados = status.setores.filter(s => s.finalizado_em).length;
+    const pct = total ? Math.round((finalizados / total) * 100) : 0;
+    document.getElementById('acomp-fin-fracao').textContent = `${finalizados} de ${total} setor(es)`;
+    document.getElementById('acomp-fin-pct').textContent = `${pct}%`;
+    document.getElementById('acomp-fin-progress-fill').style.width = `${pct}%`;
 
     document.getElementById('acomp-fin-badges').innerHTML = status.setores.map(s => s.finalizado_em
       ? `<span class="pac-fin-badge ok">✅ ${s.setor_nome} — finalizado em ${fmtBrData(s.finalizado_em)}</span>`
@@ -1114,6 +1127,47 @@ async function renderFinalizacaoAcompanhamento(dfdId) {
       ? `<button class="btn btn-primary btn-sm" onclick="gerarConsolidacao(${dfdId})">Gerar Consolidação</button>`
       : '';
   } catch { card.style.display = 'none'; }
+}
+
+// Indicadores do DFD selecionado, no topo da aba — pedido do Alex,
+// 2026-09-06: "modelos mais atuais incluindo progress bar, não somente cards
+// simples". Reaproveita _acompDados (já carregado por renderTabelaAcompanhamento
+// antes desta função rodar) + o status de finalização já buscado ao lado.
+function renderKpisAcompanhamento(dfdId, status) {
+  const wrap = document.getElementById('acomp-kpis');
+  if (!_acompDados || !dfdId) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'grid';
+
+  const itens = _acompDados.itens || [];
+  const totalSetores = status.setores.length;
+  const setoresFinalizados = status.setores.filter(s => s.finalizado_em).length;
+  const pctSetores = totalSetores ? Math.round((setoresFinalizados / totalSetores) * 100) : 0;
+
+  const itensFinalizados = itens.filter(i => i.status_execucao === 'Processo Finalizado').length;
+  const pctExecucao = itens.length ? Math.round((itensFinalizados / itens.length) * 100) : 0;
+
+  const t = _acompDados.totais || { estimado_tu_mlp: 0, estimado_rdc: 0, realizado_tu_mlp: 0, realizado_rdc: 0 };
+  const estimadoTotal = t.estimado_tu_mlp + t.estimado_rdc;
+  const realizadoTotal = t.realizado_tu_mlp + t.realizado_rdc;
+  const pctRealizado = estimadoTotal ? Math.round((realizadoTotal / estimadoTotal) * 100) : 0;
+
+  const kpiBarra = (rotulo, valorTexto, pct, legenda) => `
+    <div class="pac-kpi-card">
+      <div class="pac-kpi-titulo">${rotulo}</div>
+      <div class="pac-kpi-valor">${valorTexto}</div>
+      <div class="pac-progress-track"><div class="pac-progress-fill" style="width:${Math.min(pct, 100)}%;"></div></div>
+      <div class="pac-kpi-legenda">${legenda}</div>
+    </div>`;
+
+  wrap.innerHTML =
+    kpiBarra('Setores finalizados', `${setoresFinalizados}/${totalSetores} <small>(${pctSetores}%)</small>`, pctSetores, 'Lançamento do setor encerrado') +
+    `<div class="pac-kpi-card">
+      <div class="pac-kpi-titulo">Itens lançados</div>
+      <div class="pac-kpi-valor">${itens.length}</div>
+      <div class="pac-kpi-legenda">Somando todos os setores</div>
+    </div>` +
+    kpiBarra('Execução dos itens', `${itensFinalizados}/${itens.length} <small>(${pctExecucao}%)</small>`, pctExecucao, 'Status "Processo Finalizado"') +
+    kpiBarra('Valor realizado', fmtMoeda(realizadoTotal), pctRealizado, `${pctRealizado}% de ${fmtMoeda(estimadoTotal)} estimado(s)`);
 }
 
 async function gerarConsolidacao(dfdId) {
