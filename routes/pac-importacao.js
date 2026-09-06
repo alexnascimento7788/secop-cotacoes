@@ -161,7 +161,16 @@ function normalizarTexto(s) {
 // batam (ex.: "continuado" também é substring de "não continuado"), fica
 // com a mais específica (a mais longa). Continua transparente: entra um
 // alerta explicando a inferência, não silenciosa.
-function matchParametroLista(lista, bruto) {
+// Auto-cadastro (2026-09-06, pedido explícito do Alex): categoria nova de
+// verdade (ex.: "Material de Copa" do Depad — setor com subitens próprios,
+// diferentes do padrão Permanente/Consumo/Continuado/Não Continuado/Obras)
+// vira opção permanente em Parâmetros na hora, sem precisar cadastrar manual
+// antes de tentar de novo. SÓ na importação REAL (`dryRun=false`) — "Simular"
+// não pode gravar nada em lugar nenhum, nem aqui (contrato do dry-run,
+// v4.17.0). `UNIQUE (lista, valor)` em dfd_parametros_lista deixa o
+// `INSERT OR IGNORE` seguro mesmo com o mesmo valor novo se repetindo em
+// várias linhas do mesmo lote.
+function matchParametroLista(lista, bruto, dryRun) {
   const alvo = normalizarTexto(bruto);
   const opcoes = db.prepare(`SELECT valor FROM dfd_parametros_lista WHERE lista = ? AND ativo = 1`).all(lista);
   const achado = opcoes.find(o => normalizarTexto(o.valor) === alvo);
@@ -170,26 +179,45 @@ function matchParametroLista(lista, bruto) {
   const contidas = opcoes.filter(o => alvo.includes(normalizarTexto(o.valor)));
   if (contidas.length) {
     const maisEspecifica = contidas.reduce((a, b) => normalizarTexto(b.valor).length > normalizarTexto(a.valor).length ? b : a);
-    return { valor: maisEspecifica.valor, alerta: `"${bruto}" não bate exatamente com nada cadastrado, mas contém "${maisEspecifica.valor}" — usado esse` };
+    return { valor: maisEspecifica.valor, tipo: 'inferido',
+      alerta: `"${bruto}" não bate exatamente com nada cadastrado, mas contém "${maisEspecifica.valor}" — usado esse` };
   }
-  return { valor: String(bruto).trim(), alerta: `"${bruto}" não está cadastrado em Parâmetros (lista "${lista}") — importado como texto` };
+
+  const valorLimpo = String(bruto).trim();
+  if (dryRun) {
+    return { valor: valorLimpo, tipo: 'novo',
+      alerta: `"${valorLimpo}" não está cadastrado em Parâmetros (lista "${lista}") — será cadastrado automaticamente ao importar de verdade` };
+  }
+  const ordem = db.prepare(`SELECT COALESCE(MAX(ordem), 0) + 1 AS o FROM dfd_parametros_lista WHERE lista = ?`).get(lista).o;
+  db.prepare(`INSERT OR IGNORE INTO dfd_parametros_lista (lista, valor, ordem) VALUES (?, ?, ?)`).run(lista, valorLimpo, ordem);
+  return { valor: valorLimpo, tipo: 'novo',
+    alerta: `"${valorLimpo}" não estava cadastrado em Parâmetros (lista "${lista}") — cadastrado automaticamente` };
 }
 
-// Conta ocorrências de um valor bruto que não bateu em nenhuma opção
+// Conta ocorrências de um valor bruto que não bateu EXATO em nenhuma opção
 // cadastrada (select) ou fonte reconhecida — alimenta o resumo por coluna.
-function registrarNaoReconhecido(stat, bruto) {
+// Separado em dois grupos porque têm proposta de tratamento diferente:
+// "inferido" já existia no cadastro (só a grafia divergia), "novo" é
+// categoria de verdade nova (auto-cadastrada ou a cadastrar).
+function registrarNaoReconhecido(stat, bruto, tipo) {
   if (!stat) return;
   const chave = String(bruto).trim();
-  stat.naoReconhecidos.set(chave, (stat.naoReconhecidos.get(chave) || 0) + 1);
+  const mapa = tipo === 'inferido' ? stat.inferidos : tipo === 'novo' ? stat.novos : stat.naoReconhecidos;
+  mapa.set(chave, (mapa.get(chave) || 0) + 1);
 }
 
 // Vira o "resumo por coluna" que a tela mostra ANTES do log linha-a-linha —
 // já com uma proposta de tratamento por linha do resumo, não só o número cru.
-function montarResumoColunas(statsColunas, totalLinhas) {
+function topOcorrencias(mapa) {
+  return [...mapa.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([valor, ocorrencias]) => ({ valor, ocorrencias }));
+}
+
+function montarResumoColunas(statsColunas, totalLinhas, dryRun) {
   return [...statsColunas.values()].map(s => {
-    const naoReconhecidos = [...s.naoReconhecidos.entries()]
-      .sort((a, b) => b[1] - a[1]).slice(0, 8)
-      .map(([valor, ocorrencias]) => ({ valor, ocorrencias }));
+    const naoReconhecidos = topOcorrencias(s.naoReconhecidos); // fonte pagadora não reconhecida — sem auto-cadastro
+    const inferidos = topOcorrencias(s.inferidos);             // já existia no cadastro, só a grafia divergia
+    const novos = topOcorrencias(s.novos);                     // categoria de verdade nova (auto-cadastro, ver matchParametroLista)
+
     let proposta = null;
     if (!s.mapeada) {
       proposta = 'Nenhuma coluna da planilha foi mapeada pra este campo — se ele deveria vir preenchido, confira o mapeamento.';
@@ -202,10 +230,23 @@ function montarResumoColunas(statsColunas, totalLinhas) {
     }
     if (naoReconhecidos.length) {
       const resumoValores = naoReconhecidos.map(n => `"${n.valor}" (${n.ocorrencias}x)`).join(', ');
-      proposta = (proposta ? proposta + ' ' : '') + `Valor(es) não cadastrado(s) em Parâmetros: ${resumoValores} — considere cadastrar em Gestão → Parâmetros, ou corrigir a planilha.`;
+      proposta = (proposta ? proposta + ' ' : '') + `Valor(es) não reconhecido(s): ${resumoValores} — importado(s) como texto, confira a planilha.`;
+    }
+    if (inferidos.length) {
+      const resumoValores = inferidos.map(n => `"${n.valor}" (${n.ocorrencias}x)`).join(', ');
+      proposta = (proposta ? proposta + ' ' : '') + `Valor(es) inferido(s) a partir de opção já cadastrada: ${resumoValores}.`;
+    }
+    if (novos.length) {
+      const resumoValores = novos.map(n => `"${n.valor}" (${n.ocorrencias}x)`).join(', ');
+      // Categoria nova de select (ex.: subitem próprio de um setor) é
+      // auto-cadastrada em Parâmetros na importação REAL (v4.17.3) — a
+      // mensagem aqui reflete isso, não é mais "considere cadastrar".
+      proposta = (proposta ? proposta + ' ' : '') + (dryRun
+        ? `Valor(es) novo(s) pra Parâmetros: ${resumoValores} — serão cadastrados automaticamente quando importar de verdade.`
+        : `Valor(es) novo(s) cadastrados automaticamente em Parâmetros: ${resumoValores}.`);
     }
     return { slug: s.slug, label: s.label, mapeada: s.mapeada, obrigatoria: s.obrigatoria,
-      preenchidas: s.preenchidas, vazias: s.vazias, naoReconhecidos, proposta };
+      preenchidas: s.preenchidas, vazias: s.vazias, naoReconhecidos: [...naoReconhecidos, ...inferidos, ...novos], proposta };
   });
 }
 
@@ -353,7 +394,7 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
   const slugsMapeados = new Set(Object.values(mapeamento || {}));
   const statsColunas = new Map(colunasAtivas.map(c => [c.slug, {
     slug: c.slug, label: c.label, obrigatoria: !!c.obrigatoria, mapeada: slugsMapeados.has(c.slug),
-    preenchidas: 0, vazias: 0, naoReconhecidos: new Map(),
+    preenchidas: 0, vazias: 0, naoReconhecidos: new Map(), inferidos: new Map(), novos: new Map(),
   }]));
 
   if (!dryRun) {
@@ -402,9 +443,9 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
         valoresFinal[coluna.id] = r.valor;
         if (r.alerta) { alertasLinha.push(`${coluna.label}: ${r.alerta}`); registrarNaoReconhecido(stat, bruto); }
       } else if (coluna.tipo_input === 'select' && coluna.lista) {
-        const r = matchParametroLista(coluna.lista, bruto);
+        const r = matchParametroLista(coluna.lista, bruto, dryRun);
         valoresFinal[coluna.id] = r.valor;
-        if (r.alerta) { alertasLinha.push(`${coluna.label}: ${r.alerta}`); registrarNaoReconhecido(stat, bruto); }
+        if (r.alerta) { alertasLinha.push(`${coluna.label}: ${r.alerta}`); registrarNaoReconhecido(stat, bruto, r.tipo); }
       } else {
         valoresFinal[coluna.id] = String(bruto).trim();
       }
@@ -461,7 +502,7 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
   res.json({
     dfd_id: dfdId, dry_run: dryRun, importados, alertas: comAlertas, erros: comErro, log, sql_gerado: sqlGerado, mapeamento,
     numero_pac_inicial: numeroPacInicial, numero_pac_final: numeroPacFinal,
-    resumo_colunas: montarResumoColunas(statsColunas, linhas.length),
+    resumo_colunas: montarResumoColunas(statsColunas, linhas.length, dryRun),
   });
 });
 
