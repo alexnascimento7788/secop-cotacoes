@@ -830,6 +830,12 @@ function montarAcompanhamento(dfdId, setorIds) {
       realizado_tu_mlp: realizadoTuMlp, realizado_rdc: realizadoRdc,
       saldo_tu_mlp: estimadoTuMlp - realizadoTuMlp, saldo_rdc: estimadoRdc - realizadoRdc,
       solicitacoes: sols,
+      // Mapa genérico coluna_id → valor (TODAS as colunas do DFD, não só as
+      // curadas acima) — pedido do Alex: a tela de Gestão > Acompanhamento
+      // precisa ser fiel ao processo do gestor, com as MESMAS colunas de
+      // Lançamento (Subitem, Unidade, Prioridade, Contrato...), não só o
+      // recorte financeiro que já existia aqui.
+      valores: v,
     };
   });
 

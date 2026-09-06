@@ -283,7 +283,7 @@ async function renderItensDfd(colunasParam) {
       <td>${item.codigo_pac || '—'}</td>
       <td>${item.numero_pac || '—'}</td>
       ${colunasResto.map(c => `<td>${formatarValorColuna(c, item.valores[c.id])}</td>`).join('')}
-      ${temColContrato ? celulaContratoLeitura(item, colunasContrato, todasColunas) : ''}
+      ${temColContrato ? celulaContratoLeitura(item, colunasContrato, todasColunas, item.id) : ''}
     </tr>
   `).join('') || `<tr><td colspan="${colunasResto.length + 3 + (temColContrato ? 1 : 0)}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`;
 }
@@ -317,21 +317,42 @@ const ICONE_CONTRATO_NAO_INFORMADO = `<svg width="16" height="16" viewBox="0 0 2
 // dados quando preenchido. "possui_contrato" (grupo B) é a fonte da verdade
 // do estado — distingue "Não" deliberado de "ainda não respondido"
 // (mesma lógica de estadoContrato() em pac-lancamento.js).
-function celulaContratoLeitura(item, colunasContrato, todasColunas) {
+// Guarda todo item já renderizado em QUALQUER tabela da página (DFDs,
+// Acompanhamento, Consolidação), pela chave que faz sentido em cada fonte —
+// só pra abrirContratoLeitura() achar o item e suas colunas de contrato sem
+// precisar de uma nova requisição, venha o clique de onde vier.
+const _itensPorId = {};
+
+function celulaContratoLeitura(item, colunasContrato, todasColunas, idParaClique) {
+  _itensPorId[idParaClique] = item;
   const possuiCol = todasColunas.find(c => c.slug === 'possui_contrato');
   const v = possuiCol ? item.valores[possuiCol.id] : null;
   const estado = v === 'Sim' ? 'sim' : v === 'Não' ? 'nao' : v === 'Não informado' ? 'nao_informado' : 'pendente';
-  const preenchidos = colunasContrato.filter(c => {
-    const val = item.valores[c.id];
-    return val !== null && val !== undefined && val !== '';
-  });
   const cfg = {
-    sim: { icone: ICONE_CONTRATO_SIM, texto: 'Com contrato', titulo: preenchidos.map(c => `${c.label}: ${formatarValorColuna(c, item.valores[c.id])}`).join(' · ') || 'Com contrato' },
+    sim: { icone: ICONE_CONTRATO_SIM, texto: 'Com contrato', titulo: 'Clique para ver os dados do contrato' },
     nao: { icone: ICONE_CONTRATO_NAO, texto: 'Sem contrato', titulo: 'Este item não tem contrato' },
     nao_informado: { icone: ICONE_CONTRATO_NAO_INFORMADO, texto: 'Não informado', titulo: 'Dado histórico importado sem essa informação na planilha original' },
     pendente: { icone: ICONE_CONTRATO_PENDENTE, texto: 'Pendente', titulo: 'O setor ainda não informou se este item tem contrato' },
   }[estado];
-  return `<td style="text-align:center;"><span class="badge-contrato ${estado}" title="${cfg.titulo}">${cfg.icone} ${cfg.texto}</span></td>`;
+  return `<td style="text-align:center;"><button type="button" class="badge-contrato ${estado}" title="${cfg.titulo}" onclick="abrirContratoLeitura(${idParaClique})">${cfg.icone} ${cfg.texto}</button></td>`;
+}
+
+// Popup só-leitura dos dados de contrato (Nº/Razão Social/Vencimento/Será
+// renovado?) — pedido do Alex pras telas de Gestão (Acompanhamento,
+// Consolidação, DFDs): o badge precisa ser clicável igual em Lançamento, só
+// que sem poder editar (quem edita é o gestor do setor, não o DEPLA aqui).
+function abrirContratoLeitura(idParaClique) {
+  const item = _itensPorId[idParaClique];
+  if (!item || !_colunasCatalogo) return;
+  const colunasContrato = _colunasCatalogo.filter(c => c.grupo === 'C');
+  document.getElementById('mcl-campos').innerHTML = colunasContrato.map(c => {
+    const valor = (item.valores || {})[c.id];
+    return `<div class="form-group" style="margin-bottom:10px;"><label>${c.label}</label><div style="padding:8px 0;">${formatarValorColuna(c, valor)}</div></div>`;
+  }).join('') || '<p class="text-muted">Nenhuma coluna de contrato ativa neste DFD.</p>';
+  document.getElementById('modal-contrato-leitura').classList.add('open');
+}
+function fecharContratoLeitura() {
+  document.getElementById('modal-contrato-leitura').classList.remove('open');
 }
 
 /* ── Setores (cadastro) ──────────────────────────────────────────────────── */
@@ -724,19 +745,24 @@ async function renderConsolidadoDetalhe() {
   const filtroSetor = setorSel.value;
   const exibirCodigo = document.getElementById('consol-exibir-codigo').checked;
 
-  const idDescricao = colunaId('descricao_objeto');
-  const idTipo = colunaId('tipo');
-  const idSubitem = colunaId('subitem');
-  const idValorEstimado = colunaId('valor_estimado');
-  const idFonte = colunaId('fonte_pagadora');
+  // Colunas do DFD (mesmas de Lançamento, uma a uma — inclusive Tipo e
+  // Subitem separados, não mais numa coluna combinada) + badge de Contrato,
+  // clicável e só-leitura. Pedido do Alex, 2026-09-06: fiel ao processo do
+  // gestor, largura resolvida pela barra de rolagem que a tabela já tem.
+  const colunasDfd = (_colunasCatalogo || []).filter(c => c.grupo === 'A' && c.slug !== 'numero_item');
+  const colunasContrato = (_colunasCatalogo || []).filter(c => c.grupo === 'C');
+  const temContrato = colunasContrato.length > 0;
+  const todasColunas = _colunasCatalogo || [];
 
   const itens = _consolDados.itens.filter(i => !filtroSetor || String(i.setor_id) === filtroSetor);
   const ativos = itens.filter(i => i.status_consolidacao !== 'cancelado');
 
+  const totalColunas = 1 + (exibirCodigo ? 1 : 0) + colunasDfd.length + (temContrato ? 1 : 0) + 3;
   const thead = document.getElementById('consol-itens-thead');
   thead.innerHTML = `<tr>
-    <th>Nº PAC</th>${exibirCodigo ? '<th>Código PAC</th>' : ''}<th>Descrição</th><th>Tipo/Subitem</th>
-    <th>Fonte</th><th>Valor est.</th><th>Observação</th><th>Status</th><th></th>
+    <th>Nº PAC</th>${exibirCodigo ? '<th>ID PAC</th>' : ''}
+    ${colunasDfd.map(c => `<th>${c.label}</th>`).join('')}${temContrato ? '<th>Contrato</th>' : ''}
+    <th>Observação</th><th>Status</th><th></th>
   </tr>`;
 
   // Agrupado visualmente por setor (setores.ordem já vem aplicado do servidor
@@ -748,7 +774,7 @@ async function renderConsolidadoDetalhe() {
       setorAtual = item.setor_id;
       const doSetor = itens.filter(i => i.setor_id === setorAtual); // ativos + cancelados desse setor
       const pendentes = doSetor.filter(i => !['finalizado', 'cancelado'].includes(i.status_consolidacao)).length;
-      linhas.push(`<tr class="consol-setor-header"><td colspan="${8 + (exibirCodigo ? 1 : 0)}">
+      linhas.push(`<tr class="consol-setor-header"><td colspan="${totalColunas}">
         ${item.setor_nome}
         ${pendentes === 0
           ? `<button class="btn btn-primary btn-xs" style="margin-left:10px;" onclick="finalizarConsolidacaoSetor(${setorAtual})">DFD Finalizado</button>`
@@ -756,13 +782,12 @@ async function renderConsolidadoDetalhe() {
       </td></tr>`);
     }
     const v = item.valores || {};
+    _itensPorId[item.id] = item;
     linhas.push(`<tr class="consol-linha st-${item.status_consolidacao}" data-item-id="${item.id}">
       <td><strong>${item.numero_pac ?? '—'}</strong></td>
       ${exibirCodigo ? `<td>${item.codigo_pac || '—'}</td>` : ''}
-      <td>${v[idDescricao] || '—'}</td>
-      <td>${[v[idTipo], v[idSubitem]].filter(Boolean).join(' / ') || '—'}</td>
-      <td>${v[idFonte] || '—'}</td>
-      <td>${fmtMoeda(v[idValorEstimado])}</td>
+      ${colunasDfd.map(c => `<td>${formatarValorColuna(c, v[c.id])}</td>`).join('')}
+      ${temContrato ? celulaContratoLeitura(item, colunasContrato, todasColunas, item.id) : ''}
       <td><input type="text" class="consol-obs-input" value="${(item.observacao_consolidacao || '').replace(/"/g, '&quot;')}" placeholder="—" onblur="salvarObservacaoConsolidacao(${item.id}, this.value)" /></td>
       <td>${badgeStatusConsolidacao(item.status_consolidacao)}</td>
       <td style="text-align:right;white-space:nowrap;">
@@ -774,7 +799,7 @@ async function renderConsolidadoDetalhe() {
   });
 
   document.getElementById('consol-itens-tbody').innerHTML = linhas.join('')
-    || `<tr><td colspan="${8 + (exibirCodigo ? 1 : 0)}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item ativo.</td></tr>`;
+    || `<tr><td colspan="${totalColunas}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item ativo.</td></tr>`;
 
   if (_consolSubtabAtual === 'cancelados') renderConsolCancelados();
 }
@@ -1120,14 +1145,35 @@ function renderTabelaAcompanhamento() {
 
   const linhaSaldo = v => v < 0 ? `<span class="pac-saldo-neg">${fmtMoeda(v)}</span>` : fmtMoeda(v);
 
-  document.getElementById('acomp-tbody').innerHTML = itens.map(item => `
+  // Colunas do DFD (mesmas de Lançamento, "fiel ao processo do gestor" —
+  // pedido explícito do Alex, 2026-09-06: não resumir, a largura se resolve
+  // com a barra de rolagem que a tabela já tem). Ficam ENTRE "Setor" e o
+  // bloco financeiro que já existia aqui.
+  const colunasDfd = (_colunasCatalogo || []).filter(c => c.grupo === 'A' && c.slug !== 'numero_item');
+  const colunasContrato = (_colunasCatalogo || []).filter(c => c.grupo === 'C');
+  const temContrato = colunasContrato.length > 0;
+  const todasColunas = _colunasCatalogo || [];
+  const qtdColunasFixas = 4; // toggle, ID PAC, Nº PAC, Setor
+  const qtdColunasFinais = 8; // Status, Solic., Real.x2, Saldo x2 já contam 6 + Est.x2 = 8
+
+  document.getElementById('acomp-thead').innerHTML = `<tr>
+    <th></th><th>ID PAC</th><th>Nº PAC</th><th>Setor</th>
+    ${colunasDfd.map(c => `<th>${c.label}</th>`).join('')}${temContrato ? '<th>Contrato</th>' : ''}
+    <th>Est. TU+MLP</th><th>Est. RDC</th><th>Status</th><th>Solic.</th>
+    <th>Real. TU+MLP</th><th>Real. RDC</th><th>Saldo TU+MLP</th><th>Saldo RDC</th>
+  </tr>`;
+  const totalColunas = qtdColunasFixas + colunasDfd.length + (temContrato ? 1 : 0) + qtdColunasFinais;
+
+  document.getElementById('acomp-tbody').innerHTML = itens.map(item => {
+    _itensPorId[item.item_id] = item;
+    return `
     <tr>
       <td class="acomp-toggle" onclick="toggleAcompLinha(${item.item_id})">${item.solicitacoes.length ? '▸' : ''}</td>
-      <td><strong>${item.numero_pac || '—'}</strong></td>
       <td>${item.codigo_pac || '—'}</td>
+      <td><strong>${item.numero_pac || '—'}</strong></td>
       <td>${item.setor_nome}</td>
-      <td>${item.descricao_objeto || '—'}</td>
-      <td>${item.tipo || '—'}</td>
+      ${colunasDfd.map(c => `<td>${formatarValorColuna(c, (item.valores || {})[c.id])}</td>`).join('')}
+      ${temContrato ? celulaContratoLeitura(item, colunasContrato, todasColunas, item.item_id) : ''}
       <td>${fmtMoeda(item.estimado_tu_mlp)}</td>
       <td>${fmtMoeda(item.estimado_rdc)}</td>
       <td>
@@ -1142,7 +1188,7 @@ function renderTabelaAcompanhamento() {
       <td>${linhaSaldo(item.saldo_rdc)}</td>
     </tr>
     <tr class="acomp-sub-row hidden" id="acomp-sub-${item.item_id}">
-      <td colspan="14">
+      <td colspan="${totalColunas}">
         ${item.solicitacoes.length ? `
           <table style="width:100%;">
             <thead><tr><th>Movimento</th><th>Data</th><th>TU+MLP</th><th>RDC</th><th>Observação</th></tr></thead>
@@ -1161,7 +1207,8 @@ function renderTabelaAcompanhamento() {
         ` : '<span class="text-muted">Nenhuma solicitação vinculada.</span>'}
       </td>
     </tr>
-  `).join('') || `<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item consolidado ainda para este DFD.</td></tr>`;
+  `;
+  }).join('') || `<tr><td colspan="${totalColunas}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item consolidado ainda para este DFD.</td></tr>`;
 
   const t = itens.reduce((acc, i) => ({
     estimado_tu_mlp: acc.estimado_tu_mlp + i.estimado_tu_mlp, estimado_rdc: acc.estimado_rdc + i.estimado_rdc,
@@ -1170,7 +1217,7 @@ function renderTabelaAcompanhamento() {
   }), { estimado_tu_mlp: 0, estimado_rdc: 0, realizado_tu_mlp: 0, realizado_rdc: 0, saldo_tu_mlp: 0, saldo_rdc: 0 });
   document.getElementById('acomp-tfoot').innerHTML = `
     <tr>
-      <td colspan="6">Totais (${itens.length} itens)</td>
+      <td colspan="${qtdColunasFixas + colunasDfd.length + (temContrato ? 1 : 0)}">Totais (${itens.length} itens)</td>
       <td>${fmtMoeda(t.estimado_tu_mlp)}</td><td>${fmtMoeda(t.estimado_rdc)}</td>
       <td colspan="2"></td>
       <td>${fmtMoeda(t.realizado_tu_mlp)}</td><td>${fmtMoeda(t.realizado_rdc)}</td>

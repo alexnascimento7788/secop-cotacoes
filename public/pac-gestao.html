@@ -313,11 +313,7 @@
       </div>
       <div class="pac-card">
         <div class="table-wrap"><table id="acomp-table">
-          <thead><tr>
-            <th></th><th>Nº PAC</th><th>Código PAC</th><th>Setor</th><th>Descrição</th><th>Tipo</th>
-            <th>Est. TU+MLP</th><th>Est. RDC</th><th>Status</th><th>Solic.</th>
-            <th>Real. TU+MLP</th><th>Real. RDC</th><th>Saldo TU+MLP</th><th>Saldo RDC</th>
-          </tr></thead>
+          <thead id="acomp-thead"></thead>
           <tbody id="acomp-tbody"><tr><td colspan="14" style="padding:20px;text-align:center;color:var(--text-subtle);">Selecione um DFD.</td></tr></tbody>
           <tfoot id="acomp-tfoot"></tfoot>
         </table></div>
@@ -426,6 +422,19 @@
     </div>
     <div style="margin-top:16px;text-align:right;">
       <button class="btn btn-secondary" onclick="fecharModalSetorUsuarios()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Dados do contrato — versão SÓ LEITURA do popup de Lançamento (quem edita
+     é o gestor do setor, o DEPLA aqui só consulta). Aberto pelo badge de
+     Contrato em DFDs/Acompanhamento/Consolidação. -->
+<div class="modal-overlay" id="modal-contrato-leitura">
+  <div class="modal-box" style="max-width:380px;">
+    <h3>Dados do contrato</h3>
+    <div id="mcl-campos"></div>
+    <div style="text-align:right;margin-top:8px;">
+      <button type="button" class="btn btn-secondary" onclick="fecharContratoLeitura()">Fechar</button>
     </div>
   </div>
 </div>
