@@ -392,9 +392,9 @@
      isolado do fluxo principal de "Itens lançados" de propósito, é
      configuração pontual, não algo que se olha toda vez que se abre um DFD. -->
 <div class="modal-overlay" id="modal-dfd-config">
-  <div class="modal-box" style="max-width:640px;">
-    <h3>Configurações do DFD</h3>
-    <div class="pac-grids">
+  <div class="modal-box" style="max-width:640px;max-height:85vh;display:flex;flex-direction:column;">
+    <h3 style="flex-shrink:0;">Configurações do DFD</h3>
+    <div class="pac-grids" style="overflow-y:auto;flex:1 1 auto;">
       <div>
         <div class="pac-card-title">Setores participantes</div>
         <div id="dfd-det-setores">Carregando...</div>
@@ -404,7 +404,7 @@
         <div id="dfd-det-colunas">Carregando...</div>
       </div>
     </div>
-    <div style="margin-top:16px;text-align:right;">
+    <div style="margin-top:16px;text-align:right;flex-shrink:0;">
       <button class="btn btn-secondary" onclick="fecharConfigDfd()">Fechar</button>
     </div>
   </div>
