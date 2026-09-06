@@ -21,7 +21,7 @@ const pac = requireModulo('pac');
 // Campos de contrato (grupo B+C) que ganham "Não informado" em vez de NULL
 // quando vêm em branco na planilha — ver comentário no loop de parsing da
 // Fase 1 pra motivo.
-const SLUGS_CONTRATO_SENTINELA = new Set(['possui_contrato', 'numero_contrato', 'razao_social', 'data_vencimento']);
+const SLUGS_CONTRATO_SENTINELA = new Set(['possui_contrato', 'numero_contrato', 'razao_social', 'data_vencimento', 'contrato_renovado']);
 
 function requireAdminGlobal(req, res, next) {
   if (req.user.username === 'master' || req.user.role === 'admin_sistema') return next();
@@ -161,6 +161,40 @@ function matchParametroLista(lista, bruto) {
   return { valor: String(bruto).trim(), alerta: `"${bruto}" não está cadastrado em Parâmetros (lista "${lista}") — importado como texto` };
 }
 
+// Conta ocorrências de um valor bruto que não bateu em nenhuma opção
+// cadastrada (select) ou fonte reconhecida — alimenta o resumo por coluna.
+function registrarNaoReconhecido(stat, bruto) {
+  if (!stat) return;
+  const chave = String(bruto).trim();
+  stat.naoReconhecidos.set(chave, (stat.naoReconhecidos.get(chave) || 0) + 1);
+}
+
+// Vira o "resumo por coluna" que a tela mostra ANTES do log linha-a-linha —
+// já com uma proposta de tratamento por linha do resumo, não só o número cru.
+function montarResumoColunas(statsColunas, totalLinhas) {
+  return [...statsColunas.values()].map(s => {
+    const naoReconhecidos = [...s.naoReconhecidos.entries()]
+      .sort((a, b) => b[1] - a[1]).slice(0, 8)
+      .map(([valor, ocorrencias]) => ({ valor, ocorrencias }));
+    let proposta = null;
+    if (!s.mapeada) {
+      proposta = 'Nenhuma coluna da planilha foi mapeada pra este campo — se ele deveria vir preenchido, confira o mapeamento.';
+    } else if (s.vazias === totalLinhas && totalLinhas > 0) {
+      proposta = s.obrigatoria
+        ? null // obrigatória vazia sempre vira erro de linha, já visível no log
+        : 'Veio vazia em 100% das linhas — confira se a coluna certa da planilha foi mapeada aqui, ou se o setor realmente não preenche este campo.';
+    } else if (s.vazias > 0 && s.vazias >= totalLinhas * 0.5) {
+      proposta = `Veio vazia em ${s.vazias} de ${totalLinhas} linha(s) — mais da metade. Vale conferir a planilha de origem.`;
+    }
+    if (naoReconhecidos.length) {
+      const resumoValores = naoReconhecidos.map(n => `"${n.valor}" (${n.ocorrencias}x)`).join(', ');
+      proposta = (proposta ? proposta + ' ' : '') + `Valor(es) não cadastrado(s) em Parâmetros: ${resumoValores} — considere cadastrar em Gestão → Parâmetros, ou corrigir a planilha.`;
+    }
+    return { slug: s.slug, label: s.label, mapeada: s.mapeada, obrigatoria: s.obrigatoria,
+      preenchidas: s.preenchidas, vazias: s.vazias, naoReconhecidos, proposta };
+  });
+}
+
 function sqlLit(v) {
   if (v === null || v === undefined) return 'NULL';
   return `'${String(v).replace(/'/g, "''")}'`;
@@ -268,6 +302,20 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
   let numeroPacInicial = null, numeroPacFinal = null;
   const log = [];
 
+  // Resumo por coluna — o log linha-a-linha só mostra ALERTA quando um valor
+  // preenchido não foi reconhecido; uma célula em branco em campo opcional
+  // (não obrigatório) é uma importação normal, sem alerta nenhum, então uma
+  // coluna inteira vindo vazia (ex.: "Subitem" nunca preenchido na planilha)
+  // passava batido, sem nada em tela que ajudasse o Alex a perceber e
+  // diagnosticar se é dado real do setor ou uma falha de mapeamento. Conta
+  // aqui, por coluna: quantas vieram preenchidas/vazias e quais valores
+  // brutos não bateram em nenhuma opção cadastrada (com proposta de ação).
+  const slugsMapeados = new Set(Object.values(mapeamento || {}));
+  const statsColunas = new Map(colunasAtivas.map(c => [c.slug, {
+    slug: c.slug, label: c.label, obrigatoria: !!c.obrigatoria, mapeada: slugsMapeados.has(c.slug),
+    preenchidas: 0, vazias: 0, naoReconhecidos: new Map(),
+  }]));
+
   registrarLog(req, 'PAC', 'IMPORTACAO_INICIOU',
     `Iniciou importação de lançamentos (Fase 1) — DFD "${dfd.titulo}" (${dfd.ano_base}), setor "${setor.nome}", ${linhas.length} linha(s), modo "${modo}"`);
 
@@ -280,8 +328,10 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
     for (const coluna of colunasAtivas) {
       const bruto = linha[coluna.slug];
       const vazio = bruto === undefined || bruto === null || String(bruto).trim() === '';
+      const stat = statsColunas.get(coluna.slug);
 
       if (vazio) {
+        if (stat) stat.vazias++;
         if (coluna.obrigatoria) { erroLinha = `Campo obrigatório "${coluna.label}" vazio`; break; }
         // Dado histórico: célula de contrato em branco não é "ainda não
         // respondido" (isso é Pendente, pra item lançado ao vivo) — é "nunca
@@ -295,6 +345,7 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
           ? 'Não informado' : null;
         continue;
       }
+      if (stat) stat.preenchidas++;
 
       if (coluna.tipo_input === 'data') {
         const r = parseDataSerial(bruto);
@@ -307,11 +358,11 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
       } else if (coluna.slug === 'fonte_pagadora') {
         const r = parseFontePagadora(bruto);
         valoresFinal[coluna.id] = r.valor;
-        if (r.alerta) alertasLinha.push(`${coluna.label}: ${r.alerta}`);
+        if (r.alerta) { alertasLinha.push(`${coluna.label}: ${r.alerta}`); registrarNaoReconhecido(stat, bruto); }
       } else if (coluna.tipo_input === 'select' && coluna.lista) {
         const r = matchParametroLista(coluna.lista, bruto);
         valoresFinal[coluna.id] = r.valor;
-        if (r.alerta) alertasLinha.push(`${coluna.label}: ${r.alerta}`);
+        if (r.alerta) { alertasLinha.push(`${coluna.label}: ${r.alerta}`); registrarNaoReconhecido(stat, bruto); }
       } else {
         valoresFinal[coluna.id] = String(bruto).trim();
       }
@@ -359,6 +410,7 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
   res.json({
     dfd_id: dfdId, importados, alertas: comAlertas, erros: comErro, log, sql_gerado: sqlGerado, mapeamento,
     numero_pac_inicial: numeroPacInicial, numero_pac_final: numeroPacFinal,
+    resumo_colunas: montarResumoColunas(statsColunas, linhas.length),
   });
 });
 

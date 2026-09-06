@@ -421,15 +421,19 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 [data-theme="dark"] .badge-fechado { background: rgba(100,116,139,.25); color: #cbd5e1; }
 
 /* ── PAC: tabela de itens do DFD (colunas configuráveis, potencialmente muitas) ─
-   1ª e 2ª colunas fixas (Nº / Descrição) durante o scroll horizontal. */
-.dfd-table-wrap { overflow-x: auto; position: relative; }
+   1ª e 2ª colunas fixas (ID PAC / Nº PAC) durante o scroll horizontal.
+   max-height + overflow-y própria (em vez de deixar a tabela esticar a
+   página inteira) — sem isso, com muitos itens a barra de rolagem lateral
+   ficava lá embaixo no rodapé da página, exigindo scroll vertical enorme só
+   pra rolar pros lados. Cabeçalho gruda no topo do próprio wrap (sticky). */
+.dfd-table-wrap { overflow-x: auto; overflow-y: auto; max-height: 62vh; position: relative; }
 .dfd-table { border-collapse: separate; border-spacing: 0; }
 .dfd-table th, .dfd-table td { white-space: nowrap; }
 .dfd-table tbody td { padding: 12px 12px; }
-.dfd-table th.dfd-col-fixa-1, .dfd-table td.dfd-col-fixa-1 { position: sticky; left: 0; z-index: 2; background: var(--surface); min-width: 56px; }
-.dfd-table th.dfd-col-fixa-2, .dfd-table td.dfd-col-fixa-2 { position: sticky; left: 56px; z-index: 2; background: var(--surface); min-width: 130px; white-space: normal; }
-.dfd-table th.dfd-col-fixa-3, .dfd-table td.dfd-col-fixa-3 { position: sticky; left: 186px; z-index: 2; background: var(--surface); min-width: 90px; white-space: normal; box-shadow: 2px 0 4px rgba(0,0,0,.06); }
-.dfd-table thead th.dfd-col-fixa-1, .dfd-table thead th.dfd-col-fixa-2, .dfd-table thead th.dfd-col-fixa-3 { z-index: 3; background: var(--surface-2); }
+.dfd-table thead th { position: sticky; top: 0; z-index: 3; background: var(--surface-2); }
+.dfd-table th.dfd-col-fixa-1, .dfd-table td.dfd-col-fixa-1 { position: sticky; left: 0; z-index: 2; background: var(--surface); min-width: 130px; white-space: normal; }
+.dfd-table th.dfd-col-fixa-2, .dfd-table td.dfd-col-fixa-2 { position: sticky; left: 130px; z-index: 2; background: var(--surface); min-width: 90px; white-space: normal; box-shadow: 2px 0 4px rgba(0,0,0,.06); }
+.dfd-table thead th.dfd-col-fixa-1, .dfd-table thead th.dfd-col-fixa-2 { z-index: 4; background: var(--surface-2); }
 
 /* "Finalizar meu DFD" por setor (pac-lancamento.js) */
 .lanc-fin-linha { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--cinza-b); border-radius: 8px; padding: 10px 16px; margin-bottom: 8px; font-size: 13px; }
@@ -1135,7 +1139,7 @@ textarea:focus::placeholder { color: transparent; }
   /* PAC: tabela de itens do DFD vira cartões — sem 2º renderer em JS, só CSS.
      Cada <td> já carrega data-label (o rótulo da coluna) na hora de montar o
      HTML; ::before o exibe como rótulo do campo dentro do cartão. */
-  .dfd-table-wrap { overflow-x: visible; }
+  .dfd-table-wrap { overflow-x: visible; overflow-y: visible; max-height: none; }
   .dfd-table thead { display: none; }
   .dfd-table, .dfd-table tbody, .dfd-table tr, .dfd-table td { display: block; width: 100%; }
   .dfd-table tr { border: 1px solid var(--cinza-b); border-radius: 8px; margin-bottom: 12px; padding: 8px 12px; }
@@ -1178,6 +1182,15 @@ textarea:focus::placeholder { color: transparent; }
   .main { margin-left: 0 !important; padding: 1mm !important; }
 
   .print-only { display: block !important; margin-bottom: 4px; }
+
+  /* Popup de Acompanhamento (dentro de Lançamento): quando aberto, imprime só
+     o próprio conteúdo do popup, não a página de baixo. `:has()` só reage
+     quando a classe "open" está no overlay — fora disso essa regra não pega
+     em nada, print normal do resto do sistema segue intocado. */
+  body:has(.modal-overlay.modal-overlay-print.open) .layout > *:not(.modal-overlay-print) { display: none !important; }
+  .modal-overlay-print.open { position: static !important; background: none !important; display: block !important; }
+  .modal-overlay-print .modal-box-lg { max-width: 100% !important; width: 100% !important; max-height: none !important; box-shadow: none !important; border: none !important; padding: 0 !important; }
+  .modal-overlay-print .modal-box-lg-corpo { overflow: visible !important; }
 
   .prt-titulo {
     text-align: center;
@@ -1291,3 +1304,9 @@ textarea:focus::placeholder { color: transparent; }
   box-shadow: 0 8px 32px rgba(0,0,0,.3); color: var(--text);
 }
 .modal-box h3 { font-size: 15px; margin-bottom: 16px; color: var(--text); }
+
+/* Variante larga do modal genérico — telas de acompanhamento/relatório em
+   popup (ex.: "Acompanhamento" dentro de Lançamento), não um formulário
+   pequeno de confirmação. */
+.modal-box-lg { max-width: 96vw; width: 1100px; max-height: 90vh; display: flex; flex-direction: column; }
+.modal-box-lg .modal-box-lg-corpo { overflow: auto; flex: 1 1 auto; }

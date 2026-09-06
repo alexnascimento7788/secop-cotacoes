@@ -184,29 +184,71 @@ function fecharDfd() {
   carregarDfds();
 }
 
+/* ── Popup "Acompanhamento" (do meu setor) ──────────────────────────────────
+   Substitui a antiga página/rotina separada "pac-acompanhamento" pra quem
+   lança — mesmas colunas de Lançamento (só leitura), com botão de imprimir
+   e de fechar dentro do próprio popup (ver .modal-overlay-print no CSS). Não
+   busca dado novo: reaproveita _itensAtuais, que já vem filtrado pro(s)
+   setor(es) do usuário logado (mesma fonte que a tabela editável usa). */
+function abrirAcompanhamentoPopup() {
+  const nomeSetores = _meusSetores.map(s => s.nome).join(', ') || '—';
+  document.getElementById('acomp-pop-subtitulo').textContent =
+    `${_dfdAtual.titulo} (${_dfdAtual.ano_base}) · ${nomeSetores}`;
+
+  const colunasPrincipais = _dfdAtual.colunas.filter(c => c.grupo === 'A' && c.slug !== 'numero_item');
+  const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
+  const temColContrato = colunasContrato.length > 0;
+
+  document.getElementById('acomp-pop-thead').innerHTML =
+    `<tr><th>ID PAC</th><th>Nº PAC</th>${colunasPrincipais.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}</tr>`;
+
+  const colspan = 2 + colunasPrincipais.length + (temColContrato ? 1 : 0);
+  document.getElementById('acomp-pop-tbody').innerHTML = _itensAtuais.map(item => `
+    <tr>
+      <td data-label="ID PAC">${item.codigo_pac || '—'}</td>
+      <td data-label="Nº PAC">${item.numero_pac || '—'}</td>
+      ${colunasPrincipais.map(c => `<td data-label="${c.label}">${formatarValorExibicao(c, item.valores[c.id])}</td>`).join('')}
+      ${temColContrato ? renderCelulaContratoSomenteLeitura(item) : ''}
+    </tr>
+  `).join('') || `<tr><td colspan="${colspan}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`;
+
+  document.getElementById('modal-acompanhamento').classList.add('open');
+}
+
+function renderCelulaContratoSomenteLeitura(item) {
+  const cfg = cfgContrato(estadoContrato(item));
+  return `<td data-label="Contrato" style="text-align:center;">${cfg.icone} ${cfg.texto}</td>`;
+}
+
+function fecharAcompanhamentoPopup() {
+  document.getElementById('modal-acompanhamento').classList.remove('open');
+}
+
 /* ── Tabela de itens ─────────────────────────────────────────────────────── */
 
 // Grupo B (Possui Contrato?) e C (Nº/Razão Social/Vencimento) viram 1 coluna só
 // ("Contrato") — badge com texto (Sim/Não já visível, sem depender de hover),
 // clique abre popup com o seletor Sim/Não + os campos de C.
 async function renderItens() {
-  // Nº e Nº PAC ficam fixos (sticky) no início da tabela — numero_pac não é
-  // uma "coluna" configurável do catálogo (é campo direto de dfd_itens, como
-  // numero_item), então é renderizado à parte, fora do loop de colunasPrincipais.
-  const colunaNumero = _dfdAtual.colunas.find(c => c.grupo === 'A' && c.slug === 'numero_item');
+  // ID PAC e Nº PAC ficam fixos (sticky) no início da tabela — nenhum dos dois
+  // é uma "coluna" configurável do catálogo (são campos diretos de dfd_itens:
+  // codigo_pac e numero_pac), então são renderizados à parte, fora do loop de
+  // colunasPrincipais. "Número" (numero_item, sequencial interno) não aparece
+  // mais na tela — instrução do Alex era só ID_PAC + NUMERO_PAC visíveis; o
+  // numero_item continua existindo por baixo, só pra ordenação.
   const colunasPrincipais = _dfdAtual.colunas.filter(c => c.grupo === 'A' && c.slug !== 'numero_item');
   const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
   const temColContrato = colunasContrato.length > 0;
 
   const thead = document.getElementById('lanc-itens-thead');
-  thead.innerHTML = `<tr><th class="dfd-col-fixa-1">${colunaNumero ? colunaNumero.label : 'Nº'}</th><th class="dfd-col-fixa-2">Código PAC</th><th class="dfd-col-fixa-3">Nº PAC</th>${colunasPrincipais.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}<th></th></tr>`;
+  thead.innerHTML = `<tr><th class="dfd-col-fixa-1">ID PAC</th><th class="dfd-col-fixa-2">Nº PAC</th>${colunasPrincipais.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}<th></th></tr>`;
 
   const res = await fetch(`/api/pac/dfds/${_dfdAtualId}/itens`);
   _itensAtuais = res.ok ? await res.json() : [];
   const contagem = document.getElementById('lanc-dfd-contagem');
   if (contagem) contagem.textContent = _itensAtuais.length === 1 ? '1 item lançado' : `${_itensAtuais.length} itens lançados`;
 
-  const colspan = 3 + colunasPrincipais.length + (temColContrato ? 1 : 0) + 1;
+  const colspan = 2 + colunasPrincipais.length + (temColContrato ? 1 : 0) + 1;
   const tbody = document.getElementById('lanc-itens-tbody');
   tbody.innerHTML = _itensAtuais.map(item => {
     const liberado = _pedidosLiberados[item.id] || new Set();
@@ -217,9 +259,8 @@ async function renderItens() {
     const podeSolicitar = _dfdAtual.status !== 'fechado' && (_dfdAtual.status === 'analise' || setorFinalizado);
     return `
     <tr data-item-id="${item.id}">
-      <td class="dfd-col-fixa-1" data-label="${colunaNumero ? colunaNumero.label : 'Nº'}">${item.numero_item}</td>
-      <td class="dfd-col-fixa-2" data-label="Código PAC">${item.codigo_pac || '—'}</td>
-      <td class="dfd-col-fixa-3" data-label="Nº PAC">${item.numero_pac || '—'}</td>
+      <td class="dfd-col-fixa-1" data-label="ID PAC">${item.codigo_pac || '—'}</td>
+      <td class="dfd-col-fixa-2" data-label="Nº PAC">${item.numero_pac || '—'}</td>
       ${colunasPrincipais.map(c => renderCelula(item, c, -1, liberado)).join('')}
       ${temColContrato ? renderCelulaContrato(item, colunasContrato) : ''}
       <td style="text-align:right;white-space:nowrap;">
@@ -257,14 +298,21 @@ function estadoContrato(item) {
   return 'pendente';
 }
 
-function renderCelulaContrato(item, colunasContrato) {
-  const estado = estadoContrato(item);
-  const cfg = {
+// Extraído de renderCelulaContrato pra ser reaproveitado tal e qual no popup
+// de Acompanhamento (somente leitura) — mesmos ícones/textos/cores em
+// qualquer tela que mostrar a coluna Contrato, por definição (mesma função).
+function cfgContrato(estado) {
+  return {
     sim: { icone: ICONE_CONTRATO_SIM, texto: 'Com contrato', titulo: 'Clique para ver/editar os dados do contrato' },
     nao: { icone: ICONE_CONTRATO_NAO, texto: 'Sem contrato', titulo: 'Clique para ver/editar os dados do contrato' },
     nao_informado: { icone: ICONE_CONTRATO_NAO_INFORMADO, texto: 'Não informado', titulo: 'Dado histórico importado sem essa informação na planilha original — clique para preencher se souber' },
     pendente: { icone: ICONE_CONTRATO_PENDENTE, texto: 'Pendente', titulo: 'Contrato ainda não informado — clique para responder' },
   }[estado];
+}
+
+function renderCelulaContrato(item, colunasContrato) {
+  const estado = estadoContrato(item);
+  const cfg = cfgContrato(estado);
   return `<td data-label="Contrato" style="text-align:center;">
     <button type="button" class="badge-contrato ${estado}" title="${cfg.titulo}" onclick="abrirModalContrato(${item.id})">${cfg.icone} ${cfg.texto}</button>
   </td>`;

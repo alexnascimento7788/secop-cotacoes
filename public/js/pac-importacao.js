@@ -355,6 +355,35 @@ function f1MostrarResultado(r) {
   document.getElementById('f1-log').innerHTML = (r.log || []).map(l =>
     `<div class="imp-log-linha imp-log-${l.tipo}">${l.tipo === 'erro' ? '❌' : l.tipo === 'alerta' ? '⚠️' : '✅'} Linha ${l.linha} — ${l.mensagem}</div>`
   ).join('');
+  renderResumoColunas(r.resumo_colunas || []);
+}
+
+// Painel "resumo por coluna" — o log linha-a-linha só avisa quando um valor
+// PREENCHIDO não foi reconhecido; uma coluna inteira vindo vazia (campo
+// opcional) não gerava alerta nenhum, então sumia da visão do Alex. Aqui
+// aparece de propósito ANTES do log detalhado, com uma proposta de tratamento
+// por coluna (não só a contagem crua).
+function renderResumoColunas(resumo) {
+  const el = document.getElementById('f1-resumo-colunas');
+  if (!el) return;
+  if (!resumo.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px;">Resumo por coluna</div>
+    <div class="table-wrap"><table style="font-size:12.5px;">
+      <thead><tr><th>Coluna</th><th>Mapeada?</th><th>Preenchidas</th><th>Vazias</th><th>Observação / proposta de tratamento</th></tr></thead>
+      <tbody>
+        ${resumo.map(c => `
+          <tr>
+            <td>${c.label}${c.obrigatoria ? ' <span class="text-muted" style="font-size:11px;">(obrigatória)</span>' : ''}</td>
+            <td>${c.mapeada ? '✅' : '—'}</td>
+            <td>${c.preenchidas}</td>
+            <td>${c.vazias}</td>
+            <td>${c.proposta ? `<span style="color:${c.mapeada ? '#a15c00' : '#c00'};">${c.proposta}</span>` : '<span class="text-muted">—</span>'}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table></div>
+  `;
 }
 
 function f1ImportarOutroSetor() {
