@@ -127,19 +127,30 @@ async function atualizarCabecalhoUsuario() {
 
 const ICONE_VAZIO = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-subtle)" stroke-width="1.5"><path d="M9 12h6M9 16h6M9 8h1"/><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
 
+// Código estável do DFD (nunca some/reaparece com outro dono) — pedido do
+// Alex, 2026-09-06: testando com vários DFDs criados/apagados durante os
+// testes, sem número nenhum na tela ficava difícil saber qual é qual.
+// Deriva de `id` (AUTOINCREMENT de verdade — SQLite nunca reusa esse número,
+// mesmo depois de excluir uma linha) + ano_base; não é uma coluna nova no
+// banco, é só formatação (sempre reproduzível a partir do que já existe).
+function codigoDfd(d) {
+  return `DFD-${String(d.id).padStart(3, '0')}-${d.ano_base}`;
+}
+
 async function carregarDfds() {
   try {
     const res = await fetch('/api/pac/dfds');
     const dfds = res.ok ? await res.json() : [];
     document.getElementById('dfds-tbody').innerHTML = dfds.map(d => `
       <tr>
-        <td><strong>${d.titulo}</strong></td>
+        <td><strong>${codigoDfd(d)}</strong></td>
+        <td>${d.titulo}</td>
         <td>${d.ano_base}</td>
         <td>${badgeStatusDfd(d.status)}</td>
         <td>${d.itens_count ?? 0}</td>
         <td style="text-align:right;"><button class="btn btn-primary btn-sm" onclick="abrirDfd(${d.id})">Abrir →</button></td>
       </tr>
-    `).join('') || `<tr><td colspan="5" style="padding:32px 20px;text-align:center;color:var(--text-subtle);">
+    `).join('') || `<tr><td colspan="6" style="padding:32px 20px;text-align:center;color:var(--text-subtle);">
         <div style="display:flex;flex-direction:column;align-items:center;gap:8px;">
           ${ICONE_VAZIO}
           <span>Nenhum DFD disponível para o seu setor no momento.</span>
@@ -163,7 +174,7 @@ async function abrirDfd(id) {
   _dfdAtual = await dfdRes.json();
   _meusSetores = setoresRes.ok ? await setoresRes.json() : [];
 
-  document.getElementById('pac-lanc-titulo').textContent = `${_dfdAtual.titulo} (${_dfdAtual.ano_base})`;
+  document.getElementById('pac-lanc-titulo').textContent = `${codigoDfd(_dfdAtual)} — ${_dfdAtual.titulo}`;
   const linha2 = document.getElementById('pac-lanc-linha2');
   linha2.innerHTML = `Lançamento · ${badgeStatusDfd(_dfdAtual.status)}`;
   linha2.style.display = '';
@@ -193,7 +204,7 @@ function fecharDfd() {
 function abrirAcompanhamentoPopup() {
   const nomeSetores = _meusSetores.map(s => s.nome).join(', ') || '—';
   document.getElementById('acomp-pop-subtitulo').textContent =
-    `${_dfdAtual.titulo} (${_dfdAtual.ano_base}) · ${nomeSetores}`;
+    `${codigoDfd(_dfdAtual)} — ${_dfdAtual.titulo} · ${nomeSetores}`;
 
   const colunasPrincipais = _dfdAtual.colunas.filter(c => c.grupo === 'A' && c.slug !== 'numero_item');
   const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
