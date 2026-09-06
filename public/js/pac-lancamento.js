@@ -209,13 +209,15 @@ function abrirAcompanhamentoPopup() {
   const colunasPrincipais = _dfdAtual.colunas.filter(c => c.grupo === 'A' && c.slug !== 'numero_item');
   const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
   const temColContrato = colunasContrato.length > 0;
+  const multiSetor = _meusSetores.length > 1;
 
   document.getElementById('acomp-pop-thead').innerHTML =
-    `<tr><th>ID PAC</th><th>Nº PAC</th>${colunasPrincipais.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}</tr>`;
+    `<tr>${multiSetor ? '<th>Setor</th>' : ''}<th>ID PAC</th><th>Nº PAC</th>${colunasPrincipais.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}</tr>`;
 
-  const colspan = 2 + colunasPrincipais.length + (temColContrato ? 1 : 0);
+  const colspan = (multiSetor ? 1 : 0) + 2 + colunasPrincipais.length + (temColContrato ? 1 : 0);
   document.getElementById('acomp-pop-tbody').innerHTML = _itensAtuais.map(item => `
     <tr>
+      ${multiSetor ? `<td data-label="Setor">${nomeSetorLanc(item.setor_id)}</td>` : ''}
       <td data-label="ID PAC">${item.codigo_pac || '—'}</td>
       <td data-label="Nº PAC">${item.numero_pac || '—'}</td>
       ${colunasPrincipais.map(c => `<td data-label="${c.label}">${formatarValorExibicao(c, item.valores[c.id])}</td>`).join('')}
@@ -240,6 +242,15 @@ function fecharAcompanhamentoPopup() {
 // Grupo B (Possui Contrato?) e C (Nº/Razão Social/Vencimento) viram 1 coluna só
 // ("Contrato") — badge com texto (Sim/Não já visível, sem depender de hover),
 // clique abre popup com o seletor Sim/Não + os campos de C.
+// Setor do item só vira COLUNA (e ganha filtro) quando o usuário está
+// vinculado a mais de 1 setor — pedido do Alex (2026-09-06, confirmado como
+// situação real de produção, não só teste): sem isso, itens de setores
+// diferentes apareciam misturados na mesma tabela sem nenhuma pista de qual
+// é qual. Com 1 setor só (o caso comum), a tela continua idêntica a sempre.
+function nomeSetorLanc(setorId) {
+  return (_meusSetores.find(s => s.id === setorId) || {}).nome || '—';
+}
+
 async function renderItens() {
   // ID PAC e Nº PAC ficam fixos (sticky) no início da tabela — nenhum dos dois
   // é uma "coluna" configurável do catálogo (são campos diretos de dfd_itens:
@@ -250,18 +261,34 @@ async function renderItens() {
   const colunasPrincipais = _dfdAtual.colunas.filter(c => c.grupo === 'A' && c.slug !== 'numero_item');
   const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
   const temColContrato = colunasContrato.length > 0;
+  const multiSetor = _meusSetores.length > 1;
+
+  const filtroWrap = document.getElementById('lanc-filtro-setor-wrap');
+  const filtroSelect = document.getElementById('lanc-filtro-setor');
+  filtroWrap.style.display = multiSetor ? '' : 'none';
+  if (multiSetor && !filtroSelect.dataset.montado) {
+    filtroSelect.innerHTML = '<option value="">Todos os meus setores</option>' +
+      _meusSetores.map(s => `<option value="${s.id}">${s.nome}</option>`).join('');
+    filtroSelect.dataset.montado = '1';
+  }
+  const filtroSetorId = multiSetor && filtroSelect.value ? Number(filtroSelect.value) : null;
 
   const thead = document.getElementById('lanc-itens-thead');
-  thead.innerHTML = `<tr><th class="dfd-col-fixa-1">ID PAC</th><th class="dfd-col-fixa-2">Nº PAC</th>${colunasPrincipais.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}<th></th></tr>`;
+  thead.innerHTML = `<tr>${multiSetor ? '<th>Setor</th>' : ''}<th class="dfd-col-fixa-1">ID PAC</th><th class="dfd-col-fixa-2">Nº PAC</th>${colunasPrincipais.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}<th></th></tr>`;
 
   const res = await fetch(`/api/pac/dfds/${_dfdAtualId}/itens`);
   _itensAtuais = res.ok ? await res.json() : [];
+  const itensExibidos = filtroSetorId ? _itensAtuais.filter(i => i.setor_id === filtroSetorId) : _itensAtuais;
   const contagem = document.getElementById('lanc-dfd-contagem');
-  if (contagem) contagem.textContent = _itensAtuais.length === 1 ? '1 item lançado' : `${_itensAtuais.length} itens lançados`;
+  if (contagem) {
+    contagem.textContent = itensExibidos.length === _itensAtuais.length
+      ? (_itensAtuais.length === 1 ? '1 item lançado' : `${_itensAtuais.length} itens lançados`)
+      : `${itensExibidos.length} de ${_itensAtuais.length} itens (filtrado por setor)`;
+  }
 
-  const colspan = 2 + colunasPrincipais.length + (temColContrato ? 1 : 0) + 1;
+  const colspan = (multiSetor ? 1 : 0) + 2 + colunasPrincipais.length + (temColContrato ? 1 : 0) + 1;
   const tbody = document.getElementById('lanc-itens-tbody');
-  tbody.innerHTML = _itensAtuais.map(item => {
+  tbody.innerHTML = itensExibidos.map(item => {
     const liberado = _pedidosLiberados[item.id] || new Set();
     const setorFinalizado = !!_finalizacaoPorSetor[item.setor_id];
     const podeExcluir = (_dfdAtual.status === 'aberto' && !setorFinalizado) || liberado.has('excluir');
@@ -270,6 +297,7 @@ async function renderItens() {
     const podeSolicitar = _dfdAtual.status !== 'fechado' && (_dfdAtual.status === 'analise' || setorFinalizado);
     return `
     <tr data-item-id="${item.id}">
+      ${multiSetor ? `<td data-label="Setor">${nomeSetorLanc(item.setor_id)}</td>` : ''}
       <td class="dfd-col-fixa-1" data-label="ID PAC">${item.codigo_pac || '—'}</td>
       <td class="dfd-col-fixa-2" data-label="Nº PAC">${item.numero_pac || '—'}</td>
       ${colunasPrincipais.map(c => renderCelula(item, c, -1, liberado)).join('')}

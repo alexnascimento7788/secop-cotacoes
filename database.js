@@ -985,6 +985,29 @@ function setupDb() {
     seedColuna('contrato_renovado', 'O contrato será renovado?', 'C', 'select', 'sim_nao',        0, 18);
   }
 
+  // Backfill (2026-09-06): dado já importado ANTES do auto-cadastro existir
+  // (routes/pac-importacao.js, v4.17.3) ficou com Subitem gravado como texto
+  // livre, sem virar opção em Parâmetros — achado com a planilha real do
+  // Depad (categorias próprias: "Material de Copa", "Combustivel"...). Sem
+  // isso, o dropdown de edição manual em Lançamento não oferece essas
+  // categorias reais, só aceita quem já sabe digitar exatamente igual. Só
+  // ADICIONA (nunca remove/altera), então rodar de novo a cada boot é
+  // inofensivo — mesmo espírito das outras migrações idempotentes daqui.
+  try {
+    const colSubitem = _db.prepare(`SELECT id FROM dfd_colunas_catalogo WHERE slug = 'subitem'`).get();
+    if (colSubitem) {
+      const cadastrados = new Set(_db.prepare(`SELECT valor FROM dfd_parametros_lista WHERE lista = 'subitem'`).all().map(r => r.valor));
+      const usados = _db.prepare(`
+        SELECT DISTINCT valor FROM dfd_itens_valores WHERE coluna_id = ? AND valor IS NOT NULL AND valor != ''
+      `).all(colSubitem.id);
+      let ordem = _db.prepare(`SELECT COALESCE(MAX(ordem), 0) AS o FROM dfd_parametros_lista WHERE lista = 'subitem'`).get().o;
+      const insNovo = _db.prepare(`INSERT INTO dfd_parametros_lista (lista, valor, ordem) VALUES ('subitem', ?, ?)`);
+      usados.forEach(({ valor }) => {
+        if (!cadastrados.has(valor)) { ordem++; try { insNovo.run(valor, ordem); } catch {} }
+      });
+    }
+  } catch {}
+
   // Um DFD novo herda automaticamente toda coluna ativa=1 do catálogo (ver
   // POST /dfds em routes/pac.js), mas um DFD que já existia ANTES desta
   // coluna ser criada não ganha ela sozinho — precisa de backfill explícito
