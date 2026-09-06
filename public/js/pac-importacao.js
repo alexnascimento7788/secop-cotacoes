@@ -274,6 +274,11 @@ function f1MontarPreview(setorId, dfdSel) {
 }
 
 function f1RecalcularIndicadores() {
+  // Mapeamento mudou — o resultado da simulação anterior (se tinha) não vale
+  // mais, esconde pra não parecer que ainda reflete o mapeamento atual.
+  const simWrap = document.getElementById('f1-simulacao-wrap');
+  if (simWrap) simWrap.style.display = 'none';
+
   const selects = [...document.querySelectorAll('#f1-mapa-tbody select')];
   const reconhecidas = selects.filter(s => s.value).length;
   document.getElementById('f1-cnt-reconhecidas').textContent = reconhecidas;
@@ -294,7 +299,11 @@ function f1RecalcularIndicadores() {
 
 function f1Voltar() { irParaPasso('f1', 1); }
 
-async function f1Importar() {
+// dryRun=true → "Simular": roda a mesma validação no servidor (mesmo
+// parsing/matching de sempre) mas não grava nada; mostra o resultado dentro
+// do próprio passo 2, pra corrigir mapeamento/planilha ANTES de gravar.
+// dryRun=false → "Importar de verdade": grava e avança pro passo 3.
+async function f1Importar(dryRun) {
   const dfdSel = document.getElementById('f1-dfd-select').value;
   const setorId = Number(document.getElementById('f1-setor-select').value);
   const modo = document.querySelector('input[name="f1-modo"]:checked')?.value || 'adicionar';
@@ -315,30 +324,47 @@ async function f1Importar() {
     return obj;
   });
 
-  const payload = { dfd_id: dfdSel, setor_id: setorId, mapeamento, modo, linhas };
+  const payload = { dfd_id: dfdSel, setor_id: setorId, mapeamento, modo, linhas, dry_run: !!dryRun };
   if (dfdSel === 'novo') {
     payload.ano_base = Number(document.getElementById('f1-novo-ano').value);
     payload.titulo = document.getElementById('f1-novo-titulo').value.trim();
   }
 
-  const btn = document.getElementById('f1-btn-importar');
-  const spinner = document.getElementById('f1-spinner');
-  const label = document.getElementById('f1-btn-importar-label');
-  btn.disabled = true; spinner.hidden = false; label.textContent = 'Importando...';
+  const btn = document.getElementById(dryRun ? 'f1-btn-simular' : 'f1-btn-importar');
+  const spinner = document.getElementById(dryRun ? 'f1-spinner-sim' : 'f1-spinner');
+  const label = document.getElementById(dryRun ? 'f1-btn-simular-label' : 'f1-btn-importar-label');
+  const labelOriginal = label.textContent;
+  btn.disabled = true; spinner.hidden = false; label.textContent = dryRun ? 'Simulando...' : 'Importando...';
   try {
     const res = await fetch('/api/pac/importacao/dfd', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
     });
     const r = await res.json();
     if (!res.ok) throw new Error(r.error || 'Erro ao importar');
-    _f1Resultado = r;
-    f1MostrarResultado(r);
-    irParaPasso('f1', 3);
+    if (dryRun) {
+      f1MostrarSimulacao(r);
+    } else {
+      _f1Resultado = r;
+      f1MostrarResultado(r);
+      irParaPasso('f1', 3);
+    }
   } catch (e) {
     toast('Erro: ' + e.message, 'error');
   } finally {
-    btn.disabled = false; spinner.hidden = true; label.textContent = 'Importar agora';
+    btn.disabled = false; spinner.hidden = true; label.textContent = labelOriginal;
   }
+}
+
+function f1MostrarSimulacao(r) {
+  document.getElementById('f1-simulacao-wrap').style.display = '';
+  document.getElementById('f1-sim-cnt-importados').textContent = r.importados;
+  document.getElementById('f1-sim-cnt-alertas').textContent = r.alertas;
+  document.getElementById('f1-sim-cnt-erros').textContent = r.erros;
+  document.getElementById('f1-sim-log').innerHTML = (r.log || []).map(l =>
+    `<div class="imp-log-linha imp-log-${l.tipo}">${l.tipo === 'erro' ? '❌' : l.tipo === 'alerta' ? '⚠️' : '✅'} Linha ${l.linha} — ${l.mensagem}</div>`
+  ).join('');
+  renderResumoColunas(r.resumo_colunas || [], 'f1-sim-resumo-colunas');
+  document.getElementById('f1-simulacao-wrap').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function f1MostrarResultado(r) {
@@ -363,8 +389,8 @@ function f1MostrarResultado(r) {
 // opcional) não gerava alerta nenhum, então sumia da visão do Alex. Aqui
 // aparece de propósito ANTES do log detalhado, com uma proposta de tratamento
 // por coluna (não só a contagem crua).
-function renderResumoColunas(resumo) {
-  const el = document.getElementById('f1-resumo-colunas');
+function renderResumoColunas(resumo, elId) {
+  const el = document.getElementById(elId || 'f1-resumo-colunas');
   if (!el) return;
   if (!resumo.length) { el.innerHTML = ''; return; }
   el.innerHTML = `
@@ -391,6 +417,7 @@ function f1ImportarOutroSetor() {
   document.getElementById('f1-dropzone-texto').textContent = 'Clique ou arraste o arquivo aqui';
   _f1Arquivo = null; _f1Linhas = null;
   document.getElementById('f1-btn-pre').disabled = true;
+  document.getElementById('f1-simulacao-wrap').style.display = 'none';
   irParaPasso('f1', 1);
 }
 
