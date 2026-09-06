@@ -105,6 +105,15 @@ async function _aplicarRotina(user) {
     // ("pac-gestao.html") quanto uma eventual forma absoluta ("/pac-gestao.html")
     const arquivo = href.replace(/^\//, '');
     document.querySelectorAll(`.sidebar nav a[href$="${arquivo}"]`).forEach(a => a.remove());
+    // "Gestão" (PAC) desde a v4.15.1 não é mais um <a> único — é uma árvore
+    // (<details id="nav-gestao-galho">) com Acompanhamento/Consolidação/
+    // Administração dentro. O seletor acima não pega mais nada pra essa
+    // rotina (os links filhos têm "#hash" no fim do href, e o próprio
+    // "Gestão" virou <summary> sem href) — sem isso a árvore inteira ficava
+    // visível pra quem não tem a rotina liberada. Remove o galho inteiro.
+    if (slug === 'pac-gestao') {
+      document.querySelectorAll('#nav-gestao-galho').forEach(el => el.remove());
+    }
   });
 
   const atual = rotinas.find(r => r.slug === pageRotina);
