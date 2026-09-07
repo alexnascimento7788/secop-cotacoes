@@ -438,16 +438,25 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
    pra rolar pros lados. Cabeçalho gruda no topo do próprio wrap (sticky). */
 .dfd-table-wrap { overflow-x: auto; overflow-y: auto; max-height: 62vh; position: relative; }
 .dfd-table { border-collapse: separate; border-spacing: 0; }
-.dfd-table th, .dfd-table td { white-space: nowrap; }
-.dfd-table tbody td { padding: 12px 12px; }
+.dfd-table th { white-space: nowrap; }
+/* Célula de dado quebra linha (não fica tudo numa linha só espremendo a
+   coluna) — texto longo (ex.: "Descrição do Objeto") esticava a tabela
+   inteira e deixava as colunas curtas com um vazio enorme do lado, parecendo
+   "espaço em branco" (Alex, 2026-09-08: "os espaços que estão gerando na
+   tela são por textos longos"). max-width dá um teto pra quebra acontecer
+   num tamanho de coluna razoável. Colunas fixas (ID/Nº PAC) já tinham esse
+   ajuste antes (dfd-col-fixa-1/2 abaixo), continuam iguais. */
+.dfd-table td { white-space: normal; max-width: 320px; }
 /* `border-collapse:separate` (precisa disso pra sticky funcionar) faz o
    `tbody tr { border-bottom }` genérico (style.css, regra de toda tabela do
    sistema) parar de renderizar — em separate, borda em <tr> simplesmente não
    aparece, só em <td>. Sem isso a tabela ficava sem NENHUMA linha separando
    um item do outro (achado pelo Alex testando de verdade em Gestão >
    Acompanhamento, 2026-09-07) — bug real desde que .dfd-table existe
-   (v4.16.0), não é regressão só da v4.18.0. */
-.dfd-table tbody td { border-bottom: 1px solid var(--cinza-b); }
+   (v4.16.0), não é regressão só da v4.18.0. Espessura 2px (não 1px) pra ficar
+   nítido mesmo com linha alta por causa da quebra de texto acima (Alex,
+   2026-09-08: "precisamos de separação com linhas de pac em pac"). */
+.dfd-table tbody td { padding: 12px 12px; border-bottom: 2px solid var(--cinza-b); }
 .dfd-table tbody tr:last-child td { border-bottom: none; }
 .dfd-table thead th { position: sticky; top: 0; z-index: 3; background: var(--surface-2); }
 .dfd-table th.dfd-col-fixa-1, .dfd-table td.dfd-col-fixa-1 { position: sticky; left: 0; z-index: 2; background: var(--surface); min-width: 130px; white-space: normal; }
@@ -456,6 +465,18 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 
 /* "Finalizar meu DFD" por setor (pac-lancamento.js) */
 .lanc-fin-linha { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--cinza-b); border-radius: 8px; padding: 10px 16px; margin-bottom: 8px; font-size: 13px; }
+
+/* Barra de progresso genérica + indicadores (KPIs) em linha — pedido do
+   Alex, 2026-09-07: "igual do lançamento que se comporta perfeitamente".
+   Movida de pac-gestao.html pra cá (era só daquela página) porque
+   pac-lancamento.html passou a reaproveitar também (popup de Acompanhamento
+   do setor) — mesmo indicador em 2 lugares, 1 CSS só. */
+.pac-progress-track { height: 8px; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--cinza-b); overflow: hidden; }
+.pac-progress-fill { height: 100%; border-radius: 5px 0 0 5px; background: var(--verde, #2E7D32); transition: width .3s ease; }
+.pac-progress-fill.alerta { background: #d97706; }
+.pac-kpi-rotulo { flex: 0 0 190px; }
+.pac-kpi-barra { flex: 1 1 auto; }
+.pac-kpi-fracao { flex: 0 0 auto; white-space: nowrap; font-weight: 600; }
 
 /* Inputs/selects dentro da tabela do DFD reaproveitam a aparência de
    .form-group, em vez do controle cru do navegador (era isso que dava a

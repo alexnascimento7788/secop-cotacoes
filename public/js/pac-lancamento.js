@@ -219,6 +219,8 @@ function abrirAcompanhamentoPopup() {
   const temColContrato = colunasContrato.length > 0;
   const multiSetor = _meusSetores.length > 1;
 
+  renderKpisAcompanhamentoPopup();
+
   document.getElementById('acomp-pop-thead').innerHTML =
     `<tr>${multiSetor ? '<th>Setor</th>' : ''}<th>ID PAC</th><th>Nº PAC</th>${colunasPrincipais.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}</tr>`;
 
@@ -234,6 +236,47 @@ function abrirAcompanhamentoPopup() {
   `).join('') || `<tr><td colspan="${colspan}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`;
 
   document.getElementById('modal-acompanhamento').classList.add('open');
+}
+
+// Indicadores do topo do popup — pedido do Alex, 2026-09-08: "no botão de
+// acompanhamento também" (mesma linha/estilo já aprovado em Gestão >
+// Acompanhamento, ver renderKpisAcompanhamento em pac-gestao.js). Calculado
+// só com o que já está carregado (_itensAtuais/_dfdAtual/_finalizacaoPorSetor),
+// sem requisição nova — este popup é read-only, reaproveita tudo.
+function renderKpisAcompanhamentoPopup() {
+  const wrap = document.getElementById('acomp-pop-kpis');
+  const itens = _itensAtuais || [];
+
+  const totalSetores = _meusSetores.length;
+  const setoresFinalizados = _meusSetores.filter(s => _finalizacaoPorSetor[s.id]).length;
+  const pctSetores = totalSetores ? Math.round((setoresFinalizados / totalSetores) * 100) : 0;
+
+  const itensFinalizados = itens.filter(i => i.status_execucao === 'Processo Finalizado').length;
+  const pctExecucao = itens.length ? Math.round((itensFinalizados / itens.length) * 100) : 0;
+
+  const idValorEstimado = (_dfdAtual.colunas.find(c => c.slug === 'valor_estimado') || {}).id;
+  const valorTotal = itens.reduce((soma, i) => soma + (Number((i.valores || {})[idValorEstimado]) || 0), 0);
+
+  const linhaComBarra = (rotulo, pct, fracaoTexto) => `
+    <div class="lanc-fin-linha">
+      <strong class="pac-kpi-rotulo">${rotulo}</strong>
+      <div class="pac-progress-track pac-kpi-barra"><div class="pac-progress-fill" style="width:${Math.min(pct, 100)}%;"></div></div>
+      <span class="pac-kpi-fracao">${fracaoTexto} (${pct}%)</span>
+    </div>`;
+
+  wrap.innerHTML =
+    (totalSetores > 1 ? linhaComBarra('Setores finalizados', pctSetores, `${setoresFinalizados} de ${totalSetores}`) : '') +
+    `<div class="lanc-fin-linha">
+      <strong class="pac-kpi-rotulo">Itens lançados</strong>
+      <span class="text-muted pac-kpi-barra">${totalSetores > 1 ? 'Somando meus setores' : '—'}</span>
+      <span class="pac-kpi-fracao">${itens.length}</span>
+    </div>` +
+    linhaComBarra('Execução dos itens', pctExecucao, `${itensFinalizados} de ${itens.length}`) +
+    `<div class="lanc-fin-linha">
+      <strong class="pac-kpi-rotulo">Valor estimado</strong>
+      <span class="text-muted pac-kpi-barra">Somando todos os itens lançados</span>
+      <span class="pac-kpi-fracao">R$ ${fmtMoeda(valorTotal)}</span>
+    </div>`;
 }
 
 function renderCelulaContratoSomenteLeitura(item) {
