@@ -241,10 +241,36 @@ function abrirAcompanhamentoPopup() {
 // Indicadores — pedido do Alex, 2026-09-08: primeiro só no popup ("no botão
 // de acompanhamento também"), depois direto na tela principal de Lançamento
 // também ("não deveríamos ter valores somando nesta tela? só temos em
-// acompanhamento") — mesma linha/estilo já aprovado em Gestão > Acompanhamento
-// (ver renderKpisAcompanhamento em pac-gestao.js). Uma função só, recebe o id
-// do container de destino; calculado com o que já está carregado
-// (_itensAtuais/_dfdAtual/_finalizacaoPorSetor), sem requisição nova.
+// acompanhamento"). Redesenho, mesma data (Alex, depois de terminar o teste
+// ponta-a-ponta): "Itens lançados" saiu (não fazia sentido), "Setores
+// finalizados"/"Execução dos itens" viraram pizza, "Valor estimado" virou
+// "Valor realizado" (realizado/estimado, igual Gestão) com velocímetro —
+// zero lib nova, SVG inline (ver svgPizza/svgVelocimetro abaixo, mesmos
+// helpers duplicados em pac-gestao.js). Calculado com o que já está
+// carregado (_itensAtuais/_dfdAtual/_finalizacaoPorSetor), sem requisição
+// nova (o /itens já devolve realizado_tu_mlp/realizado_rdc por item).
+function svgPizza(pct) {
+  const p = Math.max(0, Math.min(100, pct));
+  const cor = p >= 100 ? 'var(--verde, #2E7D32)' : (p >= 50 ? 'var(--verde, #2E7D32)' : '#d97706');
+  return `<svg viewBox="0 0 36 36" width="34" height="34" style="flex-shrink:0;">
+    <circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--surface-2)" stroke-width="4"></circle>
+    <circle cx="18" cy="18" r="15.9155" fill="none" stroke="${cor}" stroke-width="4"
+      stroke-dasharray="${p} ${100 - p}" stroke-linecap="round" transform="rotate(-90 18 18)"></circle>
+  </svg>`;
+}
+function svgVelocimetro(pct) {
+  const p = Math.max(0, Math.min(100, pct));
+  const cor = p >= 90 ? '#d97706' : 'var(--verde, #2E7D32)';
+  const theta = (180 - (p / 100) * 180) * Math.PI / 180;
+  const x2 = 50 + 34 * Math.cos(theta), y2 = 50 - 34 * Math.sin(theta);
+  return `<svg viewBox="0 0 100 55" width="62" height="34" style="flex-shrink:0;">
+    <path d="M 6 50 A 44 44 0 0 1 94 50" fill="none" stroke="var(--surface-2)" stroke-width="8"></path>
+    <path d="M 6 50 A 44 44 0 0 1 94 50" fill="none" stroke="${cor}" stroke-width="8"
+      stroke-dasharray="${(p / 100 * 138).toFixed(1)} 138" stroke-linecap="round"></path>
+    <line x1="50" y1="50" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="var(--text, #333)" stroke-width="2.5" stroke-linecap="round"></line>
+    <circle cx="50" cy="50" r="3" fill="var(--text, #333)"></circle>
+  </svg>`;
+}
 function renderKpisLancamento(elId) {
   const wrap = document.getElementById(elId);
   if (!wrap) return;
@@ -258,27 +284,30 @@ function renderKpisLancamento(elId) {
   const pctExecucao = itens.length ? Math.round((itensFinalizados / itens.length) * 100) : 0;
 
   const idValorEstimado = (_dfdAtual.colunas.find(c => c.slug === 'valor_estimado') || {}).id;
-  const valorTotal = itens.reduce((soma, i) => soma + (Number((i.valores || {})[idValorEstimado]) || 0), 0);
+  const idFontePagadora = (_dfdAtual.colunas.find(c => c.slug === 'fonte_pagadora') || {}).id;
+  const totais = itens.reduce((acc, i) => {
+    const fonte = (i.valores || {})[idFontePagadora];
+    const estimado = Number((i.valores || {})[idValorEstimado]) || 0;
+    acc.estimado += estimado;
+    acc.realizado += (Number(i.realizado_tu_mlp) || 0) + (Number(i.realizado_rdc) || 0);
+    return acc;
+  }, { estimado: 0, realizado: 0 });
+  const pctRealizado = totais.estimado ? Math.round((totais.realizado / totais.estimado) * 100) : 0;
 
-  const linhaComBarra = (rotulo, pct, fracaoTexto) => `
+  const linhaPizza = (rotulo, pct, fracaoTexto) => `
     <div class="lanc-fin-linha">
+      ${svgPizza(pct)}
       <strong class="pac-kpi-rotulo">${rotulo}</strong>
-      <div class="pac-progress-track pac-kpi-barra"><div class="pac-progress-fill" style="width:${Math.min(pct, 100)}%;"></div></div>
-      <span class="pac-kpi-fracao">${fracaoTexto} (${pct}%)</span>
+      <span class="pac-kpi-fracao" style="flex:1 1 auto;">${fracaoTexto} (${pct}%)</span>
     </div>`;
 
   wrap.innerHTML =
-    (totalSetores > 1 ? linhaComBarra('Setores finalizados', pctSetores, `${setoresFinalizados} de ${totalSetores}`) : '') +
+    (totalSetores > 1 ? linhaPizza('Setores finalizados', pctSetores, `${setoresFinalizados} de ${totalSetores}`) : '') +
+    linhaPizza('Execução dos itens', pctExecucao, `${itensFinalizados} de ${itens.length}`) +
     `<div class="lanc-fin-linha">
-      <strong class="pac-kpi-rotulo">Itens lançados</strong>
-      <span class="text-muted pac-kpi-barra">${totalSetores > 1 ? 'Somando meus setores' : '—'}</span>
-      <span class="pac-kpi-fracao">${itens.length}</span>
-    </div>` +
-    linhaComBarra('Execução dos itens', pctExecucao, `${itensFinalizados} de ${itens.length}`) +
-    `<div class="lanc-fin-linha">
-      <strong class="pac-kpi-rotulo">Valor estimado</strong>
-      <span class="text-muted pac-kpi-barra">Somando todos os itens lançados</span>
-      <span class="pac-kpi-fracao">R$ ${fmtMoeda(valorTotal)}</span>
+      ${svgVelocimetro(pctRealizado)}
+      <strong class="pac-kpi-rotulo">Valor realizado</strong>
+      <span class="pac-kpi-fracao" style="flex:1 1 auto;">R$ ${fmtMoeda(totais.realizado)} de R$ ${fmtMoeda(totais.estimado)} (${pctRealizado}%)</span>
     </div>`;
 }
 
