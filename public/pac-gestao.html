@@ -212,38 +212,77 @@
         <div class="pac-card">
           <div class="pac-card-title" id="consol-det-titulo">—</div>
           <div class="text-muted" id="consol-det-vencimento" style="font-size:12.5px;margin-bottom:10px;"></div>
-          <div class="pac-filtros">
-            <div class="form-group"><label>Setor</label><select id="consol-filtro-setor" onchange="renderConsolidadoDetalhe()"><option value="">Todos</option></select></div>
-            <div class="form-group" style="min-width:auto;">
-              <label style="visibility:hidden;">.</label>
-              <label style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:13px;">
-                <input type="checkbox" id="consol-exibir-codigo" onchange="renderConsolidadoDetalhe()" style="width:auto;"> Exibir código
-              </label>
+
+          <!-- DFD com todos os setores consolidados (dfds.status='fechado') — só
+               resta emitir o relatório. Layout do relatório em si é provisório,
+               fica pra uma rodada própria (combinado com o Alex). -->
+          <div id="consol-finalizado" style="display:none;padding:24px 0;text-align:center;">
+            <p style="font-size:15px;font-weight:600;color:var(--verde);margin-bottom:14px;">✅ Consolidação Finalizada</p>
+            <button class="btn btn-primary" id="consol-btn-relatorio" onclick="abrirRelatorioDfd()">🖨 Emitir Relatório DFD nº <span id="consol-relatorio-numero"></span></button>
+          </div>
+
+          <div id="consol-corpo-normal">
+            <div class="pac-filtros">
+              <div class="form-group"><label>Setor</label><select id="consol-filtro-setor" onchange="renderConsolidadoDetalhe()"><option value="">Todos</option></select></div>
+              <div class="form-group" style="min-width:auto;">
+                <label style="visibility:hidden;">.</label>
+                <label style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:13px;">
+                  <input type="checkbox" id="consol-exibir-codigo" onchange="renderConsolidadoDetalhe()" style="width:auto;"> Exibir código
+                </label>
+              </div>
+            </div>
+            <div class="consol-subtabs">
+              <button class="consol-subtab active" data-subtab="ativos" onclick="mudarConsolSubtab('ativos')">Ativos</button>
+              <button class="consol-subtab" data-subtab="cancelados" onclick="mudarConsolSubtab('cancelados')">Cancelados</button>
+              <button class="consol-subtab" data-subtab="aguardando" onclick="mudarConsolSubtab('aguardando')">Aguardando observação</button>
+            </div>
+            <div id="consol-subtab-ativos">
+              <div class="table-wrap dfd-table-wrap">
+                <table class="dfd-table">
+                  <thead id="consol-itens-thead"></thead>
+                  <tbody id="consol-itens-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div id="consol-subtab-cancelados" style="display:none;">
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Nº PAC</th><th>Setor</th><th>Descrição</th><th>Justificativa</th><th>Cancelado por</th><th>Quando</th></tr></thead>
+                  <tbody id="consol-cancelados-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div id="consol-subtab-aguardando" style="display:none;padding:24px;text-align:center;color:var(--text-subtle);">
+              Em breve.
             </div>
           </div>
-          <div class="consol-subtabs">
-            <button class="consol-subtab active" data-subtab="ativos" onclick="mudarConsolSubtab('ativos')">Ativos</button>
-            <button class="consol-subtab" data-subtab="cancelados" onclick="mudarConsolSubtab('cancelados')">Cancelados</button>
-            <button class="consol-subtab" data-subtab="aguardando" onclick="mudarConsolSubtab('aguardando')">Aguardando observação</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Relatório do DFD finalizado (M2) — impressão via window.print(), mesma
+         receita do popup de Acompanhamento em pac-lancamento.html. Tabela
+         simples por enquanto; layout final do relatório fica pra uma rodada
+         própria (combinado com o Alex). -->
+    <div class="modal-overlay modal-overlay-print" id="modal-relatorio-dfd">
+      <div class="modal-box modal-box-lg">
+        <div class="print-only prt-titulo" style="font-size:14pt;letter-spacing:2px;">CEASA CONECTA — PAC</div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+          <div>
+            <h3 style="margin-bottom:2px;">Relatório do DFD</h3>
+            <p id="relatorio-dfd-subtitulo" class="text-muted" style="font-size:12.5px;margin:0;"></p>
           </div>
-          <div id="consol-subtab-ativos">
-            <div class="table-wrap dfd-table-wrap">
-              <table class="dfd-table">
-                <thead id="consol-itens-thead"></thead>
-                <tbody id="consol-itens-tbody"></tbody>
-              </table>
-            </div>
+          <div class="no-print" style="display:flex;gap:8px;flex-shrink:0;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="window.print()">🖨 Imprimir</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="fecharRelatorioDfd()">Fechar</button>
           </div>
-          <div id="consol-subtab-cancelados" style="display:none;">
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Nº PAC</th><th>Setor</th><th>Descrição</th><th>Justificativa</th><th>Cancelado por</th><th>Quando</th></tr></thead>
-                <tbody id="consol-cancelados-tbody"></tbody>
-              </table>
-            </div>
-          </div>
-          <div id="consol-subtab-aguardando" style="display:none;padding:24px;text-align:center;color:var(--text-subtle);">
-            Em breve.
+        </div>
+        <div class="modal-box-lg-corpo" style="margin-top:14px;">
+          <div class="table-wrap dfd-table-wrap">
+            <table class="dfd-table">
+              <thead id="relatorio-dfd-thead"></thead>
+              <tbody id="relatorio-dfd-tbody"></tbody>
+            </table>
           </div>
         </div>
       </div>

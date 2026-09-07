@@ -763,6 +763,18 @@ async function renderConsolidadoDetalhe() {
   const res = await fetch(`/api/pac/dfds/${_consolDfdId}/consolidado`);
   _consolDados = res.ok ? await res.json() : { itens: [] };
 
+  // DFD com todos os setores já consolidados (dfds.status='fechado', ver M1
+  // em routes/pac.js finalizar-consolidacao) — não sobra mais nada pra
+  // trabalhar aqui, só emitir o relatório. Pedido do Alex, 2026-09-08.
+  const dfdInfo = _dfds.find(d => d.id === _consolDfdId);
+  const finalizado = dfdInfo?.status === 'fechado';
+  document.getElementById('consol-finalizado').style.display = finalizado ? 'block' : 'none';
+  document.getElementById('consol-corpo-normal').style.display = finalizado ? 'none' : 'block';
+  if (finalizado) {
+    document.getElementById('consol-relatorio-numero').textContent = codigoDfd(dfdInfo);
+    return;
+  }
+
   // Filtro por setor — populado com os setores que realmente têm item aqui.
   const setorSel = document.getElementById('consol-filtro-setor');
   const setoresUnicos = [...new Map(_consolDados.itens.map(i => [i.setor_id, i.setor_nome])).entries()];
@@ -852,6 +864,48 @@ function renderConsolCancelados() {
       <td>${fmtBrData(item.cancelado_em)}</td>
     </tr>
   `).join('') || `<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item cancelado.</td></tr>`;
+}
+
+// Relatório do DFD finalizado — reaproveita _consolDados (já carregado por
+// renderConsolidadoDetalhe antes de decidir mostrar o bloco "finalizado") e
+// as mesmas colunas/agrupamento por setor da tabela de Consolidação, só que
+// sem ações (é só leitura, pra imprimir). Layout definitivo do relatório
+// fica pra uma rodada própria — combinado com o Alex, 2026-09-08.
+function abrirRelatorioDfd() {
+  const dfdInfo = _dfds.find(d => d.id === _consolDfdId);
+  document.getElementById('relatorio-dfd-subtitulo').textContent =
+    `${codigoDfd(dfdInfo)} — ${dfdInfo?.titulo || ''} — Consolidação finalizada`;
+
+  const colunasDfd = (_colunasCatalogo || []).filter(c => c.grupo === 'A' && c.slug !== 'numero_item');
+  const colunasContrato = (_colunasCatalogo || []).filter(c => c.grupo === 'C');
+  const temContrato = colunasContrato.length > 0;
+  document.getElementById('relatorio-dfd-thead').innerHTML = `<tr>
+    <th>Nº PAC</th>${colunasDfd.map(c => `<th>${c.label}</th>`).join('')}${temContrato ? '<th>Contrato</th>' : ''}
+  </tr>`;
+
+  const ativos = (_consolDados?.itens || []).filter(i => i.status_consolidacao !== 'cancelado');
+  const linhas = [];
+  let setorAtual = null;
+  ativos.forEach(item => {
+    if (item.setor_id !== setorAtual) {
+      setorAtual = item.setor_id;
+      linhas.push(`<tr><td colspan="${1 + colunasDfd.length + (temContrato ? 1 : 0)}" style="font-weight:600;background:var(--surface-2);">${item.setor_nome}</td></tr>`);
+    }
+    const v = item.valores || {};
+    linhas.push(`<tr>
+      <td><strong>${item.numero_pac ?? '—'}</strong></td>
+      ${colunasDfd.map(c => `<td>${formatarValorColuna(c, v[c.id])}</td>`).join('')}
+      ${temContrato ? celulaContratoLeitura(item, colunasContrato, _colunasCatalogo || [], item.id) : ''}
+    </tr>`);
+  });
+  document.getElementById('relatorio-dfd-tbody').innerHTML = linhas.join('')
+    || `<tr><td colspan="${1 + colunasDfd.length + (temContrato ? 1 : 0)}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item ativo.</td></tr>`;
+
+  document.getElementById('modal-relatorio-dfd').classList.add('open');
+}
+
+function fecharRelatorioDfd() {
+  document.getElementById('modal-relatorio-dfd').classList.remove('open');
 }
 
 // idColunaCache: dfd_colunas_catalogo é fixo (mesmo catálogo pra todos os DFDs)
