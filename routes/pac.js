@@ -638,11 +638,22 @@ router.post('/api/pac/dfds/:id/gerar-consolidacao', pac, requireRotina('pac-gest
   }
   // Momento 2: renumera GLOBALMENTE (setores.ordem ASC → numero_pac local
   // ASC), 1..N sobre todos os itens ainda não cancelados.
+  // Zera numero_pac ANTES de reatribuir (mesma técnica de renumerarPacFinal,
+  // Momento 3, abaixo) — sem isso, o UPDATE sequencial colide com o índice
+  // único (dfd_id, setor_id, numero_pac): o 2º setor em diante troca seus
+  // números locais (1..M) pelos globais (N+1..N+M), e se N+1..N+M cruzar com
+  // algum valor local ainda não atualizado do MESMO setor, dá
+  // "UNIQUE constraint failed" (erro 500) — achado pelo Alex testando de
+  // verdade, 2026-09-08.
   const itens = db.prepare(`
     SELECT di.id FROM dfd_itens di JOIN setores s ON s.id = di.setor_id
     WHERE di.dfd_id = ? AND di.excluido_em IS NULL AND di.status_consolidacao != 'cancelado'
     ORDER BY s.ordem ASC, CAST(di.numero_pac AS INTEGER) ASC
   `).all(dfd.id);
+  db.prepare(`
+    UPDATE dfd_itens SET numero_pac = NULL
+    WHERE dfd_id = ? AND excluido_em IS NULL AND status_consolidacao != 'cancelado'
+  `).run(dfd.id);
   const upd = db.prepare(`UPDATE dfd_itens SET numero_pac = ? WHERE id = ?`);
   itens.forEach((item, i) => upd.run(String(i + 1), item.id));
   db.prepare(`INSERT INTO pac_consolidacoes (dfd_id, consolidado_por, total_itens) VALUES (?, ?, ?)`)

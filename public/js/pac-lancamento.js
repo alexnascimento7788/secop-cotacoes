@@ -604,7 +604,15 @@ async function salvarContrato() {
         });
     if (res.status === 409) {
       const e = await res.json();
-      if (e.pedeEdicao) { fecharModalContrato(); ofertarPedidoEdicao(_mcItemId); return; }
+      // "Pedido de edição" só faz sentido pra item que já EXISTE — em modo de
+      // criação (_mcModoCriacao, _mcItemId ainda é null) o servidor nega com
+      // o mesmo pedeEdicao:true (setor já finalizado), mas ofertarPedidoEdicao
+      // fechava o modal na hora e abria um confirm() falando em "editar este
+      // item" pra um item que nunca chegou a existir — parecia que tinha
+      // salvo (modal sumia sem erro visível) quando na verdade tinha sido
+      // corretamente bloqueado. Achado pelo Alex testando de verdade,
+      // 2026-09-08. Em criação, só mostra a mensagem de erro mesmo.
+      if (e.pedeEdicao && !_mcModoCriacao) { fecharModalContrato(); ofertarPedidoEdicao(_mcItemId); return; }
       document.getElementById('mc-msg').style.color = '#c00';
       document.getElementById('mc-msg').textContent = e.error || 'Não foi possível salvar.';
       return;
