@@ -117,9 +117,20 @@
         <div style="padding:10px 20px;display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:1px solid var(--cinza-b);">
           <!-- Só aparece pra quem está vinculado a mais de 1 setor (situação
                real de produção, não só teste — ver project_secop_pac_execucao) -->
-          <div id="lanc-filtro-setor-wrap" style="display:none;">
-            <label for="lanc-filtro-setor" style="font-size:12px;color:var(--text-subtle);margin-right:6px;">Setor:</label>
-            <select id="lanc-filtro-setor" onchange="renderItens()"><option value="">Todos os meus setores</option></select>
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+            <div id="lanc-filtro-setor-wrap" style="display:none;">
+              <label for="lanc-filtro-setor" style="font-size:12px;color:var(--text-subtle);margin-right:6px;">Setor:</label>
+              <select id="lanc-filtro-setor" onchange="renderItens()"><option value="">Todos os meus setores</option></select>
+            </div>
+            <!-- Só aparece quando há pelo menos 1 item com campo em branco —
+                 filtro pra ver a lista COMPLETA (o aviso acima só cita os 5
+                 primeiros), pedido do Alex, 2026-09-07: "o informe de itens
+                 nulos não é completo, podemos ter um filtro para isto". -->
+            <label id="lanc-filtro-pendencia-wrap" style="display:none;font-size:12.5px;font-weight:600;color:#a15c00;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" id="lanc-filtro-pendencia" onchange="renderItens()" style="width:auto;">
+              <span id="lanc-filtro-pendencia-label">Só itens com campo em branco</span>
+            </label>
+            <button class="btn btn-secondary btn-xs" onclick="atualizarLancamento()" title="Recarrega itens e o aviso de pendência">🔄 Atualizar</button>
           </div>
           <span class="text-muted" id="lanc-dfd-contagem" style="font-size:12.5px;"></span>
         </div>
