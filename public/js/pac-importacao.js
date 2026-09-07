@@ -21,6 +21,12 @@ async function carregarXLSX() {
   });
 }
 
+// Espelha SLUGS_CONTRATO_SENTINELA de routes/pac-importacao.js (mesma regra
+// de negócio duplicada de propósito front/back, como já acontece em outros
+// pontos do projeto) — colunas de contrato onde vazio na planilha vira
+// "Não informado" automaticamente, não é uma falha de preenchimento.
+const SLUGS_CONTRATO_SENTINELA_JS = new Set(['possui_contrato', 'numero_contrato', 'razao_social', 'data_vencimento', 'contrato_renovado']);
+
 function normalizarTextoJs(s) {
   return String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
 }
@@ -265,9 +271,18 @@ function f1MontarPreview(setorId, dfdSel) {
     const auto = autoMatches[i];
     const preenchidas = preenchidasPorIdx[i];
     const pct = dataRows.length ? Math.round((preenchidas / dataRows.length) * 100) : 0;
-    const cor = pct === 0 ? '#c00' : pct < 50 ? '#a15c00' : 'var(--text-subtle)';
+    // Coluna de contrato (vazia na planilha vira "Não informado" automático,
+    // ver SLUGS_CONTRATO_SENTINELA no servidor) — vazia aqui é normal pra
+    // dado histórico, não é o mesmo alerta de uma coluna comum vindo vazia.
+    // Pedido do Alex, 2026-09-07: "não pode ser considerado nulo".
+    const candidatoAuto = candidatos.find(c => c.slug === auto);
+    const ehSentinela = candidatoAuto && SLUGS_CONTRATO_SENTINELA_JS.has(auto) && candidatoAuto.tipo_input !== 'data';
+    const cor = ehSentinela ? 'var(--text-subtle)' : pct === 0 ? '#c00' : pct < 50 ? '#a15c00' : 'var(--text-subtle)';
+    const legenda = ehSentinela && pct < 100
+      ? `${preenchidas}/${dataRows.length} preenchida(s) — vazio vira "Não informado" (normal)`
+      : `${preenchidas}/${dataRows.length} preenchida(s) na planilha (${pct}%)`;
     return `<tr>
-      <td>${h || `(coluna ${i + 1})`}<div style="font-size:11px;color:${cor};">${preenchidas}/${dataRows.length} preenchida(s) na planilha (${pct}%)</div></td>
+      <td>${h || `(coluna ${i + 1})`}<div style="font-size:11px;color:${cor};">${legenda}</div></td>
       <td><select data-idx="${i}" onchange="f1RecalcularIndicadores()">
         <option value="">Ignorar</option>
         ${candidatos.map(c => `<option value="${c.slug}" ${c.slug === auto ? 'selected' : ''}>${c.label}</option>`).join('')}
@@ -465,7 +480,7 @@ function renderResumoColunas(resumo, elId) {
             <td>${c.mapeada ? '✅' : '—'}</td>
             <td>${c.preenchidas}</td>
             <td>${c.vazias}</td>
-            <td>${c.proposta ? `<span style="color:${c.mapeada ? '#a15c00' : '#c00'};">${c.proposta}</span>` : '<span class="text-muted">—</span>'}</td>
+            <td>${c.proposta ? `<span style="color:${c.sentinela ? 'var(--text-subtle)' : c.mapeada ? '#a15c00' : '#c00'};">${c.proposta}</span>` : '<span class="text-muted">—</span>'}</td>
           </tr>
         `).join('')}
       </tbody>

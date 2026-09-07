@@ -286,12 +286,29 @@ async function renderItens() {
 
   const res = await fetch(`/api/pac/dfds/${_dfdAtualId}/itens`);
   _itensAtuais = res.ok ? await res.json() : [];
-  const itensExibidos = filtroSetorId ? _itensAtuais.filter(i => i.setor_id === filtroSetorId) : _itensAtuais;
+  let itensExibidos = filtroSetorId ? _itensAtuais.filter(i => i.setor_id === filtroSetorId) : _itensAtuais;
+
+  // Filtro "só itens com campo em branco" — pedido do Alex, 2026-09-07: o
+  // aviso de pendência só cita os 5 primeiros números, isso deixa ver a
+  // lista completa (com todas as colunas, pra achar o campo vazio de vez).
+  const totalPendencias = itensExibidos.filter(itemTemPendencia).length;
+  const pendWrap = document.getElementById('lanc-filtro-pendencia-wrap');
+  const pendCheckbox = document.getElementById('lanc-filtro-pendencia');
+  if (totalPendencias > 0) {
+    pendWrap.style.display = 'flex';
+    document.getElementById('lanc-filtro-pendencia-label').textContent =
+      `Só itens com campo em branco (${totalPendencias})`;
+  } else {
+    pendWrap.style.display = 'none';
+    pendCheckbox.checked = false; // nada pendente — não deixa o filtro "travado" ligado escondido
+  }
+  if (pendCheckbox.checked) itensExibidos = itensExibidos.filter(itemTemPendencia);
+
   const contagem = document.getElementById('lanc-dfd-contagem');
   if (contagem) {
     contagem.textContent = itensExibidos.length === _itensAtuais.length
       ? (_itensAtuais.length === 1 ? '1 item lançado' : `${_itensAtuais.length} itens lançados`)
-      : `${itensExibidos.length} de ${_itensAtuais.length} itens (filtrado por setor)`;
+      : `${itensExibidos.length} de ${_itensAtuais.length} itens (filtrado)`;
   }
 
   const colspan = (multiSetor ? 1 : 0) + 2 + colunasPrincipais.length + (temColContrato ? 1 : 0) + 1;
@@ -600,7 +617,18 @@ async function salvarCampoItem(el) {
     if (!res.ok) { toast(await mensagemErro(res, 'Erro ao salvar campo'), 'error'); return; }
     // Edição sob um pedido aprovado consome o pedido (uso único) — recarrega
     // pra refletir que a linha volta a ficar bloqueada.
-    if (_dfdAtual.status !== 'aberto') { await renderMeusPedidos(); await renderItens(); }
+    if (_dfdAtual.status !== 'aberto') { await renderMeusPedidos(); await renderItens(); return; }
+    // Atualiza o item em memória e reroda o aviso de pendência na hora — sem
+    // isso, corrigir um campo em branco só refletia depois de um F5 (pedido
+    // do Alex, 2026-09-07). Se o filtro "só pendências" está ligado, o item
+    // corrigido pode sair da lista — renderItens() de novo cobre isso.
+    const item = _itensAtuais.find(i => String(i.id) === String(itemId));
+    if (item) {
+      item.valores = item.valores || {};
+      item.valores[colunaId] = valor === '' ? null : valor;
+    }
+    if (document.getElementById('lanc-filtro-pendencia')?.checked) await renderItens();
+    renderFinalizacao();
   } catch {
     toast('Erro ao salvar campo', 'error');
   }
@@ -639,6 +667,7 @@ async function excluirItem(itemId) {
     }
     if (!res.ok) { toast(await mensagemErro(res, 'Erro ao excluir item'), 'error'); return; }
     await renderItens();
+    renderFinalizacao();
   } catch {
     toast('Erro ao excluir item', 'error');
   }
@@ -688,7 +717,8 @@ async function criarItem() {
       body: JSON.stringify({ setor_id: Number(setorId), valores: {} }),
     });
     if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-    renderItens();
+    await renderItens();
+    renderFinalizacao(); // item novo nasce com tudo em branco — pendência aparece na hora
   } catch (e) {
     toast('Erro: ' + e.message, 'error');
   }
@@ -709,20 +739,22 @@ async function carregarStatusFinalizacao() {
   } catch { _finalizacaoPorSetor = {}; }
 }
 
-// Itens do setor com algum campo do grupo A (o "corpo" do lançamento, exceto
-// Contrato — que tem regra própria) ainda em branco — mesmo critério de
-// itensComPendencia() no servidor (routes/pac.js), calculado aqui client-side
-// reaproveitando o que já está carregado (_itensAtuais/_dfdAtual.colunas),
-// sem round-trip extra. Pedido do Alex, 2026-09-06: precisa aparecer ANTES de
-// tentar finalizar, não só como erro depois do clique.
-function pendenciasDoSetor(setorId) {
+// Item com algum campo do grupo A (o "corpo" do lançamento, exceto Contrato
+// — que tem regra própria, vazio lá vira "Não informado" na importação e
+// isso NÃO conta como pendência) ainda em branco — mesmo critério de
+// itensComPendencia() no servidor (routes/pac.js). Pedido do Alex,
+// 2026-09-06/07: precisa aparecer ANTES de tentar finalizar, e dar pra ver a
+// lista completa (não só os 5 primeiros), não só um erro depois do clique.
+function itemTemPendencia(item) {
   const colunas = (_dfdAtual.colunas || []).filter(c => c.grupo === 'A' && c.slug !== 'numero_item');
-  return _itensAtuais.filter(i => i.setor_id === setorId).filter(item =>
-    colunas.some(c => {
-      const v = (item.valores || {})[c.id];
-      return v === undefined || v === null || String(v).trim() === '';
-    })
-  );
+  return colunas.some(c => {
+    const v = (item.valores || {})[c.id];
+    return v === undefined || v === null || String(v).trim() === '';
+  });
+}
+
+function pendenciasDoSetor(setorId) {
+  return _itensAtuais.filter(i => i.setor_id === setorId).filter(itemTemPendencia);
 }
 
 // Chamado DEPOIS de renderItens() — precisa de _itensAtuais pra só oferecer o
@@ -743,7 +775,8 @@ function renderFinalizacao() {
       const souMaster = _usuarioPac && _usuarioPac.username === 'master';
       return `<div class="lanc-fin-linha lanc-fin-pendente">
         <strong>${s.nome}:</strong>
-        <span class="text-muted">⚠️ ${pendentes.length} item(ns) com campo(s) em branco — preencha antes de finalizar (nº ${pendentes.slice(0, 5).map(i => i.numero_pac || i.numero_item).join(', ')}${pendentes.length > 5 ? '...' : ''}).</span>
+        <span class="text-muted">⚠️ ${pendentes.length} item(ns) com campo(s) em branco — preencha antes de finalizar.</span>
+        <button type="button" class="btn btn-secondary btn-xs" onclick="verPendenciasSetor()">Ver todos</button>
         ${souMaster
           ? `<button class="btn btn-secondary btn-xs" onclick="finalizarMeuSetor(${s.id}, true)" title="Só master: finaliza mesmo com pendência">Finalizar assim mesmo (master)</button>`
           : `<button class="btn btn-secondary btn-xs" disabled title="Preencha os campos em branco antes de finalizar">Finalizar meu DFD</button>`}
@@ -751,6 +784,27 @@ function renderFinalizacao() {
     }
     return `<div class="lanc-fin-linha"><strong>${s.nome}:</strong> <button class="btn btn-secondary btn-xs" onclick="finalizarMeuSetor(${s.id})">Finalizar meu DFD</button></div>`;
   }).join('');
+}
+
+// Liga o filtro "só itens com campo em branco" e rola até a tabela — atalho
+// do botão "Ver todos" no aviso de pendência (que só cita a contagem, não a
+// lista, ver renderFinalizacao()).
+function verPendenciasSetor() {
+  const checkbox = document.getElementById('lanc-filtro-pendencia');
+  checkbox.checked = true;
+  renderItens();
+  document.getElementById('lanc-itens-table')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Botão "🔄 Atualizar" — pedido do Alex, 2026-09-07: depois de corrigir um
+// item, o aviso de pendência não se atualizava sozinho (precisava de F5).
+// salvarCampoItem() já corrige isso pra edição de campo direto na tabela;
+// este botão cobre o resto (pedido aprovado por outra aba/pessoa, etc.).
+async function atualizarLancamento() {
+  await carregarStatusFinalizacao();
+  await renderItens();
+  renderFinalizacao();
+  toast('Atualizado.');
 }
 
 async function finalizarMeuSetor(setorId, forcar) {

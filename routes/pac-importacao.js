@@ -221,6 +221,13 @@ function montarResumoColunas(statsColunas, totalLinhas, dryRun) {
     let proposta = null;
     if (!s.mapeada) {
       proposta = 'Nenhuma coluna da planilha foi mapeada pra este campo — se ele deveria vir preenchido, confira o mapeamento.';
+    } else if (s.sentinela) {
+      // Coluna de contrato: vazia na planilha vira "Não informado" (dado
+      // histórico esperado, não uma falha) — não é a mesma coisa que uma
+      // coluna comum vindo vazia. Pedido do Alex, 2026-09-07: "o item em
+      // contrato não informado não pode ser considerado nulo, pois faz parte
+      // da importação". Mostra a contagem (transparência), sem soar alarme.
+      if (s.vazias > 0) proposta = `Vazia em ${s.vazias} de ${totalLinhas} linha(s) — normal pra dado histórico, grava "Não informado" automaticamente (não é uma falha de importação).`;
     } else if (s.vazias === totalLinhas && totalLinhas > 0) {
       proposta = s.obrigatoria
         ? null // obrigatória vazia sempre vira erro de linha, já visível no log
@@ -245,7 +252,7 @@ function montarResumoColunas(statsColunas, totalLinhas, dryRun) {
         ? `Valor(es) novo(s) pra Parâmetros: ${resumoValores} — serão cadastrados automaticamente quando importar de verdade.`
         : `Valor(es) novo(s) cadastrados automaticamente em Parâmetros: ${resumoValores}.`);
     }
-    return { slug: s.slug, label: s.label, mapeada: s.mapeada, obrigatoria: s.obrigatoria,
+    return { slug: s.slug, label: s.label, mapeada: s.mapeada, obrigatoria: s.obrigatoria, sentinela: s.sentinela,
       preenchidas: s.preenchidas, vazias: s.vazias, naoReconhecidos: [...naoReconhecidos, ...inferidos, ...novos], proposta };
   });
 }
@@ -394,6 +401,13 @@ router.post('/api/pac/importacao/dfd', pac, requireAdminGlobal, (req, res) => {
   const slugsMapeados = new Set(Object.values(mapeamento || {}));
   const statsColunas = new Map(colunasAtivas.map(c => [c.slug, {
     slug: c.slug, label: c.label, obrigatoria: !!c.obrigatoria, mapeada: slugsMapeados.has(c.slug),
+    // Coluna de contrato com sentinela ("Não informado" em vez de NULL, ver
+    // loop abaixo) — vazia na planilha É o comportamento esperado pra dado
+    // histórico, não uma falha de mapeamento/preenchimento. Sinalizada aqui
+    // pra montarResumoColunas() não tratar como alerta (pedido do Alex,
+    // 2026-09-07: "o item em contrato não informado não pode ser considerado
+    // nulo, pois faz parte da importação").
+    sentinela: SLUGS_CONTRATO_SENTINELA.has(c.slug) && c.tipo_input !== 'data',
     preenchidas: 0, vazias: 0, naoReconhecidos: new Map(), inferidos: new Map(), novos: new Map(),
   }]));
 
