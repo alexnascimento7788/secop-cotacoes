@@ -219,7 +219,7 @@ function abrirAcompanhamentoPopup() {
   const temColContrato = colunasContrato.length > 0;
   const multiSetor = _meusSetores.length > 1;
 
-  renderKpisAcompanhamentoPopup();
+  renderKpisLancamento('acomp-pop-kpis');
 
   document.getElementById('acomp-pop-thead').innerHTML =
     `<tr>${multiSetor ? '<th>Setor</th>' : ''}<th>ID PAC</th><th>Nº PAC</th>${colunasPrincipais.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}</tr>`;
@@ -238,13 +238,16 @@ function abrirAcompanhamentoPopup() {
   document.getElementById('modal-acompanhamento').classList.add('open');
 }
 
-// Indicadores do topo do popup — pedido do Alex, 2026-09-08: "no botão de
-// acompanhamento também" (mesma linha/estilo já aprovado em Gestão >
-// Acompanhamento, ver renderKpisAcompanhamento em pac-gestao.js). Calculado
-// só com o que já está carregado (_itensAtuais/_dfdAtual/_finalizacaoPorSetor),
-// sem requisição nova — este popup é read-only, reaproveita tudo.
-function renderKpisAcompanhamentoPopup() {
-  const wrap = document.getElementById('acomp-pop-kpis');
+// Indicadores — pedido do Alex, 2026-09-08: primeiro só no popup ("no botão
+// de acompanhamento também"), depois direto na tela principal de Lançamento
+// também ("não deveríamos ter valores somando nesta tela? só temos em
+// acompanhamento") — mesma linha/estilo já aprovado em Gestão > Acompanhamento
+// (ver renderKpisAcompanhamento em pac-gestao.js). Uma função só, recebe o id
+// do container de destino; calculado com o que já está carregado
+// (_itensAtuais/_dfdAtual/_finalizacaoPorSetor), sem requisição nova.
+function renderKpisLancamento(elId) {
+  const wrap = document.getElementById(elId);
+  if (!wrap) return;
   const itens = _itensAtuais || [];
 
   const totalSetores = _meusSetores.length;
@@ -804,6 +807,12 @@ function pendenciasDoSetor(setorId) {
 // botão quando o setor já tem ao menos 1 item lançado (Alex: "visível somente
 // quando... o gestor tem ao menos 1 item lançado").
 function renderFinalizacao() {
+  // Indicadores da tela principal — mesmo gatilho de atualização que o resto
+  // desta função (toda mudança que mexe em pendência/finalização também pode
+  // mudar itens lançados/execução/valor estimado). Pedido do Alex,
+  // 2026-09-08: "não deveríamos ter valores somando nesta tela?".
+  renderKpisLancamento('lanc-kpis');
+
   const wrap = document.getElementById('lanc-finalizar-wrap');
   if (!wrap) return;
   if (_dfdAtual.status !== 'aberto' || !_meusSetores.length) { wrap.innerHTML = ''; return; }
