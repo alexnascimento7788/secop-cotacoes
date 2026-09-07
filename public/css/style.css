@@ -466,6 +466,11 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 /* "Finalizar meu DFD" por setor (pac-lancamento.js) */
 .lanc-fin-linha { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--cinza-b); border-radius: 8px; padding: 10px 16px; margin-bottom: 8px; font-size: 13px; }
 
+/* Destaque temporário ao pular pro item de um pedido aprovado (flyout "Meus
+   pedidos de edição" em Lançamento) — pedido do Alex, 2026-09-08. */
+@keyframes item-destaque-pulso { from { background: rgba(255, 214, 0, .35); } to { background: transparent; } }
+.item-destaque td { animation: item-destaque-pulso 2s ease-out; }
+
 /* Barra de progresso genérica + indicadores (KPIs) em linha — pedido do
    Alex, 2026-09-07: "igual do lançamento que se comporta perfeitamente".
    Movida de pac-gestao.html pra cá (era só daquela página) porque

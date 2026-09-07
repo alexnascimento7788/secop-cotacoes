@@ -219,8 +219,6 @@ function abrirAcompanhamentoPopup() {
   const temColContrato = colunasContrato.length > 0;
   const multiSetor = _meusSetores.length > 1;
 
-  renderKpisLancamento('acomp-pop-kpis');
-
   document.getElementById('acomp-pop-thead').innerHTML =
     `<tr>${multiSetor ? '<th>Setor</th>' : ''}<th>ID PAC</th><th>Nº PAC</th>${colunasPrincipais.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}</tr>`;
 
@@ -929,16 +927,49 @@ async function renderMeusPedidos() {
     }
   });
 
-  const card = document.getElementById('lanc-pedidos-card');
-  if (!doDfd.length) { card.style.display = 'none'; return; }
-  card.style.display = 'block';
-  document.getElementById('lanc-pedidos-tbody').innerHTML = doDfd.map(p => `
-    <tr>
+  const btn = document.getElementById('lanc-pedidos-btn');
+  if (!doDfd.length) {
+    btn.style.display = 'none';
+    fecharPedidosFlyout();
+    return;
+  }
+  btn.style.display = '';
+  document.getElementById('lanc-pedidos-count').textContent = doDfd.length;
+  document.getElementById('lanc-pedidos-tbody').innerHTML = doDfd.map(p => {
+    const clicavel = p.status === 'aprovado' && p.item_id;
+    return `
+    <tr${clicavel ? ` style="cursor:pointer;" onclick="irParaItemDoPedido(${p.item_id})" title="Ir para o item"` : ''}>
       <td>#${p.item_id ?? '—'}</td>
       <td>${p.tipo}</td>
       <td>${p.justificativa || '—'}</td>
       <td>${p.status}</td>
       <td>${p.resposta || '—'}</td>
-    </tr>
-  `).join('');
+    </tr>`;
+  }).join('');
+}
+
+function alternarPedidosFlyout() {
+  const flyout = document.getElementById('lanc-pedidos-flyout');
+  flyout.style.display = flyout.style.display === 'none' ? 'block' : 'none';
+}
+function fecharPedidosFlyout() {
+  document.getElementById('lanc-pedidos-flyout').style.display = 'none';
+}
+document.addEventListener('click', e => {
+  const flyout = document.getElementById('lanc-pedidos-flyout');
+  const btn = document.getElementById('lanc-pedidos-btn');
+  if (flyout && flyout.style.display !== 'none' && !flyout.contains(e.target) && e.target !== btn && !btn?.contains(e.target)) {
+    fecharPedidosFlyout();
+  }
+});
+// Clicar num pedido aprovado no flyout já leva direto pro item — pedido do
+// Alex, 2026-09-08: "se tiver item aprovado clicando nele já vai para o
+// item". A <tr> da tabela de itens já tem data-item-id (ver renderItens).
+function irParaItemDoPedido(itemId) {
+  fecharPedidosFlyout();
+  const row = document.querySelector(`tr[data-item-id="${itemId}"]`);
+  if (!row) return;
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  row.classList.add('item-destaque');
+  setTimeout(() => row.classList.remove('item-destaque'), 2000);
 }
