@@ -14,6 +14,10 @@
     /* ── PAC/Gestão (DEPLA) ────────────────────────────────────────────────── */
     .pac-pane { display: none; }
     .pac-pane.active { display: block; }
+    /* min-width:0 real fix pra barra de rolagem lateral aparecer no lugar
+       certo (dentro de .dfd-table-wrap, não na página inteira) — ver
+       `.main > *` em style.css pro motivo completo, corrigido lá de forma
+       genérica (vale pra qualquer painel largo, não só este). */
     .pac-card { background: var(--surface); border: 1px solid var(--cinza-b); border-radius: 10px; padding: 20px 22px; margin-bottom: 18px; }
     .pac-card-title { font-size: 14px; font-weight: 700; margin-bottom: 14px; color: var(--text); }
     .pac-add-form { display: grid; grid-template-columns: 1fr 120px auto; gap: 10px; align-items: end; margin-top: 14px; }
@@ -48,16 +52,15 @@
     .pac-progress-fill { height: 100%; border-radius: 5px 0 0 5px; background: var(--verde, #2E7D32); transition: width .3s ease; }
     .pac-progress-fill.alerta { background: #d97706; }
 
-    /* Indicadores (KPIs) do DFD selecionado — cards com progress bar, não só
-       número cru (pedido do Alex, 2026-09-06: "modelos mais atuais incluindo
-       progress bar, não somente cards simples"). Fica logo no topo da aba
-       Acompanhamento, antes até dos filtros. */
-    .pac-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-bottom: 18px; }
-    .pac-kpi-card { background: var(--surface); border: 1px solid var(--cinza-b); border-radius: 10px; padding: 16px 18px; }
-    .pac-kpi-titulo { font-size: 12px; font-weight: 700; color: var(--text-subtle); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 8px; }
-    .pac-kpi-valor { font-size: 22px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
-    .pac-kpi-valor small { font-size: 13px; font-weight: 600; color: var(--text-subtle); }
-    .pac-kpi-legenda { font-size: 11.5px; color: var(--text-subtle); margin-top: 6px; }
+    /* Indicadores (KPIs) do DFD selecionado — pedido do Alex, 2026-09-07:
+       "igual do lançamento que se comporta perfeitamente" — reaproveita a
+       MESMA .lanc-fin-linha (linha cheia, sem grade de cartões lado a lado)
+       já usada em "Finalizar meu DFD" (pac-lancamento.html), zero CSS de
+       cartão novo. Cada indicador é uma linha; a barra de progresso (quando
+       tem) fica embutida na própria linha, não embaixo de um número grande. */
+    .pac-kpi-rotulo { flex: 0 0 190px; }
+    .pac-kpi-barra { flex: 1 1 auto; }
+    .pac-kpi-fracao { flex: 0 0 auto; white-space: nowrap; font-weight: 600; }
 
     /* Badges de finalização por setor (Acompanhamento DEPLA) — reformulado
        pra caber muitos setores (~25+) sem virar uma parede de chips: barra de
@@ -312,7 +315,7 @@
     <!-- ═══ Acompanhamento (DEPLA) ═══ -->
     <div id="pane-acompanhamento" class="pac-pane active">
       <!-- Indicadores do DFD selecionado — ver renderKpisAcompanhamento() -->
-      <div class="pac-kpis" id="acomp-kpis" style="display:none;"></div>
+      <div id="acomp-kpis" style="display:none;margin-bottom:18px;"></div>
       <div class="pac-card">
         <div class="pac-filtros">
           <div class="form-group"><label>DFD (exercício)</label><select id="acomp-dfd-select" onchange="carregarAcompanhamento()"></select></div>
