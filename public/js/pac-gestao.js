@@ -123,13 +123,17 @@ async function criarDfd() {
   const titulo = document.getElementById('new-dfd-titulo').value.trim();
   const ano_base = parseInt(document.getElementById('new-dfd-ano').value, 10);
   const descricao = document.getElementById('new-dfd-descricao').value.trim();
+  const data_entrega = document.getElementById('new-dfd-data-entrega').value; // <input type=date> já entrega AAAA-MM-DD
   const msg = document.getElementById('dfd-msg');
   msg.style.color = '';
   if (!titulo || !ano_base) { msg.style.color = '#c00'; msg.textContent = 'Informe título e ano base.'; return; }
+  // Obrigatória (pedido do Alex, 2026-09-07) — checada aqui pra não depender
+  // só do servidor, mas o servidor também recusa (ver POST /api/pac/dfds).
+  if (!data_entrega) { msg.style.color = '#c00'; msg.textContent = 'Informe a data de vencimento (entrega).'; return; }
   try {
     const res = await fetch('/api/pac/dfds', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ titulo, ano_base, descricao }),
+      body: JSON.stringify({ titulo, ano_base, descricao, data_entrega }),
     });
     if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
     msg.style.color = '#2E7D32';
@@ -137,6 +141,7 @@ async function criarDfd() {
     document.getElementById('new-dfd-titulo').value = '';
     document.getElementById('new-dfd-ano').value = '';
     document.getElementById('new-dfd-descricao').value = '';
+    document.getElementById('new-dfd-data-entrega').value = '';
     carregarDfds();
   } catch (e) {
     msg.style.color = '#c00'; msg.textContent = 'Erro: ' + e.message;
@@ -168,6 +173,10 @@ async function carregarDetalheDfd() {
   const map = { aberto: 'Aberto', analise: 'Em análise', fechado: 'Fechado' };
   badge.className = `badge badge-${dfd.status}`;
   badge.textContent = map[dfd.status] || dfd.status;
+  // Data de vencimento (entrega) do DFD — pedido do Alex, 2026-09-07. DFD
+  // criado antes desta versão pode não ter (fica "não informado").
+  document.getElementById('dfd-det-vencimento').textContent = dfd.data_entrega
+    ? `Vencimento: ${fmtBrData(dfd.data_entrega)}` : 'Vencimento: não informado';
 
   const acoes = document.getElementById('dfd-det-acoes');
   const opcoes = { aberto: ['analise', 'fechado'], analise: ['aberto', 'fechado'], fechado: ['aberto', 'analise'] };
@@ -719,6 +728,13 @@ async function abrirConsolidadoDetalhe(dfdId, titulo, anoBase) {
   document.getElementById('consol-lista').style.display = 'none';
   document.getElementById('consol-detalhe').style.display = 'block';
   document.getElementById('consol-det-titulo').textContent = `${codigoDfd({ id: dfdId, ano_base: anoBase })} — ${titulo} — Consolidado`;
+  // Vencimento (entrega) do DFD — pedido do Alex, 2026-09-07. _dfds já vem
+  // carregado (carregarConsolidacaoLista chama carregarDfds() se preciso).
+  const dfdInfo = _dfds.find(d => d.id === dfdId);
+  const vencEl = document.getElementById('consol-det-vencimento');
+  if (vencEl) vencEl.textContent = dfdInfo
+    ? (dfdInfo.data_entrega ? `Vencimento (entrega) do DFD: ${fmtBrData(dfdInfo.data_entrega)}` : 'Vencimento (entrega) do DFD: não informado')
+    : '';
   // Reseta o filtro de setor (dataset.montado força remontar as <option> pra
   // este DFD — sem isso, abrir um 2º DFD reaproveitaria a lista de setores do
   // 1º) e a aba de volta pra "Ativos".
@@ -1078,6 +1094,12 @@ async function carregarAcompanhamento() {
   const dfdId = document.getElementById('acomp-dfd-select').value;
   if (!dfdId) return;
   document.getElementById('acomp-tbody').innerHTML = `<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
+  // Vencimento do DFD selecionado — pedido do Alex, 2026-09-07, ver criarDfd()/
+  // POST /api/pac/dfds. _dfds já vem carregado por carregarDfds() no boot.
+  const dfdSel = _dfds.find(d => d.id === Number(dfdId));
+  document.getElementById('acomp-vencimento').textContent = dfdSel
+    ? (dfdSel.data_entrega ? `Vencimento (entrega) do DFD: ${fmtBrData(dfdSel.data_entrega)}` : 'Vencimento (entrega) do DFD: não informado')
+    : '';
   try {
     const res = await fetch(`/api/pac/dfds/${dfdId}/acompanhamento`);
     if (!res.ok) throw new Error();

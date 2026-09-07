@@ -252,10 +252,13 @@ router.get('/api/pac/dfds', pac, requireRotinaPac('ver'), (req, res) => {
 });
 
 router.post('/api/pac/dfds', pac, requireRotina('pac-gestao', 'incluir'), (req, res) => {
-  const { ano_base, titulo, descricao } = req.body || {};
+  const { ano_base, titulo, descricao, data_entrega } = req.body || {};
   if (!ano_base || !titulo) return res.status(400).json({ error: 'Ano base e título são obrigatórios' });
-  const info = db.prepare(`INSERT INTO dfds (ano_base, titulo, descricao, criado_por) VALUES (?, ?, ?, ?)`)
-    .run(ano_base, String(titulo).trim(), descricao ? String(descricao).trim() : null, req.user.user_id);
+  // Obrigatório pra DFD NOVO (pedido do Alex, 2026-09-07) — DFDs criados
+  // antes desta versão continuam com data_entrega NULL, sem retroatividade.
+  if (!data_entrega) return res.status(400).json({ error: 'Data de vencimento (entrega) é obrigatória' });
+  const info = db.prepare(`INSERT INTO dfds (ano_base, titulo, descricao, data_entrega, criado_por) VALUES (?, ?, ?, ?, ?)`)
+    .run(ano_base, String(titulo).trim(), descricao ? String(descricao).trim() : null, String(data_entrega), req.user.user_id);
   const dfdId = info.lastInsertRowid;
   // Colunas ativas começam todas pré-selecionadas (o DEPLA desativa quem não quer).
   const colunas = db.prepare(`SELECT id, ordem_padrao FROM dfd_colunas_catalogo WHERE ativa = 1 ORDER BY ordem_padrao`).all();
@@ -283,10 +286,11 @@ router.get('/api/pac/dfds/:id', pac, requireRotinaPac('ver'), (req, res) => {
 router.put('/api/pac/dfds/:id', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
   const dfd = db.prepare(`SELECT titulo FROM dfds WHERE id = ?`).get(req.params.id);
   if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
-  const { ano_base, titulo, descricao } = req.body || {};
+  const { ano_base, titulo, descricao, data_entrega } = req.body || {};
   if (ano_base !== undefined) db.prepare(`UPDATE dfds SET ano_base = ? WHERE id = ?`).run(ano_base, req.params.id);
   if (titulo !== undefined) db.prepare(`UPDATE dfds SET titulo = ? WHERE id = ?`).run(String(titulo).trim(), req.params.id);
   if (descricao !== undefined) db.prepare(`UPDATE dfds SET descricao = ? WHERE id = ?`).run(descricao ? String(descricao).trim() : null, req.params.id);
+  if (data_entrega !== undefined) db.prepare(`UPDATE dfds SET data_entrega = ? WHERE id = ?`).run(data_entrega ? String(data_entrega) : null, req.params.id);
   db.prepare(`UPDATE dfds SET atualizado_em = datetime('now') WHERE id = ?`).run(req.params.id);
   registrarLog(req, 'PAC', 'EDITOU_DFD', `Editou o DFD "${dfd.titulo}"`);
   res.json({ ok: true });
