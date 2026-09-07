@@ -1158,7 +1158,7 @@ async function renderFinalizacaoAcompanhamento(dfdId) {
 function renderKpisAcompanhamento(dfdId, status) {
   const wrap = document.getElementById('acomp-kpis');
   if (!_acompDados || !dfdId) { wrap.style.display = 'none'; return; }
-  wrap.style.display = 'grid';
+  wrap.style.display = 'block';
 
   const itens = _acompDados.itens || [];
   const totalSetores = status.setores.length;
@@ -1173,23 +1173,26 @@ function renderKpisAcompanhamento(dfdId, status) {
   const realizadoTotal = t.realizado_tu_mlp + t.realizado_rdc;
   const pctRealizado = estimadoTotal ? Math.round((realizadoTotal / estimadoTotal) * 100) : 0;
 
-  const kpiBarra = (rotulo, valorTexto, pct, legenda) => `
-    <div class="pac-kpi-card">
-      <div class="pac-kpi-titulo">${rotulo}</div>
-      <div class="pac-kpi-valor">${valorTexto}</div>
-      <div class="pac-progress-track"><div class="pac-progress-fill" style="width:${Math.min(pct, 100)}%;"></div></div>
-      <div class="pac-kpi-legenda">${legenda}</div>
+  // Linha só, igual "Finalizar meu DFD" de Lançamento (.lanc-fin-linha) —
+  // pedido do Alex, 2026-09-07: "igual do lançamento que se comporta
+  // perfeitamente". Sem cartão/grade — rótulo à esquerda, barra ocupando o
+  // meio, fração/valor à direita, tudo numa linha só por indicador.
+  const linhaComBarra = (rotulo, pct, fracaoTexto) => `
+    <div class="lanc-fin-linha">
+      <strong class="pac-kpi-rotulo">${rotulo}</strong>
+      <div class="pac-progress-track pac-kpi-barra"><div class="pac-progress-fill" style="width:${Math.min(pct, 100)}%;"></div></div>
+      <span class="pac-kpi-fracao">${fracaoTexto} (${pct}%)</span>
     </div>`;
 
   wrap.innerHTML =
-    kpiBarra('Setores finalizados', `${setoresFinalizados}/${totalSetores} <small>(${pctSetores}%)</small>`, pctSetores, 'Lançamento do setor encerrado') +
-    `<div class="pac-kpi-card">
-      <div class="pac-kpi-titulo">Itens lançados</div>
-      <div class="pac-kpi-valor">${itens.length}</div>
-      <div class="pac-kpi-legenda">Somando todos os setores</div>
+    linhaComBarra('Setores finalizados', pctSetores, `${setoresFinalizados} de ${totalSetores}`) +
+    `<div class="lanc-fin-linha">
+      <strong class="pac-kpi-rotulo">Itens lançados</strong>
+      <span class="text-muted pac-kpi-barra">Somando todos os setores</span>
+      <span class="pac-kpi-fracao">${itens.length}</span>
     </div>` +
-    kpiBarra('Execução dos itens', `${itensFinalizados}/${itens.length} <small>(${pctExecucao}%)</small>`, pctExecucao, 'Status "Processo Finalizado"') +
-    kpiBarra('Valor realizado', fmtMoeda(realizadoTotal), pctRealizado, `${pctRealizado}% de ${fmtMoeda(estimadoTotal)} estimado(s)`);
+    linhaComBarra('Execução dos itens', pctExecucao, `${itensFinalizados} de ${itens.length}`) +
+    linhaComBarra('Valor realizado', pctRealizado, `${fmtMoeda(realizadoTotal)} de ${fmtMoeda(estimadoTotal)}`);
 }
 
 async function gerarConsolidacao(dfdId) {

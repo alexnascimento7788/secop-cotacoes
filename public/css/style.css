@@ -199,6 +199,16 @@ button { cursor: pointer; }
   display: flex;
   flex-direction: column;
 }
+/* `.main` já tem min-width:0 (impede ELE de crescer além da viewport), mas
+   cada filho direto (page-header, painel de aba, etc.) também é um flex item
+   nessa coluna e, sem isso, herda o min-width:auto padrão do flexbox — que
+   nunca encolhe abaixo do conteúdo "natural" mais largo lá dentro. Uma
+   tabela larga (Gestão > Acompanhamento, com bem mais colunas que qualquer
+   outra) empurrava o painel inteiro mais largo que a tela, e o overflow
+   escapava do `.dfd-table-wrap` (que tem overflow-x:auto certo) e virava
+   barra de rolagem da PÁGINA toda, só visível depois de rolar por todos os
+   itens — achado pelo Alex testando com 198 itens reais (2026-09-07). */
+.main > * { min-width: 0; }
 
 .page-header {
   display: flex;
@@ -430,6 +440,15 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 .dfd-table { border-collapse: separate; border-spacing: 0; }
 .dfd-table th, .dfd-table td { white-space: nowrap; }
 .dfd-table tbody td { padding: 12px 12px; }
+/* `border-collapse:separate` (precisa disso pra sticky funcionar) faz o
+   `tbody tr { border-bottom }` genérico (style.css, regra de toda tabela do
+   sistema) parar de renderizar — em separate, borda em <tr> simplesmente não
+   aparece, só em <td>. Sem isso a tabela ficava sem NENHUMA linha separando
+   um item do outro (achado pelo Alex testando de verdade em Gestão >
+   Acompanhamento, 2026-09-07) — bug real desde que .dfd-table existe
+   (v4.16.0), não é regressão só da v4.18.0. */
+.dfd-table tbody td { border-bottom: 1px solid var(--cinza-b); }
+.dfd-table tbody tr:last-child td { border-bottom: none; }
 .dfd-table thead th { position: sticky; top: 0; z-index: 3; background: var(--surface-2); }
 .dfd-table th.dfd-col-fixa-1, .dfd-table td.dfd-col-fixa-1 { position: sticky; left: 0; z-index: 2; background: var(--surface); min-width: 130px; white-space: normal; }
 .dfd-table th.dfd-col-fixa-2, .dfd-table td.dfd-col-fixa-2 { position: sticky; left: 130px; z-index: 2; background: var(--surface); min-width: 90px; white-space: normal; box-shadow: 2px 0 4px rgba(0,0,0,.06); }
