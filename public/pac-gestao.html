@@ -344,24 +344,30 @@
     <div id="pane-acompanhamento" class="pac-pane active">
       <!-- Indicadores do DFD selecionado — ver renderKpisAcompanhamento() -->
       <div id="acomp-kpis" style="display:none;margin-bottom:18px;"></div>
-      <div class="pac-card">
-        <div class="pac-filtros">
-          <div class="form-group"><label>DFD (exercício)</label><select id="acomp-dfd-select" onchange="carregarAcompanhamento()"></select></div>
-          <div class="form-group"><label>Setor</label><select id="acomp-filtro-setor" onchange="renderTabelaAcompanhamento()"><option value="">Todos</option></select></div>
-          <div class="form-group"><label>Status</label>
-            <select id="acomp-filtro-status" onchange="renderTabelaAcompanhamento()">
-              <option value="">Todos</option>
-              <option>Não Iniciado</option><option>Processado DEPLA</option>
-              <option>Fracionamento Aberto</option><option>Processo Finalizado</option><option>Cancelado</option>
-            </select>
+      <!-- Filtros + dados do DFD viraram ícone+flyout — pedido do Alex,
+           2026-09-08: "fica algo mais profissional e na tela ganhamos mais
+           espaço" (mesmo padrão do flyout de pedidos em pac-lancamento.js). -->
+      <div style="position:relative;margin-bottom:16px;">
+        <button class="btn btn-secondary btn-sm" onclick="alternarFiltrosAcompFlyout()">⚙️ Filtros e dados do DFD</button>
+        <div class="pac-card" id="acomp-filtros-flyout" style="display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:20;min-width:560px;max-width:min(90vw, 760px);box-shadow:0 6px 20px rgba(0,0,0,.2);">
+          <div class="pac-filtros">
+            <div class="form-group"><label>DFD (exercício)</label><select id="acomp-dfd-select" onchange="carregarAcompanhamento()"></select></div>
+            <div class="form-group"><label>Setor</label><select id="acomp-filtro-setor" onchange="renderTabelaAcompanhamento()"><option value="">Todos</option></select></div>
+            <div class="form-group"><label>Status</label>
+              <select id="acomp-filtro-status" onchange="renderTabelaAcompanhamento()">
+                <option value="">Todos</option>
+                <option>Não Iniciado</option><option>Processado DEPLA</option>
+                <option>Fracionamento Aberto</option><option>Processo Finalizado</option><option>Cancelado</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Fonte pagadora</label>
+              <select id="acomp-filtro-fonte" onchange="renderTabelaAcompanhamento()">
+                <option value="">Todas</option><option value="TU">TU</option><option value="RDC">RDC</option><option value="MLP">MLP</option>
+              </select>
+            </div>
           </div>
-          <div class="form-group"><label>Fonte pagadora</label>
-            <select id="acomp-filtro-fonte" onchange="renderTabelaAcompanhamento()">
-              <option value="">Todas</option><option value="TU">TU</option><option value="RDC">RDC</option><option value="MLP">MLP</option>
-            </select>
-          </div>
+          <div class="text-muted" id="acomp-vencimento" style="margin-top:10px;font-size:12.5px;"></div>
         </div>
-        <div class="text-muted" id="acomp-vencimento" style="margin-top:10px;font-size:12.5px;"></div>
       </div>
       <!-- Finalização por setor + botão "Gerar Consolidação" — só aparece
            quando todos os setores participantes já finalizaram e o DFD ainda

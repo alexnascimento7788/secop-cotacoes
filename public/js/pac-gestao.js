@@ -590,7 +590,13 @@ async function carregarPedidos() {
     const res = await fetch('/api/pac/pedidos');
     const pedidos = res.ok ? await res.json() : [];
     const pendentes = pedidos.filter(p => p.status === 'pendente');
-    document.getElementById('pac-cnt-pedidos').textContent = pendentes.length;
+    const contadorEl = document.getElementById('pac-cnt-pedidos');
+    contadorEl.textContent = pendentes.length;
+    // Destaque visual quando há pendência — pedido do Alex, 2026-09-08: "um
+    // ícone flutuante que represente os Pedidos na árvore de menu lateral
+    // [...] não pedi pra remover ela, mas ter algo também visual" (não é um
+    // ícone novo, é o próprio contador que já existia ganhando mais força).
+    contadorEl.classList.toggle('alerta', pendentes.length > 0);
     document.getElementById('pedidos-tbody').innerHTML = pedidos.map(p => `
       <tr>
         <td>#${p.dfd_id}</td>
@@ -1142,6 +1148,22 @@ async function excluirSolicitacao(id) {
 
 let _acompDados = null;
 const STATUS_EXECUCAO_OPCOES = ['Não Iniciado', 'Processado DEPLA', 'Fracionamento Aberto', 'Processo Finalizado', 'Cancelado'];
+
+// Flyout de filtros/dados do DFD — mesmo padrão do flyout "Meus pedidos" em
+// pac-lancamento.js. Fecha sozinho ao clicar fora.
+function alternarFiltrosAcompFlyout() {
+  const flyout = document.getElementById('acomp-filtros-flyout');
+  flyout.style.display = flyout.style.display === 'none' ? 'block' : 'none';
+}
+function fecharFiltrosAcompFlyout() {
+  document.getElementById('acomp-filtros-flyout').style.display = 'none';
+}
+document.addEventListener('click', e => {
+  const flyout = document.getElementById('acomp-filtros-flyout');
+  if (!flyout || flyout.style.display === 'none') return;
+  if (flyout.contains(e.target) || e.target.closest('button[onclick="alternarFiltrosAcompFlyout()"]')) return;
+  fecharFiltrosAcompFlyout();
+});
 
 async function carregarAcompanhamento() {
   const dfdId = document.getElementById('acomp-dfd-select').value;

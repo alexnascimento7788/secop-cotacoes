@@ -545,6 +545,9 @@ button.badge-contrato:hover { filter: brightness(0.96); border-color: var(--cinz
   background: rgba(0,0,0,.12);
 }
 .page-tab.active .page-tab-count { background: rgba(255,255,255,.25); }
+/* Destaque de "tem pendência de verdade" (ex.: Pedidos na árvore de Gestão)
+   — pedido do Alex, 2026-09-08: mesmo contador, só mais visível. */
+.page-tab-count.alerta { background: #c0392b; color: #fff; font-weight: 700; }
 
 /* ── Alerta de dias em cotação (linhas da listagem) ───── */
 tbody tr.row-alerta-laranja  td { background: #FFF8EC; }
