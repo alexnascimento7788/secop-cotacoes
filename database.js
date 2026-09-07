@@ -919,6 +919,14 @@ function setupDb() {
   // (só o rótulo virou "Nº TOTVS"), sem coluna duplicada.
   try { _db.exec(`ALTER TABLE pac_solicitacoes ADD COLUMN numero_sei TEXT`); } catch {}
 
+  // Prazo de entrega do DFD inteiro (não confundir com data_vencimento do
+  // CONTRATO, que é por item — este é um campo próprio de `dfds`). Pedido do
+  // Alex, 2026-09-07: obrigatório pra DFD NOVO (checado em POST /api/pac/dfds),
+  // mas a coluna nasce sem default/NOT NULL de propósito — DFDs já existentes
+  // (criados antes desta versão) ficam com NULL, sem migração retroativa
+  // forçada (ninguém tem como adivinhar a data deles).
+  try { _db.exec(`ALTER TABLE dfds ADD COLUMN data_entrega TEXT`); } catch {}
+
   // Seed dos setores participantes do PAC (nomes exatamente como fornecidos)
   [
     'Depop', 'Dereh', 'Detin', 'Depla', 'Depad', 'Audin', 'Defin', 'Deuni',

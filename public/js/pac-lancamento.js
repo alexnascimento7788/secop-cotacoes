@@ -179,7 +179,11 @@ async function abrirDfd(id) {
 
   document.getElementById('pac-lanc-titulo').textContent = `${codigoDfd(_dfdAtual)} — ${_dfdAtual.titulo}`;
   const linha2 = document.getElementById('pac-lanc-linha2');
-  linha2.innerHTML = `Lançamento · ${badgeStatusDfd(_dfdAtual.status)}`;
+  // Data de vencimento (entrega) do DFD — pedido do Alex, 2026-09-07: aparecer
+  // sempre que o DFD específico for aberto. DFD criado antes desta versão
+  // pode não ter essa data (fica "não informado", não trava nada).
+  const vencTexto = _dfdAtual.data_entrega ? `Vencimento: ${fmtBr(_dfdAtual.data_entrega)}` : 'Vencimento: não informado';
+  linha2.innerHTML = `Lançamento · ${badgeStatusDfd(_dfdAtual.status)} · ${vencTexto}`;
   linha2.style.display = '';
 
   await carregarListas();
@@ -206,8 +210,9 @@ function fecharDfd() {
    setor(es) do usuário logado (mesma fonte que a tabela editável usa). */
 function abrirAcompanhamentoPopup() {
   const nomeSetores = _meusSetores.map(s => s.nome).join(', ') || '—';
+  const vencTexto = _dfdAtual.data_entrega ? `Vencimento: ${fmtBr(_dfdAtual.data_entrega)}` : 'Vencimento: não informado';
   document.getElementById('acomp-pop-subtitulo').textContent =
-    `${codigoDfd(_dfdAtual)} — ${_dfdAtual.titulo} · ${nomeSetores}`;
+    `${codigoDfd(_dfdAtual)} — ${_dfdAtual.titulo} · ${nomeSetores} · ${vencTexto}`;
 
   const colunasPrincipais = _dfdAtual.colunas.filter(c => c.grupo === 'A' && c.slug !== 'numero_item');
   const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
