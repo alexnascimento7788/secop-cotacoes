@@ -627,8 +627,17 @@ function itensConsolidados(dfdId) {
 }
 
 router.post('/api/pac/dfds/:id/gerar-consolidacao', pac, requireRotina('pac-gestao', 'incluir'), (req, res) => {
-  const dfd = db.prepare(`SELECT id, titulo FROM dfds WHERE id = ?`).get(req.params.id);
+  const dfd = db.prepare(`SELECT id, titulo, status FROM dfds WHERE id = ?`).get(req.params.id);
   if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
+  // Achado testando de verdade, 2026-09-08: nada aqui checava dfd.status, então
+  // dava pra gerar a consolidação com o DFD ainda "Aberto" — a tela de DFDs
+  // mostrava "Aberto"/"Em análise" enquanto Consolidação já tinha número pra
+  // tudo, parecendo 2 fontes de verdade diferentes (não são — só faltava essa
+  // trava). Enviar pra análise (routes/pac.js, PATCH /dfds/:id/status) passa a
+  // ser pré-requisito de verdade pra gerar consolidação.
+  if (dfd.status !== 'analise') {
+    return res.status(409).json({ error: 'Envie o DFD para análise antes de gerar a consolidação.' });
+  }
   if (db.prepare(`SELECT 1 FROM pac_consolidacoes WHERE dfd_id = ?`).get(dfd.id)) {
     return res.status(409).json({ error: 'Este DFD já foi consolidado.' });
   }
@@ -656,6 +665,11 @@ router.post('/api/pac/dfds/:id/gerar-consolidacao', pac, requireRotina('pac-gest
   `).run(dfd.id);
   const upd = db.prepare(`UPDATE dfd_itens SET numero_pac = ? WHERE id = ?`);
   itens.forEach((item, i) => upd.run(String(i + 1), item.id));
+  // Itens entram direto em "em_analise" (não fica parado em "Não iniciado" à
+  // toa) — elimina a necessidade de um botão manual "Em análise" na tela de
+  // Consolidação (pedido do Alex: só Observação/Finalizar/Cancelar por item).
+  db.prepare(`UPDATE dfd_itens SET status_consolidacao = 'em_analise' WHERE id IN (${itens.map(() => '?').join(',') || 'NULL'})`)
+    .run(...itens.map(i => i.id));
   db.prepare(`INSERT INTO pac_consolidacoes (dfd_id, consolidado_por, total_itens) VALUES (?, ?, ?)`)
     .run(dfd.id, req.user.user_id, itens.length);
   registrarLog(req, 'PAC', 'GEROU_CONSOLIDACAO', `Gerou a consolidação do DFD "${dfd.titulo}" #${dfd.id} (${itens.length} itens numerados)`);
@@ -687,6 +701,15 @@ router.patch('/api/pac/itens/:id/consolidacao', pac, requireRotina('pac-gestao',
     db.prepare(`
       UPDATE dfd_itens SET status_consolidacao = ?, justificativa_cancelamento = NULL, cancelado_por = NULL, cancelado_em = NULL WHERE id = ?
     `).run(status, item.id);
+  }
+  // Se a consolidação já existe pra esse DFD, renumera de novo sempre —
+  // idempotente (se o conjunto de cancelados não mudou, reescreve os mesmos
+  // números). Sem isso, cancelar um item DEPOIS que o setor já tinha
+  // finalizado a consolidação deixava um buraco na sequência do numero_pac
+  // até alguém clicar "Finalizar consolidação" de novo manualmente — achado
+  // testando de verdade, 2026-09-08.
+  if (db.prepare(`SELECT 1 FROM pac_consolidacoes WHERE dfd_id = ?`).get(item.dfd_id)) {
+    renumerarPacFinal(item.dfd_id);
   }
   registrarLog(req, 'PAC', 'ALTEROU_STATUS_CONSOLIDACAO',
     `Item #${item.id} (DFD #${item.dfd_id}) → ${status}${status === 'cancelado' ? `: ${String(justificativa).trim()}` : ''}`);
@@ -740,8 +763,21 @@ router.post('/api/pac/dfds/:dfd_id/setores/:setor_id/finalizar-consolidacao', pa
   // DEFIN, que vem depois na ordem. Rodar de novo (outro setor finalizando
   // depois) é seguro — recalcula 1..N determinístico sobre quem ainda está ativo.
   const total = renumerarPacFinal(dfdId);
-  registrarLog(req, 'PAC', 'FINALIZOU_CONSOLIDACAO_SETOR', `Finalizou a consolidação do setor #${setorId} no DFD #${dfdId} — renumeração final (${total} item(ns) ativo(s))`);
-  res.json({ ok: true, total_itens_ativos: total });
+  // Se depois disso NENHUM item do DFD inteiro (todos os setores, não só o
+  // que acabou de finalizar) ainda estiver pendente, o DFD fecha sozinho —
+  // pedido do Alex: hoje só quem muda dfds.status é a tela de DFDs, então um
+  // DFD com consolidação 100% concluída ficava com "Aberto"/"Em análise" na
+  // listagem, parecendo 2 fontes de verdade divergentes.
+  const aindaPendenteNoDfd = db.prepare(`
+    SELECT COUNT(*) AS n FROM dfd_itens
+    WHERE dfd_id = ? AND excluido_em IS NULL AND status_consolidacao NOT IN ('finalizado', 'cancelado')
+  `).get(dfdId).n;
+  if (aindaPendenteNoDfd === 0) {
+    db.prepare(`UPDATE dfds SET status = 'fechado', atualizado_em = datetime('now') WHERE id = ?`).run(dfdId);
+  }
+  registrarLog(req, 'PAC', 'FINALIZOU_CONSOLIDACAO_SETOR', `Finalizou a consolidação do setor #${setorId} no DFD #${dfdId} — renumeração final (${total} item(ns) ativo(s))` +
+    (aindaPendenteNoDfd === 0 ? ' — DFD fechado (todos os setores concluídos)' : ''));
+  res.json({ ok: true, total_itens_ativos: total, dfd_fechado: aindaPendenteNoDfd === 0 });
 });
 
 const STATUS_EXECUCAO_VALIDOS = new Set([
