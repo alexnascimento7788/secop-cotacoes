@@ -819,7 +819,6 @@ async function renderConsolidadoDetalhe() {
       <td><input type="text" class="consol-obs-input" value="${(item.observacao_consolidacao || '').replace(/"/g, '&quot;')}" placeholder="—" onblur="salvarObservacaoConsolidacao(${item.id}, this.value)" /></td>
       <td>${badgeStatusConsolidacao(item.status_consolidacao)}</td>
       <td style="text-align:right;white-space:nowrap;">
-        ${item.status_consolidacao !== 'em_analise' ? `<button class="btn btn-secondary btn-xs" onclick="alterarStatusConsolidacao(${item.id},'em_analise')">Em análise</button>` : ''}
         ${item.status_consolidacao !== 'finalizado' ? `<button class="btn btn-primary btn-xs" onclick="alterarStatusConsolidacao(${item.id},'finalizado')">Finalizada</button>` : ''}
         <button class="btn btn-danger btn-xs" onclick="cancelarPac(${item.id})">Cancelar</button>
       </td>
@@ -1145,9 +1144,17 @@ async function renderFinalizacaoAcompanhamento(dfdId) {
       : `<span class="pac-fin-badge aguardando">🕐 ${s.setor_nome} — aguardando</span>`
     ).join('') || '<span class="text-muted">Este DFD ainda não tem setores participantes.</span>';
 
-    document.getElementById('acomp-gerar-consolidacao-wrap').innerHTML = status.todos_finalizados
+    // Gerar Consolidação também exige dfd.status === 'analise' agora (achado
+    // testando de verdade, 2026-09-08: sem essa trava dava pra consolidar com
+    // o DFD ainda "Aberto", e a listagem de DFDs mostrava um status diferente
+    // do que a Consolidação já refletia). _dfds já tem .status em cache.
+    const dfdSel = _dfds.find(d => d.id === Number(dfdId));
+    const podeConsolidar = status.todos_finalizados && dfdSel?.status === 'analise';
+    document.getElementById('acomp-gerar-consolidacao-wrap').innerHTML = podeConsolidar
       ? `<button class="btn btn-primary btn-sm" onclick="gerarConsolidacao(${dfdId})">Gerar Consolidação</button>`
-      : '';
+      : (status.todos_finalizados
+          ? '<span class="text-muted">Envie o DFD para análise (tela de DFDs) antes de gerar a consolidação.</span>'
+          : '');
   } catch { card.style.display = 'none'; }
 }
 
