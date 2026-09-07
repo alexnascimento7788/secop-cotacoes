@@ -1216,6 +1216,33 @@ async function renderFinalizacaoAcompanhamento(dfdId) {
 // 2026-09-06: "modelos mais atuais incluindo progress bar, não somente cards
 // simples". Reaproveita _acompDados (já carregado por renderTabelaAcompanhamento
 // antes desta função rodar) + o status de finalização já buscado ao lado.
+// Redesenho 2026-09-08 (depois do teste ponta-a-ponta): "Itens lançados"
+// saiu, "Setores finalizados"/"Execução dos itens" viraram pizza e "Valor
+// realizado" ganhou velocímetro — mesmos helpers svgPizza/svgVelocimetro
+// duplicados em pac-lancamento.js (sem módulo compartilhado novo, mesma
+// convenção que já existia aqui pras 2 funções de KPI).
+function svgPizza(pct) {
+  const p = Math.max(0, Math.min(100, pct));
+  const cor = p >= 100 ? 'var(--verde, #2E7D32)' : (p >= 50 ? 'var(--verde, #2E7D32)' : '#d97706');
+  return `<svg viewBox="0 0 36 36" width="34" height="34" style="flex-shrink:0;">
+    <circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--surface-2)" stroke-width="4"></circle>
+    <circle cx="18" cy="18" r="15.9155" fill="none" stroke="${cor}" stroke-width="4"
+      stroke-dasharray="${p} ${100 - p}" stroke-linecap="round" transform="rotate(-90 18 18)"></circle>
+  </svg>`;
+}
+function svgVelocimetro(pct) {
+  const p = Math.max(0, Math.min(100, pct));
+  const cor = p >= 90 ? '#d97706' : 'var(--verde, #2E7D32)';
+  const theta = (180 - (p / 100) * 180) * Math.PI / 180;
+  const x2 = 50 + 34 * Math.cos(theta), y2 = 50 - 34 * Math.sin(theta);
+  return `<svg viewBox="0 0 100 55" width="62" height="34" style="flex-shrink:0;">
+    <path d="M 6 50 A 44 44 0 0 1 94 50" fill="none" stroke="var(--surface-2)" stroke-width="8"></path>
+    <path d="M 6 50 A 44 44 0 0 1 94 50" fill="none" stroke="${cor}" stroke-width="8"
+      stroke-dasharray="${(p / 100 * 138).toFixed(1)} 138" stroke-linecap="round"></path>
+    <line x1="50" y1="50" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="var(--text, #333)" stroke-width="2.5" stroke-linecap="round"></line>
+    <circle cx="50" cy="50" r="3" fill="var(--text, #333)"></circle>
+  </svg>`;
+}
 function renderKpisAcompanhamento(dfdId, status) {
   const wrap = document.getElementById('acomp-kpis');
   if (!_acompDados || !dfdId) { wrap.style.display = 'none'; return; }
@@ -1234,26 +1261,21 @@ function renderKpisAcompanhamento(dfdId, status) {
   const realizadoTotal = t.realizado_tu_mlp + t.realizado_rdc;
   const pctRealizado = estimadoTotal ? Math.round((realizadoTotal / estimadoTotal) * 100) : 0;
 
-  // Linha só, igual "Finalizar meu DFD" de Lançamento (.lanc-fin-linha) —
-  // pedido do Alex, 2026-09-07: "igual do lançamento que se comporta
-  // perfeitamente". Sem cartão/grade — rótulo à esquerda, barra ocupando o
-  // meio, fração/valor à direita, tudo numa linha só por indicador.
-  const linhaComBarra = (rotulo, pct, fracaoTexto) => `
+  const linhaPizza = (rotulo, pct, fracaoTexto) => `
     <div class="lanc-fin-linha">
+      ${svgPizza(pct)}
       <strong class="pac-kpi-rotulo">${rotulo}</strong>
-      <div class="pac-progress-track pac-kpi-barra"><div class="pac-progress-fill" style="width:${Math.min(pct, 100)}%;"></div></div>
-      <span class="pac-kpi-fracao">${fracaoTexto} (${pct}%)</span>
+      <span class="pac-kpi-fracao" style="flex:1 1 auto;">${fracaoTexto} (${pct}%)</span>
     </div>`;
 
   wrap.innerHTML =
-    linhaComBarra('Setores finalizados', pctSetores, `${setoresFinalizados} de ${totalSetores}`) +
+    linhaPizza('Setores finalizados', pctSetores, `${setoresFinalizados} de ${totalSetores}`) +
+    linhaPizza('Execução dos itens', pctExecucao, `${itensFinalizados} de ${itens.length}`) +
     `<div class="lanc-fin-linha">
-      <strong class="pac-kpi-rotulo">Itens lançados</strong>
-      <span class="text-muted pac-kpi-barra">Somando todos os setores</span>
-      <span class="pac-kpi-fracao">${itens.length}</span>
-    </div>` +
-    linhaComBarra('Execução dos itens', pctExecucao, `${itensFinalizados} de ${itens.length}`) +
-    linhaComBarra('Valor realizado', pctRealizado, `${fmtMoeda(realizadoTotal)} de ${fmtMoeda(estimadoTotal)}`);
+      ${svgVelocimetro(pctRealizado)}
+      <strong class="pac-kpi-rotulo">Valor realizado</strong>
+      <span class="pac-kpi-fracao" style="flex:1 1 auto;">${fmtMoeda(realizadoTotal)} de ${fmtMoeda(estimadoTotal)} (${pctRealizado}%)</span>
+    </div>`;
 }
 
 async function gerarConsolidacao(dfdId) {

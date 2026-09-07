@@ -367,7 +367,26 @@ router.get('/api/pac/dfds/:id/itens', pac, requireRotinaPac('ver'), (req, res) =
     db.prepare(`SELECT item_id, coluna_id, valor FROM dfd_itens_valores WHERE item_id IN (${ph})`).all(...ids)
       .forEach(v => { (valoresPorItem[v.item_id] ??= {})[v.coluna_id] = v.valor; });
   }
-  res.json(itens.map(i => ({ ...i, valores: valoresPorItem[i.id] || {} })));
+  // realizado_tu_mlp/realizado_rdc por item — mesma soma de pac_solicitacoes
+  // já usada em GET /dfds/:id/acompanhamento (routes/pac.js, montarAcompanhamento
+  // acima). Devolvido aqui também pra Lançamento poder montar "Valor
+  // realizado" (realizado/estimado) igual Gestão já mostra — pedido do Alex,
+  // 2026-09-08: o velocímetro de valor precisa de uma % real, não só a soma.
+  const realizadoPorItem = {};
+  if (ids.length) {
+    const ph = ids.map(() => '?').join(',');
+    db.prepare(`SELECT item_id, valor_tu_mlp, valor_rdc FROM pac_solicitacoes WHERE item_id IN (${ph}) AND excluido = 0`).all(...ids)
+      .forEach(s => {
+        const r = (realizadoPorItem[s.item_id] ??= { realizado_tu_mlp: 0, realizado_rdc: 0 });
+        r.realizado_tu_mlp += Number(s.valor_tu_mlp) || 0;
+        r.realizado_rdc += Number(s.valor_rdc) || 0;
+      });
+  }
+  res.json(itens.map(i => ({
+    ...i,
+    valores: valoresPorItem[i.id] || {},
+    ...(realizadoPorItem[i.id] || { realizado_tu_mlp: 0, realizado_rdc: 0 }),
+  })));
 });
 
 router.post('/api/pac/dfds/:id/itens', pac, requireRotina('pac-lancamento', 'incluir'),
