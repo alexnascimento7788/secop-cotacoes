@@ -307,7 +307,78 @@ sudo ufw status
 
 ---
 
-## Seção C — Migração Futura: SQLite → SQL Server
+## Seção C — Ambiente de QA (checkpoint antes de produção)
+
+Criado em 2026-09-07: até então só existiam 2 estágios (dev local + produção
+em `C:\secopcotacoes`, host DESENVOLVIMENTO), sem nenhum lugar estável pra
+clicar e testar antes de decidir puxar em produção. O QA é um 3º clone
+completo, **na mesma máquina do dev** (por escolha do Alex — ela já fica
+ligada, ele só inicia o Node manualmente quando quiser usar).
+
+**Estrutura:**
+
+| | Dev | QA | Produção |
+|---|---|---|---|
+| Pasta | `C:\Projetos\Secop Cotacoes` | `C:\Projetos\Secop-QA` | `C:\secopcotacoes` (outra máquina) |
+| Branch | `feature/ceasa-conecta-modulos` | `main` | `main` |
+| Porta | 3000 (padrão) | **3001** | 3000 (padrão) |
+| Dados | reais, em uso constante | cópia periódica da produção (ver abaixo) | reais |
+| Atualiza | a cada commit (automático) | `git pull` manual, quando o Alex quiser testar | `git pull` manual, só depois de aprovar no QA |
+
+**Por que `main` alimenta o QA**: o fluxo de git já mergeia
+`feature/ceasa-conecta-modulos` → `main` antes de qualquer aviso de "pronto
+pra produção" (ver [[feedback_secop_git_auto]]) — ou seja, `main` já
+significa "testado e pronto". O QA vira o lugar de clicar e confirmar ANTES
+de repetir o mesmo `git pull` na máquina de produção. Nenhum processo de
+git novo, só mais um destino do mesmo `main`.
+
+### Como usar
+
+**1. Atualizar o QA com o código mais recente** (sempre que quiser testar algo novo antes de ir pra produção):
+
+```powershell
+cd C:\Projetos\Secop-QA
+git pull origin main
+npm install    # só se package.json mudou (nova dependência)
+```
+
+**2. Iniciar o QA:**
+
+```powershell
+cd C:\Projetos\Secop-QA
+$env:PORT = "3001"
+npm run dev
+```
+
+Acesse em `http://localhost:3001`. Usar `npm run dev` (nodemon) em vez de
+`npm start` é proposital: depois de um `git pull`, o nodemon detecta os
+arquivos mudados e reinicia sozinho — não precisa parar/religar na mão toda
+vez.
+
+**3. Atualizar os dados do QA com uma cópia da produção** (periodicamente,
+quando quiser testar contra dado realista — não é automático):
+
+1. Na produção (`C:\secopcotacoes`): Admin → **Banco de Dados** → **Exportar**. Salva um arquivo `secop.db`.
+2. Copie esse arquivo pro computador de QA (pendrive, rede, e-mail — o de sempre).
+3. No QA (`http://localhost:3001`): Admin → **Banco de Dados** → **Importar** o arquivo baixado. O sistema reinicia sozinho.
+
+Mesmo mecanismo de export/import que a Seção "Transferir o banco de dados"
+já descreve — nada novo foi construído, só reaproveitado.
+
+**Cuidado**: o banco do QA pode ter dado real de produção (nomes,
+fornecedores, processos) — [[feedback_secop_qa_dados_reais]] continua
+valendo: teste de UI que GRAVA algo usa sempre um usuário `_qa_*` dedicado,
+nunca uma conta real que porventura exista nesse snapshot.
+
+**Primeiro boot**: testado nesta sessão (2026-09-07) — clone limpo, `npm
+install` sem erro, sobe em `http://localhost:3001` na v4.18.1, banco nasce
+vazio com o usuário `master` padrão (mesmo seed de qualquer instalação
+nova). Ainda não tem nenhuma cópia de dado real de produção importada —
+fica pro Alex fazer no passo 3 acima quando quiser.
+
+---
+
+## Seção D — Migração Futura: SQLite → SQL Server
 
 Esta seção documenta o que será necessário quando o sistema for migrado do banco SQLite (MVP) para o SQL Server (banco corporativo da CEASAMINAS).
 
