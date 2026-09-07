@@ -47,20 +47,9 @@
     .acomp-toggle { cursor: pointer; -webkit-user-select: none; user-select: none; }
     tfoot td { font-weight: 700; border-top: 2px solid var(--cinza-b); }
 
-    /* Barra de progresso genérica (KPIs + finalização por setor) */
-    .pac-progress-track { height: 8px; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--cinza-b); overflow: hidden; }
-    .pac-progress-fill { height: 100%; border-radius: 5px 0 0 5px; background: var(--verde, #2E7D32); transition: width .3s ease; }
-    .pac-progress-fill.alerta { background: #d97706; }
-
-    /* Indicadores (KPIs) do DFD selecionado — pedido do Alex, 2026-09-07:
-       "igual do lançamento que se comporta perfeitamente" — reaproveita a
-       MESMA .lanc-fin-linha (linha cheia, sem grade de cartões lado a lado)
-       já usada em "Finalizar meu DFD" (pac-lancamento.html), zero CSS de
-       cartão novo. Cada indicador é uma linha; a barra de progresso (quando
-       tem) fica embutida na própria linha, não embaixo de um número grande. */
-    .pac-kpi-rotulo { flex: 0 0 190px; }
-    .pac-kpi-barra { flex: 1 1 auto; }
-    .pac-kpi-fracao { flex: 0 0 auto; white-space: nowrap; font-weight: 600; }
+    /* Barra de progresso genérica (KPIs) e .pac-kpi-* agora em style.css
+       (compartilhado) — Lançamento reaproveita pro popup de Acompanhamento
+       do setor, ver [[project_secop_pac_execucao]] v4.18.5. */
 
     /* Badges de finalização por setor (Acompanhamento DEPLA) — reformulado
        pra caber muitos setores (~25+) sem virar uma parede de chips: barra de
