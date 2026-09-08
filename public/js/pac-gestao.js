@@ -602,9 +602,9 @@ async function carregarPedidos() {
         <td>#${p.dfd_id}</td>
         <td>#${p.setor_id}</td>
         <td>#${p.item_id ?? '—'}</td>
-        <td>${p.tipo}</td>
+        <td>${p.tipo}${p.tentativa > 1 ? ' <span class="text-muted" style="font-size:11px;">(contestado)</span>' : ''}</td>
         <td>${p.justificativa || '—'}</td>
-        <td>${p.status}</td>
+        <td>${p.status === 'rejeitado' && p.bloqueado ? 'rejeitado (definitivo)' : p.status}</td>
         <td style="text-align:right;white-space:nowrap;">
           ${p.status === 'pendente' ? `
             <button class="btn btn-primary btn-sm" onclick="responderPedido(${p.id},'aprovado')">Aprovar</button>
@@ -619,8 +619,12 @@ async function carregarPedidos() {
 }
 
 async function responderPedido(id, status) {
-  const resposta = prompt(status === 'aprovado' ? 'Resposta (opcional):' : 'Motivo da rejeição:');
+  const resposta = prompt(status === 'aprovado' ? 'Resposta (opcional):' : 'Motivo da rejeição (obrigatório):');
   if (resposta === null) return;
+  // Rejeitar sem explicar não vale — pedido do Alex, 2026-09-08: "se recusar
+  // por parte do depla tem que explicar prq". Servidor também valida isso;
+  // checar aqui só evita a ida e volta.
+  if (status === 'rejeitado' && !resposta.trim()) { toast('Explique o motivo da rejeição.', 'error'); return; }
   try {
     const res = await fetch(`/api/pac/pedidos/${id}/resposta`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, resposta }),
@@ -1209,9 +1213,24 @@ document.addEventListener('click', e => {
   fecharFiltrosAcompFlyout();
 });
 
+// Mesma ideia de auto-refresh de pac-lancamento.js (iniciarAutoRefreshKpis)
+// — pedido do Alex, 2026-09-08: indicador "morto" sem atualizar sozinho. Só
+// re-busca quando a aba Acompanhamento está mesmo visível (offsetParent),
+// pra não gastar rede à toa numa aba escondida.
+let _acompAutoRefreshTimer = null;
+function iniciarAutoRefreshAcompanhamento() {
+  if (_acompAutoRefreshTimer) return;
+  _acompAutoRefreshTimer = setInterval(() => {
+    const pane = document.getElementById('pane-acompanhamento');
+    const dfdId = document.getElementById('acomp-dfd-select')?.value;
+    if (pane && pane.offsetParent !== null && dfdId) carregarAcompanhamento();
+  }, 30000);
+}
+
 async function carregarAcompanhamento() {
   const dfdId = document.getElementById('acomp-dfd-select').value;
   if (!dfdId) return;
+  iniciarAutoRefreshAcompanhamento();
   document.getElementById('acomp-tbody').innerHTML = `<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
   // Vencimento do DFD selecionado — pedido do Alex, 2026-09-07, ver criarDfd()/
   // POST /api/pac/dfds. _dfds já vem carregado por carregarDfds() no boot.
@@ -1296,9 +1315,13 @@ const STATUS_EXECUCAO_KPI = [
   { label: 'Processo Finalizado', cor: 'var(--verde, #2E7D32)' },
   { label: 'Cancelado', cor: '#9ca3af' },
 ];
-function svgPizzaMulti(fatias) {
+// 3ª rodada de ajuste (mesma tarde, 2026-09-08) — mesmas mudanças de
+// pac-lancamento.js: donut com "X de Y" no miolo (em vez de anel liso que
+// "fica em branco" a 100%), legenda em coluna ao lado (não mais embaixo,
+// "posição ruim"), velocímetro com faixas de cor fixas.
+function svgPizzaMulti(fatias, centroTexto) {
   const total = fatias.reduce((s, f) => s + f.valor, 0) || 1;
-  const cx = 90, cy = 90, r = 72;
+  const cx = 90, cy = 90, r = 72, rBuraco = 44;
   const toRad = a => (a * Math.PI) / 180;
   let anguloAtual = -90;
   const paths = [], rotulos = [];
@@ -1313,39 +1336,53 @@ function svgPizzaMulti(fatias) {
     paths.push(`<path d="M ${cx} ${cy} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${largeArc} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z" fill="${f.cor}" stroke="var(--surface)" stroke-width="2"></path>`);
     if (pct >= 0.035) {
       const meio = anguloAtual + anguloFatia / 2;
-      const lx = cx + r * 0.64 * Math.cos(toRad(meio)), ly = cy + r * 0.64 * Math.sin(toRad(meio));
-      rotulos.push(`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="12" font-weight="700" fill="#fff" text-anchor="middle" dominant-baseline="middle" style="paint-order:stroke;stroke:rgba(0,0,0,.35);stroke-width:2px;">${Math.round(pct * 100)}%</text>`);
+      const lx = cx + (r + rBuraco) / 2 * Math.cos(toRad(meio)), ly = cy + (r + rBuraco) / 2 * Math.sin(toRad(meio));
+      rotulos.push(`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="11" font-weight="700" fill="#fff" text-anchor="middle" dominant-baseline="middle" style="paint-order:stroke;stroke:rgba(0,0,0,.35);stroke-width:2px;">${Math.round(pct * 100)}%</text>`);
     }
     anguloAtual = anguloFim;
   });
-  return `<svg viewBox="0 0 180 180" width="150" height="150">${paths.join('')}${rotulos.join('')}</svg>`;
+  const fsCentro = !centroTexto ? 0 : (centroTexto.length > 5 ? 15 : 20);
+  const centro = centroTexto
+    ? `<circle cx="${cx}" cy="${cy}" r="${rBuraco}" fill="var(--surface)"></circle>
+       <text x="${cx}" y="${cy}" font-size="${fsCentro}" font-weight="800" text-anchor="middle" dominant-baseline="middle" fill="var(--text)">${centroTexto}</text>`
+    : '';
+  return `<svg viewBox="0 0 180 180" width="140" height="140" style="flex-shrink:0;">${paths.join('')}${centro}${rotulos.join('')}</svg>`;
 }
 function legendaGrafico(fatias) {
-  return `<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:4px 12px;margin-top:8px;font-size:12px;">${
-    fatias.map(f => `<span style="display:inline-flex;align-items:center;gap:5px;">
-      <span style="width:10px;height:10px;border-radius:2px;background:${f.cor};display:inline-block;flex-shrink:0;"></span>${f.label}
+  return `<div style="display:flex;flex-direction:column;gap:5px;font-size:12px;text-align:left;">${
+    fatias.map(f => `<span style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
+      <span style="width:10px;height:10px;border-radius:2px;background:${f.cor};display:inline-block;flex-shrink:0;"></span>${f.label} <strong style="margin-left:auto;padding-left:10px;">${f.valor}</strong>
     </span>`).join('')
   }</div>`;
 }
 function cardGrafico(titulo, corpoSvg, legenda, fracaoTexto) {
-  return `<div class="card" style="flex:1 1 240px;text-align:center;padding:16px;">
-    <div style="font-size:13px;font-weight:600;margin-bottom:10px;">${titulo}</div>
-    ${corpoSvg}
-    <div style="font-size:12.5px;color:var(--text-muted);margin-top:4px;">${fracaoTexto}</div>
-    ${legenda}
+  return `<div class="card" style="flex:1 1 260px;padding:16px;">
+    <div style="font-size:13px;font-weight:600;margin-bottom:10px;text-align:center;">${titulo}</div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;">
+      ${corpoSvg}
+      ${legenda}
+    </div>
+    ${fracaoTexto ? `<div style="font-size:12px;color:var(--text-muted);margin-top:10px;text-align:center;">${fracaoTexto}</div>` : ''}
   </div>`;
 }
 function svgVelocimetro(pct) {
   const p = Math.max(0, Math.min(100, pct));
-  const cor = p >= 90 ? '#d97706' : 'var(--verde, #2E7D32)';
+  const raio = 44, cx = 50, cy = 50, L = Math.PI * raio;
+  const zonas = [{ ini: 0, fim: 50, cor: '#c0392b' }, { ini: 50, fim: 80, cor: '#d97706' }, { ini: 80, fim: 100, cor: 'var(--verde, #2E7D32)' }];
+  const arcoZona = z => {
+    const comp = (z.fim - z.ini) / 100 * L, offset = -(z.ini / 100 * L);
+    return `<path d="M 6 50 A ${raio} ${raio} 0 0 1 94 50" fill="none" stroke="${z.cor}" stroke-width="10"
+      stroke-dasharray="${comp.toFixed(1)} ${L.toFixed(1)}" stroke-dashoffset="${offset.toFixed(1)}"></path>`;
+  };
   const theta = (180 - (p / 100) * 180) * Math.PI / 180;
-  const x2 = 50 + 34 * Math.cos(theta), y2 = 50 - 34 * Math.sin(theta);
-  return `<svg viewBox="0 0 100 55" width="130" height="72">
-    <path d="M 6 50 A 44 44 0 0 1 94 50" fill="none" stroke="var(--surface-2)" stroke-width="8"></path>
-    <path d="M 6 50 A 44 44 0 0 1 94 50" fill="none" stroke="${cor}" stroke-width="8"
-      stroke-dasharray="${(p / 100 * 138).toFixed(1)} 138" stroke-linecap="round"></path>
-    <line x1="50" y1="50" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="var(--text, #333)" stroke-width="2.5" stroke-linecap="round"></line>
-    <circle cx="50" cy="50" r="3" fill="var(--text, #333)"></circle>
+  const x2 = cx + 34 * Math.cos(theta), y2 = cy - 34 * Math.sin(theta);
+  return `<svg viewBox="0 0 100 68" width="160" height="109" style="flex-shrink:0;">
+    ${zonas.map(arcoZona).join('')}
+    <line x1="${cx}" y1="${cy}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="var(--text, #222)" stroke-width="2.5" stroke-linecap="round"></line>
+    <circle cx="${cx}" cy="${cy}" r="4" fill="var(--text, #222)"></circle>
+    <text x="4" y="63" font-size="7" fill="var(--text-muted)">0%</text>
+    <text x="96" y="63" font-size="7" fill="var(--text-muted)" text-anchor="end">100%</text>
+    <text x="${cx}" y="42" font-size="16" font-weight="800" text-anchor="middle" fill="var(--text)">${p}%</text>
   </svg>`;
 }
 function renderKpisAcompanhamento(dfdId, status) {
@@ -1373,9 +1410,9 @@ function renderKpisAcompanhamento(dfdId, status) {
   ];
 
   wrap.innerHTML = `<div style="display:flex;gap:12px;flex-wrap:wrap;">${
-    cardGrafico('Setores finalizados', svgPizzaMulti(fatiasSetores), legendaGrafico(fatiasSetores), `${setoresFinalizados} de ${totalSetores}`) +
-    cardGrafico('Execução dos itens', svgPizzaMulti(contagemExecucao), legendaGrafico(contagemExecucao), `${itensFinalizados} de ${itens.length} finalizados`) +
-    cardGrafico('Valor realizado', svgVelocimetro(pctRealizado), '', `${fmtMoeda(realizadoTotal)} de ${fmtMoeda(estimadoTotal)} (${pctRealizado}%)`)
+    cardGrafico('Progresso de Setores', svgPizzaMulti(fatiasSetores, `${setoresFinalizados}/${totalSetores}`), legendaGrafico(fatiasSetores), '') +
+    cardGrafico('Execução dos itens', svgPizzaMulti(contagemExecucao, `${itensFinalizados}/${itens.length}`), legendaGrafico(contagemExecucao), '') +
+    cardGrafico('Valor realizado', svgVelocimetro(pctRealizado), '', `${fmtMoeda(realizadoTotal)} de ${fmtMoeda(estimadoTotal)}`)
   }</div>`;
 }
 

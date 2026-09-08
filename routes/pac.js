@@ -492,9 +492,13 @@ router.post('/api/pac/pedidos', pac, requireRotina('pac-lancamento', 'incluir'),
   }
   const dfd = db.prepare(`SELECT status FROM dfds WHERE id = ?`).get(item.dfd_id);
   if (!dfd || dfd.status !== 'analise') return res.status(409).json({ error: 'Só é possível abrir pedido com o DFD em análise.' });
+  // visualizado_pelo_solicitante_em já nasce preenchido — quem cria o
+  // pedido não precisa de indicador de "novo" pra si mesmo, o número no
+  // menu flutuante é pra quem ainda PRECISA agir (o DEPLA, via
+  // pac-cnt-pedidos que já conta status='pendente').
   const info = db.prepare(`
-    INSERT INTO dfd_pedidos_edicao (dfd_id, item_id, setor_id, solicitante_id, tipo, justificativa)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO dfd_pedidos_edicao (dfd_id, item_id, setor_id, solicitante_id, tipo, justificativa, visualizado_pelo_solicitante_em)
+    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
   `).run(item.dfd_id, item_id, item.setor_id, req.user.user_id, tipo, justificativa ? String(justificativa).trim() : null);
   registrarLog(req, 'PAC', 'SOLICITOU_EDICAO', `Solicitou ${tipo} no item #${item_id} do DFD #${item.dfd_id}`);
   res.status(201).json({ id: info.lastInsertRowid });
@@ -516,13 +520,64 @@ router.get('/api/pac/pedidos', pac, requireRotinaPac('ver'), (req, res) => {
 router.patch('/api/pac/pedidos/:id/resposta', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
   const { status, resposta } = req.body || {};
   if (!['aprovado', 'rejeitado'].includes(status)) return res.status(400).json({ error: 'Status inválido' });
-  const pedido = db.prepare(`SELECT status FROM dfd_pedidos_edicao WHERE id = ?`).get(req.params.id);
+  // Rejeitar sem explicar não vale — pedido do Alex, 2026-09-08: "se recusar
+  // por parte do depla tem que explicar prq".
+  if (status === 'rejeitado' && !String(resposta || '').trim()) {
+    return res.status(400).json({ error: 'Explique o motivo da rejeição.' });
+  }
+  const pedido = db.prepare(`SELECT status, tentativa FROM dfd_pedidos_edicao WHERE id = ?`).get(req.params.id);
   if (!pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
   if (pedido.status !== 'pendente') return res.status(409).json({ error: 'Este pedido já foi respondido.' });
+  // Rejeitar na 2ª tentativa (já contestada 1x) trava de vez — "o DEPLA numa
+  // segunda chamada pode recusar e travar pra não vir mais".
+  const bloqueado = status === 'rejeitado' && pedido.tentativa >= 2 ? 1 : 0;
+  // visualizado_pelo_solicitante_em volta a NULL — é uma resposta NOVA pro
+  // solicitante, o indicador de número precisa acender de novo pra ele.
   db.prepare(`
-    UPDATE dfd_pedidos_edicao SET status = ?, resposta = ?, respondido_por = ?, respondido_em = datetime('now') WHERE id = ?
-  `).run(status, resposta ? String(resposta).trim() : null, req.user.user_id, req.params.id);
-  registrarLog(req, 'PAC', 'RESPONDEU_PEDIDO', `${status === 'aprovado' ? 'Aprovou' : 'Rejeitou'} o pedido #${req.params.id}`);
+    UPDATE dfd_pedidos_edicao
+    SET status = ?, resposta = ?, respondido_por = ?, respondido_em = datetime('now'),
+        visualizado_pelo_solicitante_em = NULL, bloqueado = ?
+    WHERE id = ?
+  `).run(status, resposta ? String(resposta).trim() : null, req.user.user_id, bloqueado, req.params.id);
+  registrarLog(req, 'PAC', 'RESPONDEU_PEDIDO', `${status === 'aprovado' ? 'Aprovou' : 'Rejeitou'} o pedido #${req.params.id}` + (bloqueado ? ' (bloqueado — sem nova contestação)' : ''));
+  res.json({ ok: true });
+});
+
+// Contestar uma rejeição — só quem pediu, só se ainda não foi bloqueado, só
+// 1 vez (tentativa 1→2; na 2ª rejeição o DEPLA já bloqueia acima). Reabre
+// como pendente com a nova justificativa — pedido do Alex, 2026-09-08: "o
+// gestor do setor aceita ou não, ele pode recusar e enviar o porquê".
+router.patch('/api/pac/pedidos/:id/contestar', pac, requireRotina('pac-lancamento', 'incluir'), (req, res) => {
+  const { justificativa } = req.body || {};
+  if (!String(justificativa || '').trim()) return res.status(400).json({ error: 'Explique por que está contestando.' });
+  const pedido = db.prepare(`SELECT * FROM dfd_pedidos_edicao WHERE id = ?`).get(req.params.id);
+  if (!pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
+  if (req.user.username !== 'master' && pedido.solicitante_id !== req.user.user_id) {
+    return res.status(403).json({ error: 'Este pedido não é seu.' });
+  }
+  if (pedido.status !== 'rejeitado' || pedido.bloqueado) {
+    return res.status(409).json({ error: 'Este pedido não pode mais ser contestado.' });
+  }
+  db.prepare(`
+    UPDATE dfd_pedidos_edicao
+    SET status = 'pendente', tentativa = tentativa + 1, justificativa = ?,
+        resposta = NULL, respondido_por = NULL, respondido_em = NULL,
+        visualizado_pelo_solicitante_em = datetime('now')
+    WHERE id = ?
+  `).run(String(justificativa).trim(), req.params.id);
+  registrarLog(req, 'PAC', 'CONTESTOU_PEDIDO', `Contestou a rejeição do pedido #${req.params.id}`);
+  res.json({ ok: true });
+});
+
+// Marca como "lidas" (some o indicador de número no flyout do solicitante)
+// todas as respostas (aprovado/rejeitado) que ele ainda não tinha visto —
+// chamado quando ele ABRE o flyout de "Meus pedidos". "Ele lê e aí aquele
+// número some" — pedido do Alex, 2026-09-08.
+router.post('/api/pac/pedidos/marcar-lidos', pac, requireRotinaPac('ver'), (req, res) => {
+  db.prepare(`
+    UPDATE dfd_pedidos_edicao SET visualizado_pelo_solicitante_em = datetime('now')
+    WHERE solicitante_id = ? AND status IN ('aprovado', 'rejeitado') AND visualizado_pelo_solicitante_em IS NULL
+  `).run(req.user.user_id);
   res.json({ ok: true });
 });
 

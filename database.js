@@ -786,6 +786,7 @@ function setupDb() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_dfd_itens_valores_item ON dfd_itens_valores(item_id);
+    CREATE INDEX IF NOT EXISTS idx_dfd_pedidos_solicitante ON dfd_pedidos_edicao(solicitante_id);
     CREATE INDEX IF NOT EXISTS idx_dfd_itens_dfd_setor ON dfd_itens(dfd_id, setor_id);
   `);
 
@@ -822,6 +823,20 @@ function setupDb() {
   // routes/pac.js) — DEPLA preenche em Consolidação, mesmo espírito de
   // observacao_consolidacao acima (nunca aparece pro setor em Lançamento).
   try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN natureza_consolidacao TEXT`); } catch {}
+  // Mensageria "viva" dos pedidos de edição — pedido do Alex, 2026-09-08:
+  // "acionou a gestão o menu flutuante já aparece [...] aprovando o gestor
+  // do setor tem o indicador em número [...] ele lê e aí aquele número
+  // some [...] se recusar [...] o gestor aceita ou não, pode recusar e
+  // enviar o porquê [...] o DEPLA numa segunda chamada pode recusar e
+  // travar". visualizado_pelo_solicitante_em: zera o indicador do lado do
+  // setor quando ele abre o flyout e vê a resposta (aprovado/rejeitado) —
+  // o indicador do lado do DEPLA já existe (pac-cnt-pedidos conta status=
+  // 'pendente', v4.19.4). tentativa: 1 na criação, vira 2 se o setor
+  // contestar uma rejeição — na 2ª rejeição (tentativa=2) bloqueado=1 e não
+  // contesta mais.
+  try { _db.exec(`ALTER TABLE dfd_pedidos_edicao ADD COLUMN visualizado_pelo_solicitante_em DATETIME`); } catch {}
+  try { _db.exec(`ALTER TABLE dfd_pedidos_edicao ADD COLUMN tentativa INTEGER NOT NULL DEFAULT 1`); } catch {}
+  try { _db.exec(`ALTER TABLE dfd_pedidos_edicao ADD COLUMN bloqueado INTEGER NOT NULL DEFAULT 0`); } catch {}
   // finalizado_em: gestor de setor sinaliza que terminou de lançar (botão
   // "Finalizar meu DFD" em pac-lancamento.js) — o status do DFD em si
   // continua global/manual (DEPLA), isto é só o registro por setor.
