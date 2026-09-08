@@ -743,6 +743,19 @@ router.patch('/api/pac/itens/:id/observacao-consolidacao', pac, requireRotina('p
   res.json({ ok: true });
 });
 
+// Classificação Tipo→Subitem→Natureza (pedido do Alex, 2026-09-08) — DEPLA
+// preenche em Consolidação, mesma mecânica de observacao-consolidacao acima
+// (nunca aparece pro setor em Lançamento, ver database.js). Valor livre (não
+// valida contra dfd_parametros_lista) — mesma confiança que o resto do
+// sistema já dá pro <select> do cliente, sem validação server-side extra.
+router.patch('/api/pac/itens/:id/natureza-consolidacao', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const item = db.prepare(`SELECT id, dfd_id FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
+  if (!item) return res.status(404).json({ error: 'Item não encontrado' });
+  const natureza = req.body?.natureza;
+  db.prepare(`UPDATE dfd_itens SET natureza_consolidacao = ? WHERE id = ?`).run(natureza ? String(natureza).trim() : null, item.id);
+  res.json({ ok: true });
+});
+
 // Momento 3: reordena de novo, agora excluindo cancelados da sequência ATIVA
 // — mas sem mexer no numero_pac que um item cancelado já tinha (índice único
 // parcial em database.js permite a sobreposição de propósito). Zera pra NULL
@@ -826,15 +839,13 @@ router.post('/api/pac/dfds/:id/reordenar-por-classificacao', pac, requireRotina(
   if (dfd.status !== 'fechado') {
     return res.status(409).json({ error: 'Só é possível reordenar por classificação depois que o DFD inteiro for finalizado.' });
   }
-  const idNatureza = colunaId('natureza');
   const itens = db.prepare(`
-    SELECT di.id, v.valor AS natureza
+    SELECT di.id, di.natureza_consolidacao AS natureza
     FROM dfd_itens di
     JOIN setores s ON s.id = di.setor_id
-    LEFT JOIN dfd_itens_valores v ON v.item_id = di.id AND v.coluna_id = ?
     WHERE di.dfd_id = ? AND di.excluido_em IS NULL AND di.status_consolidacao != 'cancelado'
     ORDER BY s.ordem ASC, CAST(di.numero_pac AS INTEGER) ASC
-  `).all(idNatureza, dfd.id);
+  `).all(dfd.id);
   itens.sort((a, b) => {
     const oa = NATUREZA_ORDEM[a.natureza] ?? 999, ob = NATUREZA_ORDEM[b.natureza] ?? 999;
     return oa - ob; // sort estável (V8) — empate mantém a ordem original (setor.ordem/numero_pac)

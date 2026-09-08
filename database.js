@@ -817,6 +817,11 @@ function setupDb() {
   try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN cancelado_por INTEGER`); } catch {}
   try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN cancelado_em DATETIME`); } catch {}
   try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN observacao_consolidacao TEXT`); } catch {}
+  // Classificação Tipo→Subitem→Natureza (pedido do Alex, 2026-09-08) que
+  // decide a ordem final do numero_pac (ver reordenar-por-classificacao em
+  // routes/pac.js) — DEPLA preenche em Consolidação, mesmo espírito de
+  // observacao_consolidacao acima (nunca aparece pro setor em Lançamento).
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN natureza_consolidacao TEXT`); } catch {}
   // finalizado_em: gestor de setor sinaliza que terminou de lançar (botão
   // "Finalizar meu DFD" em pac-lancamento.js) — o status do DFD em si
   // continua global/manual (DEPLA), isto é só o registro por setor.
@@ -1003,11 +1008,23 @@ function setupDb() {
     // routes/pac-importacao.js e valoresContratoDoForm() em pac-lancamento.js,
     // que já trata QUALQUER coluna do grupo C genericamente, sem código novo).
     seedColuna('contrato_renovado', 'O contrato será renovado?', 'C', 'select', 'sim_nao',        0, 18);
-    // Natureza — pedido do Alex, 2026-09-08 (ver seedLista('natureza') acima).
-    // Grupo A, igual Tipo/Subitem — cada DFD ativa ou não via config normal
-    // (Setores participantes/Colunas ativas), nada de especial aqui.
-    seedColuna('natureza',         'Natureza',                 'A', 'select', 'natureza',       0, 19);
   }
+  // Natureza (pedido do Alex, 2026-09-08) NÃO é coluna do catálogo genérico —
+  // 1ª tentativa botou como grupo 'A' igual Tipo/Subitem, e ela apareceu
+  // junto das colunas "oficiais" que o setor edita em Lançamento (errado,
+  // corrigido no mesmo dia). É classificação do DEPLA, só existe em
+  // Consolidação, igual observacao_consolidacao/status_consolidacao abaixo
+  // — coluna direta em dfd_itens, nunca configurável por DFD, sem "Colunas
+  // ativas". A LISTA de valores (dfd_parametros_lista, lista='natureza',
+  // seedLista acima) continua existindo — isso sim o DEPLA gerencia, em
+  // Parâmetros, igual Tipo/Subitem/Prioridade — só o armazenamento no item
+  // que não passa pelo mecanismo de dfd_colunas_catalogo/dfd_itens_valores.
+  // Limpa o que a 1ª tentativa (mesmo dia) já tinha gravado nesse mecanismo.
+  try {
+    _db.exec(`DELETE FROM dfd_itens_valores WHERE coluna_id = (SELECT id FROM dfd_colunas_catalogo WHERE slug = 'natureza')`);
+    _db.exec(`DELETE FROM dfd_colunas_ativas WHERE coluna_id = (SELECT id FROM dfd_colunas_catalogo WHERE slug = 'natureza')`);
+    _db.exec(`DELETE FROM dfd_colunas_catalogo WHERE slug = 'natureza'`);
+  } catch {}
 
   // Backfill (2026-09-06): dado já importado ANTES do auto-cadastro existir
   // (routes/pac-importacao.js, v4.17.3) ficou com Subitem gravado como texto
