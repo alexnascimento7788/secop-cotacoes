@@ -1254,26 +1254,65 @@ async function renderFinalizacaoAcompanhamento(dfdId) {
 // 2026-09-06: "modelos mais atuais incluindo progress bar, não somente cards
 // simples". Reaproveita _acompDados (já carregado por renderTabelaAcompanhamento
 // antes desta função rodar) + o status de finalização já buscado ao lado.
-// Redesenho 2026-09-08 (depois do teste ponta-a-ponta): "Itens lançados"
-// saiu, "Setores finalizados"/"Execução dos itens" viraram pizza e "Valor
-// realizado" ganhou velocímetro — mesmos helpers svgPizza/svgVelocimetro
-// duplicados em pac-lancamento.js (sem módulo compartilhado novo, mesma
-// convenção que já existia aqui pras 2 funções de KPI).
-function svgPizza(pct) {
-  const p = Math.max(0, Math.min(100, pct));
-  const cor = p >= 100 ? 'var(--verde, #2E7D32)' : (p >= 50 ? 'var(--verde, #2E7D32)' : '#d97706');
-  return `<svg viewBox="0 0 36 36" width="34" height="34" style="flex-shrink:0;">
-    <circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--surface-2)" stroke-width="4"></circle>
-    <circle cx="18" cy="18" r="15.9155" fill="none" stroke="${cor}" stroke-width="4"
-      stroke-dasharray="${p} ${100 - p}" stroke-linecap="round" transform="rotate(-90 18 18)"></circle>
-  </svg>`;
+// Redesenho 2026-09-08 (2ª volta, mesma tarde): Alex mandou print do formato
+// que queria de verdade — gráfico de pizza "de tela cheia" (título, fatias
+// com % escrito, legenda embaixo), não um ícone pequeno numa linha de texto.
+// "Execução dos itens" agora mostra a distribuição completa por
+// status_execucao (não só finalizado/pendente) — mesmos helpers
+// svgPizzaMulti/svgVelocimetro/cardGrafico duplicados em pac-lancamento.js
+// (sem módulo compartilhado novo, mesma convenção de sempre).
+const STATUS_EXECUCAO_KPI = [
+  { label: 'Não Iniciado', cor: '#c0392b' },
+  { label: 'Processado DEPLA', cor: '#d97706' },
+  { label: 'Fracionamento Aberto', cor: '#2563eb' },
+  { label: 'Processo Finalizado', cor: 'var(--verde, #2E7D32)' },
+  { label: 'Cancelado', cor: '#9ca3af' },
+];
+function svgPizzaMulti(fatias) {
+  const total = fatias.reduce((s, f) => s + f.valor, 0) || 1;
+  const cx = 90, cy = 90, r = 72;
+  const toRad = a => (a * Math.PI) / 180;
+  let anguloAtual = -90;
+  const paths = [], rotulos = [];
+  fatias.forEach(f => {
+    const pct = f.valor / total;
+    if (pct <= 0) return;
+    const anguloFatia = Math.min(pct * 360, 359.999);
+    const anguloFim = anguloAtual + anguloFatia;
+    const x1 = cx + r * Math.cos(toRad(anguloAtual)), y1 = cy + r * Math.sin(toRad(anguloAtual));
+    const x2 = cx + r * Math.cos(toRad(anguloFim)), y2 = cy + r * Math.sin(toRad(anguloFim));
+    const largeArc = anguloFatia > 180 ? 1 : 0;
+    paths.push(`<path d="M ${cx} ${cy} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${largeArc} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z" fill="${f.cor}" stroke="var(--surface)" stroke-width="2"></path>`);
+    if (pct >= 0.035) {
+      const meio = anguloAtual + anguloFatia / 2;
+      const lx = cx + r * 0.64 * Math.cos(toRad(meio)), ly = cy + r * 0.64 * Math.sin(toRad(meio));
+      rotulos.push(`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="12" font-weight="700" fill="#fff" text-anchor="middle" dominant-baseline="middle" style="paint-order:stroke;stroke:rgba(0,0,0,.35);stroke-width:2px;">${Math.round(pct * 100)}%</text>`);
+    }
+    anguloAtual = anguloFim;
+  });
+  return `<svg viewBox="0 0 180 180" width="150" height="150">${paths.join('')}${rotulos.join('')}</svg>`;
+}
+function legendaGrafico(fatias) {
+  return `<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:4px 12px;margin-top:8px;font-size:12px;">${
+    fatias.map(f => `<span style="display:inline-flex;align-items:center;gap:5px;">
+      <span style="width:10px;height:10px;border-radius:2px;background:${f.cor};display:inline-block;flex-shrink:0;"></span>${f.label}
+    </span>`).join('')
+  }</div>`;
+}
+function cardGrafico(titulo, corpoSvg, legenda, fracaoTexto) {
+  return `<div class="card" style="flex:1 1 240px;text-align:center;padding:16px;">
+    <div style="font-size:13px;font-weight:600;margin-bottom:10px;">${titulo}</div>
+    ${corpoSvg}
+    <div style="font-size:12.5px;color:var(--text-muted);margin-top:4px;">${fracaoTexto}</div>
+    ${legenda}
+  </div>`;
 }
 function svgVelocimetro(pct) {
   const p = Math.max(0, Math.min(100, pct));
   const cor = p >= 90 ? '#d97706' : 'var(--verde, #2E7D32)';
   const theta = (180 - (p / 100) * 180) * Math.PI / 180;
   const x2 = 50 + 34 * Math.cos(theta), y2 = 50 - 34 * Math.sin(theta);
-  return `<svg viewBox="0 0 100 55" width="62" height="34" style="flex-shrink:0;">
+  return `<svg viewBox="0 0 100 55" width="130" height="72">
     <path d="M 6 50 A 44 44 0 0 1 94 50" fill="none" stroke="var(--surface-2)" stroke-width="8"></path>
     <path d="M 6 50 A 44 44 0 0 1 94 50" fill="none" stroke="${cor}" stroke-width="8"
       stroke-dasharray="${(p / 100 * 138).toFixed(1)} 138" stroke-linecap="round"></path>
@@ -1289,31 +1328,27 @@ function renderKpisAcompanhamento(dfdId, status) {
   const itens = _acompDados.itens || [];
   const totalSetores = status.setores.length;
   const setoresFinalizados = status.setores.filter(s => s.finalizado_em).length;
-  const pctSetores = totalSetores ? Math.round((setoresFinalizados / totalSetores) * 100) : 0;
 
+  const contagemExecucao = STATUS_EXECUCAO_KPI.map(s => ({
+    label: s.label, cor: s.cor, valor: itens.filter(i => i.status_execucao === s.label).length,
+  }));
   const itensFinalizados = itens.filter(i => i.status_execucao === 'Processo Finalizado').length;
-  const pctExecucao = itens.length ? Math.round((itensFinalizados / itens.length) * 100) : 0;
 
   const t = _acompDados.totais || { estimado_tu_mlp: 0, estimado_rdc: 0, realizado_tu_mlp: 0, realizado_rdc: 0 };
   const estimadoTotal = t.estimado_tu_mlp + t.estimado_rdc;
   const realizadoTotal = t.realizado_tu_mlp + t.realizado_rdc;
   const pctRealizado = estimadoTotal ? Math.round((realizadoTotal / estimadoTotal) * 100) : 0;
 
-  const linhaPizza = (rotulo, pct, fracaoTexto) => `
-    <div class="lanc-fin-linha">
-      ${svgPizza(pct)}
-      <strong class="pac-kpi-rotulo">${rotulo}</strong>
-      <span class="pac-kpi-fracao" style="flex:1 1 auto;">${fracaoTexto} (${pct}%)</span>
-    </div>`;
+  const fatiasSetores = [
+    { label: 'Finalizados', valor: setoresFinalizados, cor: 'var(--verde, #2E7D32)' },
+    { label: 'Pendentes', valor: totalSetores - setoresFinalizados, cor: '#c0392b' },
+  ];
 
-  wrap.innerHTML =
-    linhaPizza('Setores finalizados', pctSetores, `${setoresFinalizados} de ${totalSetores}`) +
-    linhaPizza('Execução dos itens', pctExecucao, `${itensFinalizados} de ${itens.length}`) +
-    `<div class="lanc-fin-linha">
-      ${svgVelocimetro(pctRealizado)}
-      <strong class="pac-kpi-rotulo">Valor realizado</strong>
-      <span class="pac-kpi-fracao" style="flex:1 1 auto;">${fmtMoeda(realizadoTotal)} de ${fmtMoeda(estimadoTotal)} (${pctRealizado}%)</span>
-    </div>`;
+  wrap.innerHTML = `<div style="display:flex;gap:12px;flex-wrap:wrap;">${
+    cardGrafico('Setores finalizados', svgPizzaMulti(fatiasSetores), legendaGrafico(fatiasSetores), `${setoresFinalizados} de ${totalSetores}`) +
+    cardGrafico('Execução dos itens', svgPizzaMulti(contagemExecucao), legendaGrafico(contagemExecucao), `${itensFinalizados} de ${itens.length} finalizados`) +
+    cardGrafico('Valor realizado', svgVelocimetro(pctRealizado), '', `${fmtMoeda(realizadoTotal)} de ${fmtMoeda(estimadoTotal)} (${pctRealizado}%)`)
+  }</div>`;
 }
 
 async function gerarConsolidacao(dfdId) {
