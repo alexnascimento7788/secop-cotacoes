@@ -954,6 +954,18 @@ function setupDb() {
     // já é o estado "Pendente" por ausência de valor — é "nunca foi
     // capturado nesta migração"). Ver routes/pac-importacao.js.
     seedLista('sim_nao', ['Sim', 'Não', 'Não informado']);
+    // Natureza de despesa — pedido do Alex, 2026-09-08: árvore de
+    // classificação (Tipo → Subitem → Natureza) que decide, no fim, a ORDEM
+    // do numero_pac quando o DFD inteiro finaliza (ver reordenarPorClassificacao
+    // em routes/pac.js). Ordem aqui É a ordem de prioridade da reordenação —
+    // não é alfabética, é a ordem literal que o Alex listou (Imobilizado →
+    // Material → Serviço, e dentro de cada um, a ordem das regras dele).
+    seedLista('natureza', [
+      'Investimento - Informática', 'Investimento - Móveis, Máq. e Equip.', 'Investimento - Infraestrutura',
+      'Bens do Ativo Permanente',
+      'Expediente', 'Combustíveis e Lubrificantes', 'Limpeza / Material', 'Suprimentos de Tecnologia e Informática', 'Segurança EPI', 'Uniformes', 'Utensílios de Copa e Cozinha',
+      'Tecnologia, Informática e Sistemas', 'Serviços de Limpeza', 'Guarda e Vigilância', 'Serviços Técnicos Profissionais', 'Instrução e Treinamento', 'Telefone', 'Locação de Veículos',
+    ]);
   }
 
   // Seed do catálogo fixo de colunas do DFD (17 colunas, 3 grupos visuais).
@@ -991,6 +1003,10 @@ function setupDb() {
     // routes/pac-importacao.js e valoresContratoDoForm() em pac-lancamento.js,
     // que já trata QUALQUER coluna do grupo C genericamente, sem código novo).
     seedColuna('contrato_renovado', 'O contrato será renovado?', 'C', 'select', 'sim_nao',        0, 18);
+    // Natureza — pedido do Alex, 2026-09-08 (ver seedLista('natureza') acima).
+    // Grupo A, igual Tipo/Subitem — cada DFD ativa ou não via config normal
+    // (Setores participantes/Colunas ativas), nada de especial aqui.
+    seedColuna('natureza',         'Natureza',                 'A', 'select', 'natureza',       0, 19);
   }
 
   // Backfill (2026-09-06): dado já importado ANTES do auto-cadastro existir

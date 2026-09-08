@@ -218,7 +218,13 @@
                fica pra uma rodada própria (combinado com o Alex). -->
           <div id="consol-finalizado" style="display:none;padding:24px 0;text-align:center;">
             <p style="font-size:15px;font-weight:600;color:var(--verde);margin-bottom:14px;">✅ Consolidação Finalizada</p>
-            <button class="btn btn-primary" id="consol-btn-relatorio" onclick="abrirRelatorioDfd()">🖨 Emitir Relatório DFD nº <span id="consol-relatorio-numero"></span></button>
+            <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+              <!-- Reordena numero_pac por classificação (Tipo/Subitem/Natureza) —
+                   pedido do Alex, 2026-09-08: "de preferência um botão
+                   específico" — ação separada, não roda sozinha. -->
+              <button class="btn btn-secondary" onclick="reordenarPorClassificacao()">🔀 Reordenar por classificação</button>
+              <button class="btn btn-primary" id="consol-btn-relatorio" onclick="abrirRelatorioDfd()">🖨 Emitir Relatório DFD nº <span id="consol-relatorio-numero"></span></button>
+            </div>
           </div>
 
           <div id="consol-corpo-normal">
