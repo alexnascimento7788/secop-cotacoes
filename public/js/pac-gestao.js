@@ -774,15 +774,20 @@ async function renderConsolidadoDetalhe() {
   _consolDados = res.ok ? await res.json() : { itens: [] };
 
   // DFD com todos os setores já consolidados (dfds.status='fechado', ver M1
-  // em routes/pac.js finalizar-consolidacao) — não sobra mais nada pra
-  // trabalhar aqui, só emitir o relatório. Pedido do Alex, 2026-09-08.
+  // em routes/pac.js finalizar-consolidacao) — mostra o aviso "Consolidação
+  // Finalizada" + Reordenar/Emitir Relatório, mas SEM esconder a tabela de
+  // trabalho. Corrigido 2026-09-08: a 1ª versão escondia a tabela inteira
+  // quando fechado, e o Alex precisa continuar vendo as colunas originais
+  // em tela (não só no relatório impresso) pra conferir como ficou depois
+  // de reordenar por classificação — "preciso ver em tela como ficou a
+  // reordenação, com todas as colunas originais onde foi feito o trabalho
+  // de consolidação".
   const dfdInfo = _dfds.find(d => d.id === _consolDfdId);
   const finalizado = dfdInfo?.status === 'fechado';
   document.getElementById('consol-finalizado').style.display = finalizado ? 'block' : 'none';
-  document.getElementById('consol-corpo-normal').style.display = finalizado ? 'none' : 'block';
+  document.getElementById('consol-corpo-normal').style.display = 'block';
   if (finalizado) {
     document.getElementById('consol-relatorio-numero').textContent = codigoDfd(dfdInfo);
-    return;
   }
 
   // Filtro por setor — populado com os setores que realmente têm item aqui.
