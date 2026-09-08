@@ -191,10 +191,38 @@ async function abrirDfd(id) {
   await carregarStatusFinalizacao(); // calcula _finalizacaoPorSetor antes da tabela usar
   await renderItens(); // popula _itensAtuais (renderFinalizacao precisa disso pra decidir "tem item lançado?")
   renderFinalizacao();
+  iniciarAutoRefreshKpis();
+}
+
+// "Execução dos itens" (status_execucao) é alterado pelo DEPLA em Gestão >
+// Acompanhamento, não em Lançamento — sem alguma forma de atualização, o
+// indicador fica parado até alguém clicar "🔄 Atualizar" manualmente. Pedido
+// do Alex, 2026-09-08: "movimentações feitas enxergar isto em tempo real ou
+// com refresh da página, hoje é uma informação que já nasce morta". Sem
+// WebSocket no projeto, a solução possível é polling — só busca /itens de
+// novo e atualiza os indicadores (renderFinalizacao, que NÃO toca na tabela
+// de itens em si), pra não perder uma edição em andamento em campo aberto.
+let _kpiAutoRefreshTimer = null;
+function iniciarAutoRefreshKpis() {
+  pararAutoRefreshKpis();
+  _kpiAutoRefreshTimer = setInterval(async () => {
+    if (!_dfdAtualId) return;
+    try {
+      const res = await fetch(`/api/pac/dfds/${_dfdAtualId}/itens`);
+      // Confere de novo depois do await — se o usuário saiu do DFD enquanto
+      // a requisição estava no ar, _dfdAtual já é null e renderFinalizacao()
+      // quebraria (lê _dfdAtual.status).
+      if (res.ok && _dfdAtualId) { _itensAtuais = await res.json(); renderFinalizacao(); }
+    } catch { /* silencioso — próxima batida tenta de novo */ }
+  }, 30000);
+}
+function pararAutoRefreshKpis() {
+  if (_kpiAutoRefreshTimer) { clearInterval(_kpiAutoRefreshTimer); _kpiAutoRefreshTimer = null; }
 }
 
 function fecharDfd() {
   _dfdAtualId = null; _dfdAtual = null;
+  pararAutoRefreshKpis();
   document.getElementById('pac-dfd-itens').style.display = 'none';
   document.getElementById('pac-dfd-lista').style.display = 'block';
   document.getElementById('pac-lanc-titulo').textContent = 'Lançamento';
@@ -256,9 +284,21 @@ function abrirAcompanhamentoPopup() {
 // Iniciado/Processado DEPLA/Fracionamento Aberto/Processo Finalizado) — não
 // é mais só 2 fatias (finalizado/pendente), é a distribuição completa por
 // status (ver STATUS_EXECUCAO_KPI abaixo).
-function svgPizzaMulti(fatias) {
+// 3ª rodada de ajuste (mesma tarde, 2026-09-08) — Alex apontou 3 problemas
+// concretos nesta 1ª versão de pizza "de tela cheia":
+// 1) "Setores Finalizados" some de nome estranho e, quando chega em 100%,
+//    fica só um círculo verde liso com um número em cima ("fica em branco").
+//    Virou DONUT (buraco no meio) com o texto "X de Y" centralizado — mesmo
+//    a 100%, o miolo mostra algo com substância, não um número solto.
+// 2) Legenda "em posição ruim" (embaixo, cortando linha) — virou uma coluna
+//    ao LADO do donut, com o valor de cada fatia junto do rótulo.
+// 3) Velocímetro "mais bacana" — ganhou faixas de cor fixas (vermelho/
+//    laranja/verde, referência visual tipo velocímetro de verdade) em vez
+//    de uma única barra colorida condicionalmente, mais os extremos "0%"/
+//    "100%" marcados e o número grande dentro do mostrador.
+function svgPizzaMulti(fatias, centroTexto) {
   const total = fatias.reduce((s, f) => s + f.valor, 0) || 1;
-  const cx = 90, cy = 90, r = 72;
+  const cx = 90, cy = 90, r = 72, rBuraco = 44;
   const toRad = a => (a * Math.PI) / 180;
   let anguloAtual = -90;
   const paths = [], rotulos = [];
@@ -273,26 +313,33 @@ function svgPizzaMulti(fatias) {
     paths.push(`<path d="M ${cx} ${cy} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${largeArc} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z" fill="${f.cor}" stroke="var(--surface)" stroke-width="2"></path>`);
     if (pct >= 0.035) {
       const meio = anguloAtual + anguloFatia / 2;
-      const lx = cx + r * 0.64 * Math.cos(toRad(meio)), ly = cy + r * 0.64 * Math.sin(toRad(meio));
-      rotulos.push(`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="12" font-weight="700" fill="#fff" text-anchor="middle" dominant-baseline="middle" style="paint-order:stroke;stroke:rgba(0,0,0,.35);stroke-width:2px;">${Math.round(pct * 100)}%</text>`);
+      const lx = cx + (r + rBuraco) / 2 * Math.cos(toRad(meio)), ly = cy + (r + rBuraco) / 2 * Math.sin(toRad(meio));
+      rotulos.push(`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="11" font-weight="700" fill="#fff" text-anchor="middle" dominant-baseline="middle" style="paint-order:stroke;stroke:rgba(0,0,0,.35);stroke-width:2px;">${Math.round(pct * 100)}%</text>`);
     }
     anguloAtual = anguloFim;
   });
-  return `<svg viewBox="0 0 180 180" width="150" height="150">${paths.join('')}${rotulos.join('')}</svg>`;
+  const fsCentro = !centroTexto ? 0 : (centroTexto.length > 5 ? 15 : 20);
+  const centro = centroTexto
+    ? `<circle cx="${cx}" cy="${cy}" r="${rBuraco}" fill="var(--surface)"></circle>
+       <text x="${cx}" y="${cy}" font-size="${fsCentro}" font-weight="800" text-anchor="middle" dominant-baseline="middle" fill="var(--text)">${centroTexto}</text>`
+    : '';
+  return `<svg viewBox="0 0 180 180" width="140" height="140" style="flex-shrink:0;">${paths.join('')}${centro}${rotulos.join('')}</svg>`;
 }
 function legendaGrafico(fatias) {
-  return `<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:4px 12px;margin-top:8px;font-size:12px;">${
-    fatias.map(f => `<span style="display:inline-flex;align-items:center;gap:5px;">
-      <span style="width:10px;height:10px;border-radius:2px;background:${f.cor};display:inline-block;flex-shrink:0;"></span>${f.label}
+  return `<div style="display:flex;flex-direction:column;gap:5px;font-size:12px;text-align:left;">${
+    fatias.map(f => `<span style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
+      <span style="width:10px;height:10px;border-radius:2px;background:${f.cor};display:inline-block;flex-shrink:0;"></span>${f.label} <strong style="margin-left:auto;padding-left:10px;">${f.valor}</strong>
     </span>`).join('')
   }</div>`;
 }
 function cardGrafico(titulo, corpoSvg, legenda, fracaoTexto) {
-  return `<div class="card" style="flex:1 1 240px;text-align:center;padding:16px;">
-    <div style="font-size:13px;font-weight:600;margin-bottom:10px;">${titulo}</div>
-    ${corpoSvg}
-    <div style="font-size:12.5px;color:var(--text-muted);margin-top:4px;">${fracaoTexto}</div>
-    ${legenda}
+  return `<div class="card" style="flex:1 1 260px;padding:16px;">
+    <div style="font-size:13px;font-weight:600;margin-bottom:10px;text-align:center;">${titulo}</div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;">
+      ${corpoSvg}
+      ${legenda}
+    </div>
+    ${fracaoTexto ? `<div style="font-size:12px;color:var(--text-muted);margin-top:10px;text-align:center;">${fracaoTexto}</div>` : ''}
   </div>`;
 }
 // Mesmas 5 opções de dfd_itens.status_execucao (routes/pac.js,
@@ -308,15 +355,22 @@ const STATUS_EXECUCAO_KPI = [
 ];
 function svgVelocimetro(pct) {
   const p = Math.max(0, Math.min(100, pct));
-  const cor = p >= 90 ? '#d97706' : 'var(--verde, #2E7D32)';
+  const raio = 44, cx = 50, cy = 50, L = Math.PI * raio; // comprimento do arco (meio-círculo)
+  const zonas = [{ ini: 0, fim: 50, cor: '#c0392b' }, { ini: 50, fim: 80, cor: '#d97706' }, { ini: 80, fim: 100, cor: 'var(--verde, #2E7D32)' }];
+  const arcoZona = z => {
+    const comp = (z.fim - z.ini) / 100 * L, offset = -(z.ini / 100 * L);
+    return `<path d="M 6 50 A ${raio} ${raio} 0 0 1 94 50" fill="none" stroke="${z.cor}" stroke-width="10"
+      stroke-dasharray="${comp.toFixed(1)} ${L.toFixed(1)}" stroke-dashoffset="${offset.toFixed(1)}"></path>`;
+  };
   const theta = (180 - (p / 100) * 180) * Math.PI / 180;
-  const x2 = 50 + 34 * Math.cos(theta), y2 = 50 - 34 * Math.sin(theta);
-  return `<svg viewBox="0 0 100 55" width="130" height="72">
-    <path d="M 6 50 A 44 44 0 0 1 94 50" fill="none" stroke="var(--surface-2)" stroke-width="8"></path>
-    <path d="M 6 50 A 44 44 0 0 1 94 50" fill="none" stroke="${cor}" stroke-width="8"
-      stroke-dasharray="${(p / 100 * 138).toFixed(1)} 138" stroke-linecap="round"></path>
-    <line x1="50" y1="50" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="var(--text, #333)" stroke-width="2.5" stroke-linecap="round"></line>
-    <circle cx="50" cy="50" r="3" fill="var(--text, #333)"></circle>
+  const x2 = cx + 34 * Math.cos(theta), y2 = cy - 34 * Math.sin(theta);
+  return `<svg viewBox="0 0 100 68" width="160" height="109" style="flex-shrink:0;">
+    ${zonas.map(arcoZona).join('')}
+    <line x1="${cx}" y1="${cy}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="var(--text, #222)" stroke-width="2.5" stroke-linecap="round"></line>
+    <circle cx="${cx}" cy="${cy}" r="4" fill="var(--text, #222)"></circle>
+    <text x="4" y="63" font-size="7" fill="var(--text-muted)">0%</text>
+    <text x="96" y="63" font-size="7" fill="var(--text-muted)" text-anchor="end">100%</text>
+    <text x="${cx}" y="42" font-size="16" font-weight="800" text-anchor="middle" fill="var(--text)">${p}%</text>
   </svg>`;
 }
 function renderKpisLancamento(elId) {
@@ -345,14 +399,13 @@ function renderKpisLancamento(elId) {
       { label: 'Finalizados', valor: setoresFinalizados, cor: 'var(--verde, #2E7D32)' },
       { label: 'Pendentes', valor: totalSetores - setoresFinalizados, cor: '#c0392b' },
     ];
-    return cardGrafico('Setores finalizados', svgPizzaMulti(fatias), legendaGrafico(fatias), `${setoresFinalizados} de ${totalSetores}`);
+    return cardGrafico('Progresso de Setores', svgPizzaMulti(fatias, `${setoresFinalizados}/${totalSetores}`), legendaGrafico(fatias), '');
   })() : '';
 
-  const cardExecucao = cardGrafico('Execução dos itens', svgPizzaMulti(contagemExecucao), legendaGrafico(contagemExecucao),
-    `${itensFinalizados} de ${itens.length} finalizados`);
+  const cardExecucao = cardGrafico('Execução dos itens', svgPizzaMulti(contagemExecucao, `${itensFinalizados}/${itens.length}`), legendaGrafico(contagemExecucao), '');
 
   const cardValor = cardGrafico('Valor realizado', svgVelocimetro(pctRealizado), '',
-    `R$ ${fmtMoeda(totais.realizado)} de R$ ${fmtMoeda(totais.estimado)} (${pctRealizado}%)`);
+    `R$ ${fmtMoeda(totais.realizado)} de R$ ${fmtMoeda(totais.estimado)}`);
 
   wrap.innerHTML = `<div style="display:flex;gap:12px;flex-wrap:wrap;">${cardSetores}${cardExecucao}${cardValor}</div>`;
 }
@@ -523,7 +576,14 @@ function renderCelula(item, coluna, indice, liberado) {
   if (!editavel) {
     return `<td class="${classe}" data-label="${coluna.label}">${formatarValorExibicao(coluna, valor)}</td>`;
   }
-  return `<td class="${classe}" data-label="${coluna.label}">${renderInputCelula(item.id, coluna, valor)}</td>`;
+  // Editável só por causa de um pedido de edição aprovado (uso único) —
+  // ganha um botão "Salvar" explícito, não só o salvamento implícito no
+  // blur/change. Pedido do Alex, 2026-09-08: "com botão salvar hoje não
+  // tem" — como isso consome a autorização de uma vez só, o clique
+  // deliberado deixa mais claro o que está acontecendo do que só tirar o
+  // foco do campo sem querer.
+  const somenteViaLiberado = !(_dfdAtual.status === 'aberto' && !_finalizacaoPorSetor[item.setor_id]);
+  return `<td class="${classe}" data-label="${coluna.label}">${renderInputCelula(item.id, coluna, valor, somenteViaLiberado)}</td>`;
 }
 
 function formatarValorExibicao(coluna, valor) {
@@ -533,26 +593,30 @@ function formatarValorExibicao(coluna, valor) {
   return valor;
 }
 
-function renderInputCelula(itemId, coluna, valor) {
-  const base = `data-item="${itemId}" data-coluna="${coluna.id}" data-tipo="${coluna.tipo_input}"`;
+function renderInputCelula(itemId, coluna, valor, comBotaoSalvar) {
+  const domId = `campo-${itemId}-${coluna.id}`;
+  const base = `id="${domId}" data-item="${itemId}" data-coluna="${coluna.id}" data-tipo="${coluna.tipo_input}"`;
+  const botaoSalvar = comBotaoSalvar
+    ? ` <button type="button" class="btn btn-primary btn-xs" style="vertical-align:middle;" onclick="salvarCampoItem(document.getElementById('${domId}'))" title="Salvar">💾</button>`
+    : '';
   if (coluna.tipo_input === 'select') {
     const opcoes = (_listasCache[coluna.lista] || []).map(o =>
       `<option value="${o.valor}" ${o.valor === valor ? 'selected' : ''}>${o.valor}</option>`).join('');
-    return `<select ${base} style="min-width:120px;"><option value="">—</option>${opcoes}</select>`;
+    return `<select ${base} style="min-width:120px;"><option value="">—</option>${opcoes}</select>${botaoSalvar}`;
   }
   if (coluna.tipo_input === 'textarea') {
-    return `<textarea ${base} rows="1" style="min-width:200px;">${valor || ''}</textarea>`;
+    return `<textarea ${base} rows="1" style="min-width:200px;">${valor || ''}</textarea>${botaoSalvar}`;
   }
   if (coluna.tipo_input === 'moeda') {
-    return `<input type="text" ${base} value="${valor != null ? fmtMoeda(valor) : ''}" style="width:110px;text-align:right;" placeholder="0,00" />`;
+    return `<input type="text" ${base} value="${valor != null ? fmtMoeda(valor) : ''}" style="width:110px;text-align:right;" placeholder="0,00" />${botaoSalvar}`;
   }
   if (coluna.tipo_input === 'numero') {
-    return `<input type="number" ${base} value="${valor ?? ''}" style="width:80px;" step="any" />`;
+    return `<input type="number" ${base} value="${valor ?? ''}" style="width:80px;" step="any" />${botaoSalvar}`;
   }
   if (coluna.tipo_input === 'data') {
-    return `<input type="date" ${base} value="${valor || ''}" style="width:140px;" />`;
+    return `<input type="date" ${base} value="${valor || ''}" style="width:140px;" />${botaoSalvar}`;
   }
-  return `<input type="text" ${base} value="${valor || ''}" style="min-width:140px;" />`;
+  return `<input type="text" ${base} value="${valor || ''}" style="min-width:140px;" />${botaoSalvar}`;
 }
 
 /* ── Popup "Dados do contrato" (grupo C) — aberto pela coluna única Contrato ── */
@@ -896,11 +960,30 @@ function renderFinalizacao() {
   // 2026-09-08: "não deveríamos ter valores somando nesta tela?".
   renderKpisLancamento('lanc-kpis');
 
-  const wrap = document.getElementById('lanc-finalizar-wrap');
-  if (!wrap) return;
-  if (_dfdAtual.status !== 'aberto' || !_meusSetores.length) { wrap.innerHTML = ''; return; }
+  // Botão+flyout — pedido do Alex, 2026-09-08 (2ª rodada, mesmo dia): "tudo
+  // abaixo dos indicadores deve ser botão flutuante com a informação dentro
+  // dele" (mesmo padrão do flyout de pedidos, ver alternarPedidosFlyout).
+  const btn = document.getElementById('lanc-finalizar-btn');
+  const badge = document.getElementById('lanc-finalizar-count');
+  if (!btn) return;
+  if (_dfdAtual.status !== 'aberto' || !_meusSetores.length) {
+    btn.style.display = 'none';
+    fecharFinalizarFlyout();
+    return;
+  }
+  const pendentesPorSetor = _meusSetores.map(s => ({ setor: s, pendentes: pendenciasDoSetor(s.id).length }));
+  const totalSetoresPendentes = pendentesPorSetor.filter(x => !_finalizacaoPorSetor[x.setor.id]).length;
+  btn.style.display = '';
+  if (totalSetoresPendentes > 0) {
+    badge.style.display = '';
+    badge.textContent = totalSetoresPendentes;
+    badge.classList.add('alerta');
+  } else {
+    badge.style.display = 'none';
+    badge.classList.remove('alerta');
+  }
 
-  wrap.innerHTML = _meusSetores.map(s => {
+  document.getElementById('lanc-finalizar-corpo').innerHTML = _meusSetores.map(s => {
     const fin = _finalizacaoPorSetor[s.id];
     if (fin) return `<div class="lanc-fin-linha"><strong>${s.nome}:</strong> <span class="badge badge-aberto">✅ Finalizado em ${fmtBr(String(fin).split(' ')[0])}</span></div>`;
     const temItem = _itensAtuais.some(i => i.setor_id === s.id);
@@ -919,6 +1002,14 @@ function renderFinalizacao() {
     }
     return `<div class="lanc-fin-linha"><strong>${s.nome}:</strong> <button class="btn btn-secondary btn-xs" onclick="finalizarMeuSetor(${s.id})">Finalizar meu DFD</button></div>`;
   }).join('');
+}
+
+function alternarFinalizarFlyout() {
+  const flyout = document.getElementById('lanc-finalizar-flyout');
+  flyout.style.display = flyout.style.display === 'none' ? 'block' : 'none';
+}
+function fecharFinalizarFlyout() {
+  document.getElementById('lanc-finalizar-flyout').style.display = 'none';
 }
 
 // Liga o filtro "só itens com campo em branco" e rola até a tabela — atalho
@@ -963,6 +1054,12 @@ async function finalizarMeuSetor(setorId, forcar) {
 
 /* ── Meus pedidos ────────────────────────────────────────────────────────── */
 
+// Mensageria "viva" — pedido do Alex, 2026-09-08: o indicador de número do
+// SOLICITANTE (aqui) só conta respostas que ele ainda não abriu pra ler
+// (aprovado/rejeitado com visualizado_pelo_solicitante_em nulo) — pedido
+// ainda "pendente" (esperando o DEPLA) não conta pra ele, esse número é do
+// DEPLA (pac-cnt-pedidos em pac-gestao.js, já existia). Abrir o flyout marca
+// tudo como lido (marcarPedidosLidos) e o número some.
 async function renderMeusPedidos() {
   const res = await fetch('/api/pac/pedidos');
   const pedidos = res.ok ? await res.json() : [];
@@ -982,33 +1079,66 @@ async function renderMeusPedidos() {
     return;
   }
   btn.style.display = '';
-  document.getElementById('lanc-pedidos-count').textContent = doDfd.length;
+  const naoLidos = doDfd.filter(p => ['aprovado', 'rejeitado'].includes(p.status) && !p.visualizado_pelo_solicitante_em).length;
+  const badge = document.getElementById('lanc-pedidos-count');
+  badge.textContent = naoLidos || doDfd.length;
+  badge.classList.toggle('alerta', naoLidos > 0);
   document.getElementById('lanc-pedidos-tbody').innerHTML = doDfd.map(p => {
     const clicavel = p.status === 'aprovado' && p.item_id;
+    const statusTexto = p.status === 'rejeitado' && p.bloqueado ? 'rejeitado (definitivo)' : p.status;
+    const podeContestar = p.status === 'rejeitado' && !p.bloqueado;
     return `
     <tr${clicavel ? ` style="cursor:pointer;" onclick="irParaItemDoPedido(${p.item_id})" title="Ir para o item"` : ''}>
       <td>#${p.item_id ?? '—'}</td>
       <td>${p.tipo}</td>
       <td>${p.justificativa || '—'}</td>
-      <td>${p.status}</td>
-      <td>${p.resposta || '—'}</td>
+      <td>${statusTexto}</td>
+      <td>${p.resposta || '—'}${podeContestar ? ` <button type="button" class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); contestarPedido(${p.id})">Contestar</button>` : ''}</td>
     </tr>`;
   }).join('');
 }
 
+async function marcarPedidosLidos() {
+  try { await fetch('/api/pac/pedidos/marcar-lidos', { method: 'POST' }); } catch {}
+}
+
+// Discorda de uma rejeição e manda um novo porquê — só funciona 1 vez (ver
+// tentativa/bloqueado em routes/pac.js). Pedido do Alex, 2026-09-08: "o
+// gestor do setor aceita ou não, ele pode recusar e enviar o porquê".
+async function contestarPedido(pedidoId) {
+  const justificativa = prompt('Por que você está contestando essa rejeição?');
+  if (justificativa === null || !justificativa.trim()) return;
+  try {
+    const res = await fetch(`/api/pac/pedidos/${pedidoId}/contestar`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ justificativa: justificativa.trim() }),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    toast('Contestação enviada — voltou pra fila do DEPLA.');
+    await renderMeusPedidos();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+  }
+}
+
 function alternarPedidosFlyout() {
   const flyout = document.getElementById('lanc-pedidos-flyout');
-  flyout.style.display = flyout.style.display === 'none' ? 'block' : 'none';
+  const abrindo = flyout.style.display === 'none';
+  flyout.style.display = abrindo ? 'block' : 'none';
+  if (abrindo) marcarPedidosLidos().then(renderMeusPedidos);
 }
 function fecharPedidosFlyout() {
   document.getElementById('lanc-pedidos-flyout').style.display = 'none';
 }
-document.addEventListener('click', e => {
-  const flyout = document.getElementById('lanc-pedidos-flyout');
-  const btn = document.getElementById('lanc-pedidos-btn');
+function fecharFlyoutSeClicouFora(e, flyoutId, btnId, fechar) {
+  const flyout = document.getElementById(flyoutId);
+  const btn = document.getElementById(btnId);
   if (flyout && flyout.style.display !== 'none' && !flyout.contains(e.target) && e.target !== btn && !btn?.contains(e.target)) {
-    fecharPedidosFlyout();
+    fechar();
   }
+}
+document.addEventListener('click', e => {
+  fecharFlyoutSeClicouFora(e, 'lanc-pedidos-flyout', 'lanc-pedidos-btn', fecharPedidosFlyout);
+  fecharFlyoutSeClicouFora(e, 'lanc-finalizar-flyout', 'lanc-finalizar-btn', fecharFinalizarFlyout);
 });
 // Clicar num pedido aprovado no flyout já leva direto pro item — pedido do
 // Alex, 2026-09-08: "se tiver item aprovado clicando nele já vai para o

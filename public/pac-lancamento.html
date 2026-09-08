@@ -107,26 +107,35 @@
            visível aqui, sem precisar abrir o popup. -->
       <div id="lanc-kpis" style="margin-bottom:16px;"></div>
 
-      <!-- "Meus pedidos de edição" virou ícone no cabeçalho — pedido do Alex,
-           2026-09-08: "o corpo dos itens fica mais acima [...] o cabeçalho
-           que uni os dados do pac e os indicadores mais atuais". Card sempre
-           visível virou um botão pequeno + flyout (some quando fechado). -->
-      <div style="position:relative;margin-bottom:16px;">
-        <button class="btn btn-secondary btn-sm" id="lanc-pedidos-btn" style="display:none;" onclick="alternarPedidosFlyout()">
-          📨 Meus pedidos de edição <span class="page-tab-count" id="lanc-pedidos-count">0</span>
-        </button>
-        <div class="card" id="lanc-pedidos-flyout" style="display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:20;min-width:560px;max-width:min(90vw, 720px);box-shadow:0 6px 20px rgba(0,0,0,.2);">
-          <div class="card-header"><span class="card-title">Meus pedidos de edição</span></div>
-          <div class="table-wrap"><table>
-            <thead><tr><th>Item</th><th>Tipo</th><th>Justificativa</th><th>Status</th><th>Resposta</th></tr></thead>
-            <tbody id="lanc-pedidos-tbody"></tbody>
-          </table></div>
+      <!-- Tudo que fica abaixo dos indicadores vira botão flutuante — pedido
+           do Alex, 2026-09-08: "o corpo dos itens fica mais acima [...] o
+           cabeçalho que uni os dados do pac e os indicadores mais atuais" +
+           depois "tudo abaixo dos indicadores deve ser botão flutuante com
+           a informação dentro dele" (2ª rodada, mesmo dia). -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+        <div style="position:relative;">
+          <button class="btn btn-secondary btn-sm" id="lanc-pedidos-btn" style="display:none;" onclick="alternarPedidosFlyout()">
+            📨 Meus pedidos de edição <span class="page-tab-count" id="lanc-pedidos-count">0</span>
+          </button>
+          <div class="card" id="lanc-pedidos-flyout" style="display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:20;min-width:560px;max-width:min(90vw, 720px);box-shadow:0 6px 20px rgba(0,0,0,.2);">
+            <div class="card-header"><span class="card-title">Meus pedidos de edição</span></div>
+            <div class="table-wrap"><table>
+              <thead><tr><th>Item</th><th>Tipo</th><th>Justificativa</th><th>Status</th><th>Resposta</th></tr></thead>
+              <tbody id="lanc-pedidos-tbody"></tbody>
+            </table></div>
+          </div>
+        </div>
+
+        <div style="position:relative;">
+          <button class="btn btn-secondary btn-sm" id="lanc-finalizar-btn" style="display:none;" onclick="alternarFinalizarFlyout()">
+            🏁 Finalizar meu DFD <span class="page-tab-count" id="lanc-finalizar-count" style="display:none;">0</span>
+          </button>
+          <div class="card" id="lanc-finalizar-flyout" style="display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:20;min-width:420px;max-width:min(90vw, 640px);box-shadow:0 6px 20px rgba(0,0,0,.2);">
+            <div class="card-header"><span class="card-title">Finalizar meu DFD, por setor</span></div>
+            <div id="lanc-finalizar-corpo" style="padding:14px 18px;"></div>
+          </div>
         </div>
       </div>
-
-      <!-- "Finalizar meu DFD" por setor — some sozinho quando não há nada
-           pra mostrar (DFD não aberto, ou setor sem pendência). -->
-      <div id="lanc-finalizar-wrap" style="margin-bottom:16px;"></div>
 
       <div class="card" style="margin-bottom:32px;">
         <div style="padding:10px 20px;display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:1px solid var(--cinza-b);">
