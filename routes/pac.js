@@ -799,6 +799,56 @@ router.post('/api/pac/dfds/:dfd_id/setores/:setor_id/finalizar-consolidacao', pa
   res.json({ ok: true, total_itens_ativos: total, dfd_fechado: aindaPendenteNoDfd === 0 });
 });
 
+// Ordem de prioridade da reordenação final por classificação — pedido do
+// Alex, 2026-09-08: quando o DFD inteiro finaliza, o numero_pac deve seguir
+// a árvore Tipo → Subitem → Natureza que ele mandou, GLOBALMENTE (ignora
+// setor.ordem, ao contrário de renumerarPacFinal acima). Cada valor de
+// Natureza aqui já identifica o Tipo sozinho (nenhum se repete entre
+// Imobilizado/Material/Serviço), então basta 1 lookup — a posição no array é
+// literalmente a ordem que ele listou (1. Imobilizado, 2. Material,
+// 3. Serviço, e dentro de cada um a ordem das regras dele). Mesma lista de
+// database.js (seedLista('natureza')) — mudar uma, mudar a outra.
+const NATUREZA_ORDEM = [
+  'Investimento - Informática', 'Investimento - Móveis, Máq. e Equip.', 'Investimento - Infraestrutura',
+  'Bens do Ativo Permanente',
+  'Expediente', 'Combustíveis e Lubrificantes', 'Limpeza / Material', 'Suprimentos de Tecnologia e Informática', 'Segurança EPI', 'Uniformes', 'Utensílios de Copa e Cozinha',
+  'Tecnologia, Informática e Sistemas', 'Serviços de Limpeza', 'Guarda e Vigilância', 'Serviços Técnicos Profissionais', 'Instrução e Treinamento', 'Telefone', 'Locação de Veículos',
+].reduce((acc, valor, i) => { acc[valor] = i; return acc; }, {});
+
+// Botão específico (não roda sozinho) — só faz sentido depois que o DFD
+// inteiro já fechou (todos os setores concluíram a consolidação, ver
+// finalizar-consolidacao acima). Reordena TODOS os itens ativos do DFD,
+// cruzando setor, pela Natureza de cada um; item sem Natureza preenchida
+// (legado, ou coluna não ativada nesse DFD) cai no fim, não trava nada.
+router.post('/api/pac/dfds/:id/reordenar-por-classificacao', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const dfd = db.prepare(`SELECT id, status, titulo FROM dfds WHERE id = ?`).get(req.params.id);
+  if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
+  if (dfd.status !== 'fechado') {
+    return res.status(409).json({ error: 'Só é possível reordenar por classificação depois que o DFD inteiro for finalizado.' });
+  }
+  const idNatureza = colunaId('natureza');
+  const itens = db.prepare(`
+    SELECT di.id, v.valor AS natureza
+    FROM dfd_itens di
+    JOIN setores s ON s.id = di.setor_id
+    LEFT JOIN dfd_itens_valores v ON v.item_id = di.id AND v.coluna_id = ?
+    WHERE di.dfd_id = ? AND di.excluido_em IS NULL AND di.status_consolidacao != 'cancelado'
+    ORDER BY s.ordem ASC, CAST(di.numero_pac AS INTEGER) ASC
+  `).all(idNatureza, dfd.id);
+  itens.sort((a, b) => {
+    const oa = NATUREZA_ORDEM[a.natureza] ?? 999, ob = NATUREZA_ORDEM[b.natureza] ?? 999;
+    return oa - ob; // sort estável (V8) — empate mantém a ordem original (setor.ordem/numero_pac)
+  });
+  db.prepare(`
+    UPDATE dfd_itens SET numero_pac = NULL
+    WHERE dfd_id = ? AND excluido_em IS NULL AND status_consolidacao != 'cancelado'
+  `).run(dfd.id);
+  const upd = db.prepare(`UPDATE dfd_itens SET numero_pac = ? WHERE id = ?`);
+  itens.forEach((item, i) => upd.run(String(i + 1), item.id));
+  registrarLog(req, 'PAC', 'REORDENOU_POR_CLASSIFICACAO', `Reordenou o numero_pac do DFD "${dfd.titulo}" #${dfd.id} por classificação (${itens.length} itens)`);
+  res.json({ ok: true, total_itens: itens.length });
+});
+
 const STATUS_EXECUCAO_VALIDOS = new Set([
   'Não Iniciado', 'Processado DEPLA', 'Fracionamento Aberto', 'Processo Finalizado', 'Cancelado',
 ]);

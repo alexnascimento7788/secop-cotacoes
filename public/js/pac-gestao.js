@@ -872,6 +872,22 @@ function renderConsolCancelados() {
   `).join('') || `<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item cancelado.</td></tr>`;
 }
 
+// Reordena numero_pac por classificação (Tipo/Subitem/Natureza) — pedido do
+// Alex, 2026-09-08. Só aparece no bloco "Consolidação Finalizada" (dfd já
+// fechado), então não precisa confirmar 2x feito sem querer — mas mexe em
+// numero_pac de verdade, então avisa antes.
+async function reordenarPorClassificacao() {
+  if (!confirm('Isso vai renumerar o Nº PAC de todos os itens deste DFD, agrupando por classificação (Tipo/Subitem/Natureza) em vez da ordem por setor. Continuar?')) return;
+  try {
+    const res = await fetch(`/api/pac/dfds/${_consolDfdId}/reordenar-por-classificacao`, { method: 'POST' });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    toast('Nº PAC reordenado por classificação.', 'success');
+    renderConsolidadoDetalhe();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+  }
+}
+
 // Relatório do DFD finalizado — reaproveita _consolDados (já carregado por
 // renderConsolidadoDetalhe antes de decidir mostrar o bloco "finalizado") e
 // as mesmas colunas/agrupamento por setor da tabela de Consolidação, só que
