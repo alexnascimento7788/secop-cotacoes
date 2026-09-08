@@ -803,12 +803,12 @@ async function renderConsolidadoDetalhe() {
   const itens = _consolDados.itens.filter(i => !filtroSetor || String(i.setor_id) === filtroSetor);
   const ativos = itens.filter(i => i.status_consolidacao !== 'cancelado');
 
-  const totalColunas = 1 + (exibirCodigo ? 1 : 0) + colunasDfd.length + (temContrato ? 1 : 0) + 3;
+  const totalColunas = 1 + (exibirCodigo ? 1 : 0) + colunasDfd.length + (temContrato ? 1 : 0) + 4;
   const thead = document.getElementById('consol-itens-thead');
   thead.innerHTML = `<tr>
     <th>Nº PAC</th>${exibirCodigo ? '<th>ID PAC</th>' : ''}
     ${colunasDfd.map(c => `<th>${c.label}</th>`).join('')}${temContrato ? '<th>Contrato</th>' : ''}
-    <th>Observação</th><th>Status</th><th></th>
+    <th>Natureza</th><th>Observação</th><th>Status</th><th></th>
   </tr>`;
 
   // Agrupado visualmente por setor (setores.ordem já vem aplicado do servidor
@@ -834,6 +834,12 @@ async function renderConsolidadoDetalhe() {
       ${exibirCodigo ? `<td>${item.codigo_pac || '—'}</td>` : ''}
       ${colunasDfd.map(c => `<td>${formatarValorColuna(c, v[c.id])}</td>`).join('')}
       ${temContrato ? celulaContratoLeitura(item, colunasContrato, todasColunas, item.id) : ''}
+      <td>
+        <select class="consol-natureza-select" onchange="salvarNaturezaConsolidacao(${item.id}, this.value)">
+          <option value=""${!item.natureza_consolidacao ? ' selected' : ''}>—</option>
+          ${_listaNatureza.map(n => `<option value="${n.valor.replace(/"/g, '&quot;')}"${item.natureza_consolidacao === n.valor ? ' selected' : ''}>${n.valor}</option>`).join('')}
+        </select>
+      </td>
       <td><input type="text" class="consol-obs-input" value="${(item.observacao_consolidacao || '').replace(/"/g, '&quot;')}" placeholder="—" onblur="salvarObservacaoConsolidacao(${item.id}, this.value)" /></td>
       <td>${badgeStatusConsolidacao(item.status_consolidacao)}</td>
       <td style="text-align:right;white-space:nowrap;">
@@ -901,8 +907,9 @@ function abrirRelatorioDfd() {
   const colunasDfd = (_colunasCatalogo || []).filter(c => c.grupo === 'A' && c.slug !== 'numero_item');
   const colunasContrato = (_colunasCatalogo || []).filter(c => c.grupo === 'C');
   const temContrato = colunasContrato.length > 0;
+  const totalColunas = 2 + colunasDfd.length + (temContrato ? 1 : 0); // Nº PAC + Natureza + colunasDfd + Contrato
   document.getElementById('relatorio-dfd-thead').innerHTML = `<tr>
-    <th>Nº PAC</th>${colunasDfd.map(c => `<th>${c.label}</th>`).join('')}${temContrato ? '<th>Contrato</th>' : ''}
+    <th>Nº PAC</th><th>Natureza</th>${colunasDfd.map(c => `<th>${c.label}</th>`).join('')}${temContrato ? '<th>Contrato</th>' : ''}
   </tr>`;
 
   const ativos = (_consolDados?.itens || []).filter(i => i.status_consolidacao !== 'cancelado');
@@ -911,17 +918,18 @@ function abrirRelatorioDfd() {
   ativos.forEach(item => {
     if (item.setor_id !== setorAtual) {
       setorAtual = item.setor_id;
-      linhas.push(`<tr><td colspan="${1 + colunasDfd.length + (temContrato ? 1 : 0)}" style="font-weight:600;background:var(--surface-2);">${item.setor_nome}</td></tr>`);
+      linhas.push(`<tr><td colspan="${totalColunas}" style="font-weight:600;background:var(--surface-2);">${item.setor_nome}</td></tr>`);
     }
     const v = item.valores || {};
     linhas.push(`<tr>
       <td><strong>${item.numero_pac ?? '—'}</strong></td>
+      <td>${item.natureza_consolidacao || '—'}</td>
       ${colunasDfd.map(c => `<td>${formatarValorColuna(c, v[c.id])}</td>`).join('')}
       ${temContrato ? celulaContratoLeitura(item, colunasContrato, _colunasCatalogo || [], item.id) : ''}
     </tr>`);
   });
   document.getElementById('relatorio-dfd-tbody').innerHTML = linhas.join('')
-    || `<tr><td colspan="${1 + colunasDfd.length + (temContrato ? 1 : 0)}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item ativo.</td></tr>`;
+    || `<tr><td colspan="${totalColunas}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item ativo.</td></tr>`;
 
   document.getElementById('modal-relatorio-dfd').classList.add('open');
 }
@@ -943,6 +951,18 @@ function colunaId(slug) {
     const res = await fetch('/api/pac/colunas');
     _colunasCatalogo = res.ok ? await res.json() : [];
   } catch { _colunasCatalogo = []; }
+})();
+
+// Lista de Natureza (dfd_parametros_lista, lista='natureza') — igual
+// Tipo/Subitem/Prioridade, o DEPLA gerencia em Parâmetros; carregada 1x aqui
+// pro <select> de Natureza em Consolidação (natureza_consolidacao NÃO passa
+// pelo mecanismo de dfd_colunas_catalogo — ver database.js, 2026-09-08).
+let _listaNatureza = [];
+(async () => {
+  try {
+    const res = await fetch('/api/pac/parametros?lista=natureza');
+    _listaNatureza = res.ok ? (await res.json()).filter(p => p.ativo) : [];
+  } catch { _listaNatureza = []; }
 })();
 
 async function alterarStatusConsolidacao(itemId, status) {
@@ -979,6 +999,14 @@ async function salvarObservacaoConsolidacao(itemId, valor) {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ observacao: valor }),
     });
   } catch { toast('Erro ao salvar observação', 'error'); }
+}
+
+async function salvarNaturezaConsolidacao(itemId, valor) {
+  try {
+    await fetch(`/api/pac/itens/${itemId}/natureza-consolidacao`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ natureza: valor }),
+    });
+  } catch { toast('Erro ao salvar natureza', 'error'); }
 }
 
 async function finalizarConsolidacaoSetor(setorId) {
