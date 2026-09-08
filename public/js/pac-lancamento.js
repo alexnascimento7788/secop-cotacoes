@@ -247,21 +247,71 @@ function abrirAcompanhamentoPopup() {
 // helpers duplicados em pac-gestao.js). Calculado com o que já está
 // carregado (_itensAtuais/_dfdAtual/_finalizacaoPorSetor), sem requisição
 // nova (o /itens já devolve realizado_tu_mlp/realizado_rdc por item).
-function svgPizza(pct) {
-  const p = Math.max(0, Math.min(100, pct));
-  const cor = p >= 100 ? 'var(--verde, #2E7D32)' : (p >= 50 ? 'var(--verde, #2E7D32)' : '#d97706');
-  return `<svg viewBox="0 0 36 36" width="34" height="34" style="flex-shrink:0;">
-    <circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--surface-2)" stroke-width="4"></circle>
-    <circle cx="18" cy="18" r="15.9155" fill="none" stroke="${cor}" stroke-width="4"
-      stroke-dasharray="${p} ${100 - p}" stroke-linecap="round" transform="rotate(-90 18 18)"></circle>
-  </svg>`;
+// Redesenho 2026-09-08 (2ª volta, mesma tarde): Alex mandou print mostrando o
+// formato que queria de verdade — gráfico de pizza "de tela cheia" (título
+// em cima, fatias com % escrito em cima, legenda embaixo), não um ícone
+// pequeno dentro de uma linha de texto ("os indicadores que quero são neste
+// formato e não em linha da forma que foi feita"). "Execução dos itens" no
+// print dele tem a MESMA legenda das opções reais de status_execucao (Não
+// Iniciado/Processado DEPLA/Fracionamento Aberto/Processo Finalizado) — não
+// é mais só 2 fatias (finalizado/pendente), é a distribuição completa por
+// status (ver STATUS_EXECUCAO_KPI abaixo).
+function svgPizzaMulti(fatias) {
+  const total = fatias.reduce((s, f) => s + f.valor, 0) || 1;
+  const cx = 90, cy = 90, r = 72;
+  const toRad = a => (a * Math.PI) / 180;
+  let anguloAtual = -90;
+  const paths = [], rotulos = [];
+  fatias.forEach(f => {
+    const pct = f.valor / total;
+    if (pct <= 0) return;
+    const anguloFatia = Math.min(pct * 360, 359.999); // 360 fecha o path errado (M=A coincidentes)
+    const anguloFim = anguloAtual + anguloFatia;
+    const x1 = cx + r * Math.cos(toRad(anguloAtual)), y1 = cy + r * Math.sin(toRad(anguloAtual));
+    const x2 = cx + r * Math.cos(toRad(anguloFim)), y2 = cy + r * Math.sin(toRad(anguloFim));
+    const largeArc = anguloFatia > 180 ? 1 : 0;
+    paths.push(`<path d="M ${cx} ${cy} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${largeArc} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z" fill="${f.cor}" stroke="var(--surface)" stroke-width="2"></path>`);
+    if (pct >= 0.035) {
+      const meio = anguloAtual + anguloFatia / 2;
+      const lx = cx + r * 0.64 * Math.cos(toRad(meio)), ly = cy + r * 0.64 * Math.sin(toRad(meio));
+      rotulos.push(`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="12" font-weight="700" fill="#fff" text-anchor="middle" dominant-baseline="middle" style="paint-order:stroke;stroke:rgba(0,0,0,.35);stroke-width:2px;">${Math.round(pct * 100)}%</text>`);
+    }
+    anguloAtual = anguloFim;
+  });
+  return `<svg viewBox="0 0 180 180" width="150" height="150">${paths.join('')}${rotulos.join('')}</svg>`;
 }
+function legendaGrafico(fatias) {
+  return `<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:4px 12px;margin-top:8px;font-size:12px;">${
+    fatias.map(f => `<span style="display:inline-flex;align-items:center;gap:5px;">
+      <span style="width:10px;height:10px;border-radius:2px;background:${f.cor};display:inline-block;flex-shrink:0;"></span>${f.label}
+    </span>`).join('')
+  }</div>`;
+}
+function cardGrafico(titulo, corpoSvg, legenda, fracaoTexto) {
+  return `<div class="card" style="flex:1 1 240px;text-align:center;padding:16px;">
+    <div style="font-size:13px;font-weight:600;margin-bottom:10px;">${titulo}</div>
+    ${corpoSvg}
+    <div style="font-size:12.5px;color:var(--text-muted);margin-top:4px;">${fracaoTexto}</div>
+    ${legenda}
+  </div>`;
+}
+// Mesmas 5 opções de dfd_itens.status_execucao (routes/pac.js,
+// STATUS_EXECUCAO_VALIDOS) + uma cor fixa cada, pro gráfico de pizza de
+// "Execução dos itens" bater com a legenda real do sistema (não é lista
+// solta — se um status novo for adicionado lá, precisa espelhar aqui).
+const STATUS_EXECUCAO_KPI = [
+  { label: 'Não Iniciado', cor: '#c0392b' },
+  { label: 'Processado DEPLA', cor: '#d97706' },
+  { label: 'Fracionamento Aberto', cor: '#2563eb' },
+  { label: 'Processo Finalizado', cor: 'var(--verde, #2E7D32)' },
+  { label: 'Cancelado', cor: '#9ca3af' },
+];
 function svgVelocimetro(pct) {
   const p = Math.max(0, Math.min(100, pct));
   const cor = p >= 90 ? '#d97706' : 'var(--verde, #2E7D32)';
   const theta = (180 - (p / 100) * 180) * Math.PI / 180;
   const x2 = 50 + 34 * Math.cos(theta), y2 = 50 - 34 * Math.sin(theta);
-  return `<svg viewBox="0 0 100 55" width="62" height="34" style="flex-shrink:0;">
+  return `<svg viewBox="0 0 100 55" width="130" height="72">
     <path d="M 6 50 A 44 44 0 0 1 94 50" fill="none" stroke="var(--surface-2)" stroke-width="8"></path>
     <path d="M 6 50 A 44 44 0 0 1 94 50" fill="none" stroke="${cor}" stroke-width="8"
       stroke-dasharray="${(p / 100 * 138).toFixed(1)} 138" stroke-linecap="round"></path>
@@ -276,37 +326,35 @@ function renderKpisLancamento(elId) {
 
   const totalSetores = _meusSetores.length;
   const setoresFinalizados = _meusSetores.filter(s => _finalizacaoPorSetor[s.id]).length;
-  const pctSetores = totalSetores ? Math.round((setoresFinalizados / totalSetores) * 100) : 0;
 
+  const contagemExecucao = STATUS_EXECUCAO_KPI.map(s => ({
+    label: s.label, cor: s.cor, valor: itens.filter(i => i.status_execucao === s.label).length,
+  }));
   const itensFinalizados = itens.filter(i => i.status_execucao === 'Processo Finalizado').length;
-  const pctExecucao = itens.length ? Math.round((itensFinalizados / itens.length) * 100) : 0;
 
   const idValorEstimado = (_dfdAtual.colunas.find(c => c.slug === 'valor_estimado') || {}).id;
-  const idFontePagadora = (_dfdAtual.colunas.find(c => c.slug === 'fonte_pagadora') || {}).id;
   const totais = itens.reduce((acc, i) => {
-    const fonte = (i.valores || {})[idFontePagadora];
-    const estimado = Number((i.valores || {})[idValorEstimado]) || 0;
-    acc.estimado += estimado;
+    acc.estimado += Number((i.valores || {})[idValorEstimado]) || 0;
     acc.realizado += (Number(i.realizado_tu_mlp) || 0) + (Number(i.realizado_rdc) || 0);
     return acc;
   }, { estimado: 0, realizado: 0 });
   const pctRealizado = totais.estimado ? Math.round((totais.realizado / totais.estimado) * 100) : 0;
 
-  const linhaPizza = (rotulo, pct, fracaoTexto) => `
-    <div class="lanc-fin-linha">
-      ${svgPizza(pct)}
-      <strong class="pac-kpi-rotulo">${rotulo}</strong>
-      <span class="pac-kpi-fracao" style="flex:1 1 auto;">${fracaoTexto} (${pct}%)</span>
-    </div>`;
+  const cardSetores = totalSetores > 1 ? (() => {
+    const fatias = [
+      { label: 'Finalizados', valor: setoresFinalizados, cor: 'var(--verde, #2E7D32)' },
+      { label: 'Pendentes', valor: totalSetores - setoresFinalizados, cor: '#c0392b' },
+    ];
+    return cardGrafico('Setores finalizados', svgPizzaMulti(fatias), legendaGrafico(fatias), `${setoresFinalizados} de ${totalSetores}`);
+  })() : '';
 
-  wrap.innerHTML =
-    (totalSetores > 1 ? linhaPizza('Setores finalizados', pctSetores, `${setoresFinalizados} de ${totalSetores}`) : '') +
-    linhaPizza('Execução dos itens', pctExecucao, `${itensFinalizados} de ${itens.length}`) +
-    `<div class="lanc-fin-linha">
-      ${svgVelocimetro(pctRealizado)}
-      <strong class="pac-kpi-rotulo">Valor realizado</strong>
-      <span class="pac-kpi-fracao" style="flex:1 1 auto;">R$ ${fmtMoeda(totais.realizado)} de R$ ${fmtMoeda(totais.estimado)} (${pctRealizado}%)</span>
-    </div>`;
+  const cardExecucao = cardGrafico('Execução dos itens', svgPizzaMulti(contagemExecucao), legendaGrafico(contagemExecucao),
+    `${itensFinalizados} de ${itens.length} finalizados`);
+
+  const cardValor = cardGrafico('Valor realizado', svgVelocimetro(pctRealizado), '',
+    `R$ ${fmtMoeda(totais.realizado)} de R$ ${fmtMoeda(totais.estimado)} (${pctRealizado}%)`);
+
+  wrap.innerHTML = `<div style="display:flex;gap:12px;flex-wrap:wrap;">${cardSetores}${cardExecucao}${cardValor}</div>`;
 }
 
 function renderCelulaContratoSomenteLeitura(item) {
