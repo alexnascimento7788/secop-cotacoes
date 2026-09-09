@@ -1,11 +1,14 @@
 # Prompt para nova sessão — Módulo de Notificação por E-mail (CEASA CONECTA)
 
-> Cole este prompt inteiro como primeira mensagem numa sessão nova (Claude Code
-> apontando pra pasta do projeto, de preferência — ele precisa poder ler o
-> código real, não só este resumo). O que está aqui é contexto e regras de
-> trabalho; os detalhes do módulo de e-mail em si (quais eventos disparam,
-> modelo de template, provedor de SMTP, preferências do usuário) **ainda não
-> foram definidos** — isso é proposital, ver a última seção.
+> Cole este prompt inteiro como primeira mensagem numa conversa nova no
+> **Claude Desktop** (sem acesso ao repositório de código). O objetivo desta
+> conversa é só **fechar o escopo** do módulo (última seção) — perguntas e
+> decisões, não implementação. Como não há leitura de arquivo aqui, todo o
+> contexto de código necessário já está resumido/colado inline abaixo; não
+> peça pra "abrir o database.js" ou similar — se faltar algum detalhe, peça
+> pro Alex colar o trecho específico. Depois que o escopo estiver fechado, a
+> implementação em si acontece numa sessão do **Claude Code** apontando pro
+> repositório de verdade (aí sim com leitura de código completa).
 
 ## O que é este sistema
 
@@ -292,9 +295,11 @@ pra fechar pelo menos:
    algum fluxo do app (ex.: aprovar pedido) ou é sempre best-effort,
    registrado num log e seguindo em frente?
 
-Comece lendo o código real (`database.js`, `middleware.js`, e o fluxo
-completo de `dfd_pedidos_edicao` em `routes/pac.js` + `public/js/
-pac-lancamento.js`/`pac-gestao.js` — é o exemplo vivo mais próximo do que
-este módulo precisa fazer) antes de propor qualquer desenho — e pergunte o
-que estiver em aberto acima antes de escrever a primeira linha de schema ou
-rota.
+Esta conversa (Claude Desktop, sem repositório) é só pra **fechar as 6
+perguntas acima com o Alex** — não proponha schema, rota ou código ainda.
+Tudo que você precisa saber sobre o fluxo de `dfd_pedidos_edicao` já está
+inline neste prompt; não peça pra ler `database.js`/`routes/pac.js` (não tem
+como, aqui não há acesso a arquivo — se precisar de mais algum detalhe, peça
+pro Alex colar o trecho). Quando o escopo estiver fechado, o resultado desta
+conversa (as decisões tomadas) vira o ponto de partida de uma sessão do
+Claude Code de verdade, com o repositório aberto, pra implementar.
