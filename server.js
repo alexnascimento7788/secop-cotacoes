@@ -268,6 +268,11 @@ app.use(require('./routes/pac-importacao'));
 const { router: adminRouter, IS_HOMOLOG } = require('./routes/admin');
 app.use(adminRouter);
 
+// Motor de notificação por e-mail (Admin → Comunicação) — transversal, ver
+// mailer.js. Rotas de API primeiro; iniciarMotor() só liga o processamento em
+// segundo plano depois que o servidor já está de pé (dentro do listen abaixo).
+app.use(require('./routes/email'));
+
 // ── Versão ───────────────────────────────────────────────────────────────────
 // Precisa vir ANTES do catch-all "Serve SPA" abaixo — senão o catch-all intercepta
 // /api/version primeiro (Express casa rotas na ordem de registro), o `if` dele só
@@ -311,4 +316,7 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   const { version } = require('./package.json');
   console.log(`SECOP Cotações v${version} rodando em http://localhost:${PORT}`);
+  // Só depois que o servidor já está de pé — motor roda em background
+  // (setInterval de 60s + job diário), nunca bloqueia o startup.
+  require('./mailer').iniciarMotor();
 });

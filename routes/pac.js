@@ -14,6 +14,10 @@ const express = require('express');
 const { db } = require('../database');
 const { registrarLog, requireModulo, requireRotina, ROTINA_FLAGS_VALIDAS, gerarCodigoPac } = require('../middleware');
 const crypto = require('crypto');
+// Motor de e-mail (ver mailer.js) — chamadas sempre "fire and forget": nunca
+// aguardadas, nunca podem derrubar a rota que as disparou (enfileirar() já
+// captura qualquer erro internamente).
+const mailer = require('../mailer');
 
 const router = express.Router();
 const pac = requireModulo('pac');
@@ -318,7 +322,22 @@ router.get('/api/pac/dfds/:id/setores', pac, requireRotina('pac-gestao', 'ver'),
 router.put('/api/pac/dfds/:id/setores', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
   const { setor_id, ativo } = req.body || {};
   if (ativo) {
-    try { db.prepare(`INSERT INTO dfd_setores (dfd_id, setor_id) VALUES (?, ?)`).run(req.params.id, setor_id); } catch {}
+    const info = { changes: 0 };
+    try { info.changes = db.prepare(`INSERT INTO dfd_setores (dfd_id, setor_id) VALUES (?, ?)`).run(req.params.id, setor_id).changes; } catch {}
+    // Gatilho de e-mail "DFD aberto pra lançamento": o desenho original pedia
+    // isto na CRIAÇÃO do DFD, mas setores só são vinculados DEPOIS, aqui
+    // (a criação em si não tem setor nenhum ainda pra notificar) — então o
+    // disparo real é quando um setor é de fato incluído no DFD, não antes.
+    if (info.changes) {
+      const dfd = db.prepare(`SELECT titulo, ano_base, data_entrega FROM dfds WHERE id = ?`).get(req.params.id);
+      const setor = db.prepare(`SELECT nome FROM setores WHERE id = ?`).get(setor_id);
+      if (dfd && setor) {
+        mailer.enfileirar('pac.dfd.aberto', {
+          dfd_titulo: dfd.titulo, dfd_ano: dfd.ano_base, dfd_prazo: mailer.fmtDataBr(dfd.data_entrega),
+          nome_setor: setor.nome, nome_gestor: setor.nome,
+        }, mailer.resolverDestinatarios('setor', { setor_id }));
+      }
+    }
   } else {
     db.prepare(`DELETE FROM dfd_setores WHERE dfd_id = ? AND setor_id = ?`).run(req.params.id, setor_id);
   }
@@ -501,6 +520,15 @@ router.post('/api/pac/pedidos', pac, requireRotina('pac-lancamento', 'incluir'),
     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
   `).run(item.dfd_id, item_id, item.setor_id, req.user.user_id, tipo, justificativa ? String(justificativa).trim() : null);
   registrarLog(req, 'PAC', 'SOLICITOU_EDICAO', `Solicitou ${tipo} no item #${item_id} do DFD #${item.dfd_id}`);
+  {
+    const dfdInfo = db.prepare(`SELECT titulo FROM dfds WHERE id = ?`).get(item.dfd_id);
+    const setorInfo = db.prepare(`SELECT nome FROM setores WHERE id = ?`).get(item.setor_id);
+    mailer.enfileirar('pac.pedido.aberto', {
+      dfd_titulo: dfdInfo?.titulo, nome_setor: setorInfo?.nome,
+      nome_gestor: req.user.nome_completo || req.user.username,
+      tipo_pedido: tipo, descricao_pedido: justificativa ? String(justificativa).trim() : '(sem justificativa)',
+    }, mailer.resolverDestinatarios('pac_depla'));
+  }
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
@@ -525,7 +553,7 @@ router.patch('/api/pac/pedidos/:id/resposta', pac, requireRotina('pac-gestao', '
   if (status === 'rejeitado' && !String(resposta || '').trim()) {
     return res.status(400).json({ error: 'Explique o motivo da rejeição.' });
   }
-  const pedido = db.prepare(`SELECT status, tentativa FROM dfd_pedidos_edicao WHERE id = ?`).get(req.params.id);
+  const pedido = db.prepare(`SELECT dfd_id, solicitante_id, tipo, status, tentativa FROM dfd_pedidos_edicao WHERE id = ?`).get(req.params.id);
   if (!pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
   if (pedido.status !== 'pendente') return res.status(409).json({ error: 'Este pedido já foi respondido.' });
   // Rejeitar na 2ª tentativa (já contestada 1x) trava de vez — "o DEPLA numa
@@ -540,6 +568,15 @@ router.patch('/api/pac/pedidos/:id/resposta', pac, requireRotina('pac-gestao', '
     WHERE id = ?
   `).run(status, resposta ? String(resposta).trim() : null, req.user.user_id, bloqueado, req.params.id);
   registrarLog(req, 'PAC', 'RESPONDEU_PEDIDO', `${status === 'aprovado' ? 'Aprovou' : 'Rejeitou'} o pedido #${req.params.id}` + (bloqueado ? ' (bloqueado — sem nova contestação)' : ''));
+  {
+    const dfdInfo = db.prepare(`SELECT titulo FROM dfds WHERE id = ?`).get(pedido.dfd_id);
+    const solicitante = db.prepare(`SELECT nome_completo, username FROM users WHERE id = ?`).get(pedido.solicitante_id);
+    mailer.enfileirar('pac.pedido.resposta', {
+      dfd_titulo: dfdInfo?.titulo, tipo_pedido: pedido.tipo, status_pedido: status,
+      resposta_depla: resposta ? String(resposta).trim() : '(sem observação)',
+      nome_gestor: solicitante ? (solicitante.nome_completo || solicitante.username) : '',
+    }, mailer.resolverDestinatarios('usuario', { user_id: pedido.solicitante_id }));
+  }
   res.json({ ok: true });
 });
 
@@ -653,7 +690,28 @@ router.post('/api/pac/dfds/:dfd_id/setores/:setor_id/finalizar', pac, requireRot
     `Finalizou o lançamento do setor #${setorId} no DFD #${dfdId} (${totalItens} item(ns))` +
     (forcar && pendencias.length ? ` — FORÇADO com ${pendencias.length} pendência(s) ignorada(s)` : ''));
   const pendentes = db.prepare(`SELECT COUNT(*) AS n FROM dfd_setores WHERE dfd_id = ? AND finalizado_em IS NULL`).get(dfdId).n;
-  res.json({ ok: true, todos_finalizados: pendentes === 0 });
+  const todosFinalizados = pendentes === 0;
+  {
+    const dfdInfo = db.prepare(`SELECT titulo, ano_base FROM dfds WHERE id = ?`).get(dfdId);
+    const setorInfo = db.prepare(`SELECT nome FROM setores WHERE id = ?`).get(setorId);
+    const setoresPendentesNomes = db.prepare(`
+      SELECT s.nome FROM dfd_setores ds JOIN setores s ON s.id = ds.setor_id
+      WHERE ds.dfd_id = ? AND ds.finalizado_em IS NULL
+    `).all(dfdId).map(s => s.nome);
+    mailer.enfileirar('pac.dfd.setor.finalizado', {
+      dfd_titulo: dfdInfo?.titulo, dfd_ano: dfdInfo?.ano_base, nome_setor: setorInfo?.nome,
+      nome_gestor: req.user.nome_completo || req.user.username,
+      setores_pendentes: setoresPendentesNomes.length ? setoresPendentesNomes.join(', ') : 'nenhum',
+    }, mailer.resolverDestinatarios('pac_depla'));
+    if (todosFinalizados) {
+      const totalItensDfd = db.prepare(`SELECT COUNT(*) AS n FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL`).get(dfdId).n;
+      const totalSetores = db.prepare(`SELECT COUNT(*) AS n FROM dfd_setores WHERE dfd_id = ?`).get(dfdId).n;
+      mailer.enfileirar('pac.dfd.pronto.consolidar', {
+        dfd_titulo: dfdInfo?.titulo, dfd_ano: dfdInfo?.ano_base, total_setores: totalSetores, total_itens: totalItensDfd,
+      }, mailer.resolverDestinatarios('pac_depla'));
+    }
+  }
+  res.json({ ok: true, todos_finalizados: todosFinalizados });
 });
 
 // Usado tanto pelo Acompanhamento do DEPLA (badges por setor + condição pra
@@ -747,6 +805,14 @@ router.post('/api/pac/dfds/:id/gerar-consolidacao', pac, requireRotina('pac-gest
   db.prepare(`INSERT INTO pac_consolidacoes (dfd_id, consolidado_por, total_itens) VALUES (?, ?, ?)`)
     .run(dfd.id, req.user.user_id, itens.length);
   registrarLog(req, 'PAC', 'GEROU_CONSOLIDACAO', `Gerou a consolidação do DFD "${dfd.titulo}" #${dfd.id} (${itens.length} itens numerados)`);
+  {
+    const dfdCompleto = db.prepare(`SELECT ano_base FROM dfds WHERE id = ?`).get(dfd.id);
+    const setoresParticipantes = db.prepare(`SELECT setor_id FROM dfd_setores WHERE dfd_id = ?`).all(dfd.id);
+    setoresParticipantes.forEach(({ setor_id }) => {
+      mailer.enfileirar('pac.consolidacao.iniciada', { dfd_titulo: dfd.titulo, dfd_ano: dfdCompleto?.ano_base },
+        mailer.resolverDestinatarios('setor', { setor_id }));
+    });
+  }
   res.json({ ok: true, total_itens: itens.length });
 });
 
@@ -764,13 +830,23 @@ router.patch('/api/pac/itens/:id/consolidacao', pac, requireRotina('pac-gestao',
   if (status === 'cancelado' && !String(justificativa || '').trim()) {
     return res.status(400).json({ error: 'Justificativa é obrigatória para cancelar.' });
   }
-  const item = db.prepare(`SELECT id, dfd_id FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
+  const item = db.prepare(`SELECT id, dfd_id, setor_id, codigo_pac FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
   if (!item) return res.status(404).json({ error: 'Item não encontrado' });
   if (status === 'cancelado') {
     db.prepare(`
       UPDATE dfd_itens SET status_consolidacao = 'cancelado', justificativa_cancelamento = ?, cancelado_por = ?, cancelado_em = datetime('now')
       WHERE id = ?
     `).run(String(justificativa).trim(), req.user.user_id, item.id);
+    {
+      const dfdInfo = db.prepare(`SELECT titulo FROM dfds WHERE id = ?`).get(item.dfd_id);
+      const setorInfo = db.prepare(`SELECT nome FROM setores WHERE id = ?`).get(item.setor_id);
+      const descColuna = colunaId('descricao_objeto');
+      const descValor = descColuna ? db.prepare(`SELECT valor FROM dfd_itens_valores WHERE item_id = ? AND coluna_id = ?`).get(item.id, descColuna) : null;
+      mailer.enfileirar('pac.item.cancelado', {
+        dfd_titulo: dfdInfo?.titulo, nome_setor: setorInfo?.nome, codigo_pac: item.codigo_pac || `#${item.id}`,
+        descricao_item: descValor?.valor || '(sem descrição)', justificativa_cancelamento: String(justificativa).trim(),
+      }, mailer.resolverDestinatarios('setor', { setor_id: item.setor_id }));
+    }
   } else {
     db.prepare(`
       UPDATE dfd_itens SET status_consolidacao = ?, justificativa_cancelamento = NULL, cancelado_por = NULL, cancelado_em = NULL WHERE id = ?
@@ -864,6 +940,18 @@ router.post('/api/pac/dfds/:dfd_id/setores/:setor_id/finalizar-consolidacao', pa
   }
   registrarLog(req, 'PAC', 'FINALIZOU_CONSOLIDACAO_SETOR', `Finalizou a consolidação do setor #${setorId} no DFD #${dfdId} — renumeração final (${total} item(ns) ativo(s))` +
     (aindaPendenteNoDfd === 0 ? ' — DFD fechado (todos os setores concluídos)' : ''));
+  if (aindaPendenteNoDfd === 0) {
+    const dfdInfo = db.prepare(`SELECT titulo, ano_base FROM dfds WHERE id = ?`).get(dfdId);
+    const aprovados  = db.prepare(`SELECT COUNT(*) AS n FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND status_consolidacao = 'finalizado'`).get(dfdId).n;
+    const cancelados = db.prepare(`SELECT COUNT(*) AS n FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND status_consolidacao = 'cancelado'`).get(dfdId).n;
+    const setoresParticipantes = db.prepare(`SELECT setor_id FROM dfd_setores WHERE dfd_id = ?`).all(dfdId);
+    setoresParticipantes.forEach(({ setor_id }) => {
+      mailer.enfileirar('pac.consolidacao.finalizada', {
+        dfd_titulo: dfdInfo?.titulo, dfd_ano: dfdInfo?.ano_base,
+        total_itens_aprovados: aprovados, total_itens_cancelados: cancelados,
+      }, mailer.resolverDestinatarios('setor', { setor_id }));
+    });
+  }
   res.json({ ok: true, total_itens_ativos: total, dfd_fechado: aindaPendenteNoDfd === 0 });
 });
 

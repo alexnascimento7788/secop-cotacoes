@@ -36,6 +36,10 @@ window.getCurrentUser = () => window._userPromise || (window._userPromise = (asy
     document.querySelectorAll('a.sidebar-gear[href="admin.html"]').forEach(a => a.remove());
   }
   if (user.role === 'consulta') _aplicarModoLeitura();
+  // Motor de e-mail (Admin → Comunicação): avisa master/admin_sistema logo
+  // na 1ª tela depois do login se houver alerta pendente (fila travada,
+  // SMTP inválido etc.) — ver mailer.js/routes/email.js.
+  if (user.username === 'master' || user.role === 'admin_sistema') _verificarAlertaEmail();
   if (user.tem_foto) _injetarFoto(user);
   _injetarToggleDark();
   _injetarVersao();
@@ -213,6 +217,33 @@ function _avisoLeitura() {
   el.style.opacity = '1';
   clearTimeout(_avisoLeituraT);
   _avisoLeituraT = setTimeout(() => { el.style.opacity = '0'; }, 2600);
+}
+
+/* ── Alerta do motor de e-mail (master/admin_sistema) ──────────────────────
+   Banner fixo no topo da página quando há alerta não resolvido ou item
+   travado com erro na fila (ver mailer.js) — roda em toda página (não só
+   admin.html), porque o pedido era um aviso já na 1ª tela depois do login,
+   clicável, levando direto pra Admin → Comunicação → Alertas. */
+async function _verificarAlertaEmail() {
+  try {
+    const r = await fetch('/api/email/resumo');
+    if (!r.ok) return;
+    const { alertas_nao_resolvidos, fila_erros } = await r.json();
+    const total = (alertas_nao_resolvidos || 0) + (fila_erros || 0);
+    if (total <= 0) return;
+    const el = document.createElement('div');
+    el.id = 'email-alerta-banner';
+    el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9998;background:#C62828;color:#fff;padding:8px 40px 8px 16px;font-size:13px;font-weight:600;text-align:center;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25);';
+    el.textContent = `⚠️ ${total} alerta(s) no motor de e-mail. Clique para ver em Admin → Comunicação.`;
+    el.addEventListener('click', () => { window.location.href = '/admin.html#comunicacao'; });
+    const fechar = document.createElement('span');
+    fechar.textContent = '✕';
+    fechar.title = 'Fechar (volta a aparecer na próxima página)';
+    fechar.style.cssText = 'position:absolute;right:14px;top:50%;transform:translateY(-50%);font-weight:400;opacity:.8;';
+    fechar.addEventListener('click', e => { e.stopPropagation(); el.remove(); });
+    el.appendChild(fechar);
+    document.body.prepend(el);
+  } catch {}
 }
 
 /* ── Timeout por inatividade ──────────────────────────────
