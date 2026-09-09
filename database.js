@@ -1110,6 +1110,221 @@ function setupDb() {
       criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  // ── Motor de notificação por e-mail (transversal, ver mailer.js) ────────────
+  // Primeira aplicação são os eventos do PAC (routes/pac.js), mas o schema não
+  // referencia PAC em lugar nenhum — genérico o bastante pra SECOP/SECAD
+  // usarem sem migração nova no futuro (pedido explícito do Alex).
+  _db.exec(`
+    -- Config SMTP da plataforma — 1 único registro ativo por vez (o servidor
+    -- sempre lê "o mais recente"; não há suporte a múltiplos remetentes).
+    CREATE TABLE IF NOT EXISTS email_config (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      host            TEXT,
+      port            INTEGER,
+      secure          INTEGER NOT NULL DEFAULT 0,
+      usuario         TEXT,
+      senha_enc       TEXT,
+      remetente_email TEXT,
+      remetente_nome  TEXT,
+      ativo           INTEGER NOT NULL DEFAULT 0,
+      testado_em      DATETIME,
+      criado_em       DATETIME DEFAULT CURRENT_TIMESTAMP,
+      atualizado_em   DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Templates editáveis pelo admin (nascem via seed abaixo, mas o texto em
+    -- si — assunto/corpo — pode ser reescrito na tela sem deploy novo).
+    CREATE TABLE IF NOT EXISTS email_templates (
+      id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+      slug                   TEXT    NOT NULL UNIQUE,
+      nome                   TEXT    NOT NULL,
+      assunto                TEXT    NOT NULL,
+      corpo_html             TEXT    NOT NULL,
+      corpo_texto            TEXT,
+      variaveis_disponiveis  TEXT,
+      ativo                  INTEGER NOT NULL DEFAULT 1,
+      criado_em              DATETIME DEFAULT CURRENT_TIMESTAMP,
+      atualizado_em          DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Endereços que sempre recebem um template, além de quem o evento já
+    -- resolve em runtime (ex.: cópia pro RH em todo e-mail de um tipo).
+    CREATE TABLE IF NOT EXISTS email_destinatarios_fixos (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      template_slug TEXT    NOT NULL,
+      email         TEXT    NOT NULL,
+      nome          TEXT,
+      ativo         INTEGER NOT NULL DEFAULT 1,
+      criado_em     DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Fila processada pelo motor (mailer.js, a cada 60s). chave_dedup não
+    -- veio do desenho original — é um campo técnico novo, opcional: quem
+    -- chama enfileirar() pode passar uma chave (ex.: "dfd:12:setor:3") pra
+    -- evitar duplicar o MESMO aviso no mesmo dia (usado pelo job de lembrete
+    -- de prazo, que roda 1x/dia e não pode reenviar se rodar 2x sem querer).
+    CREATE TABLE IF NOT EXISTS email_fila (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      template_slug         TEXT    NOT NULL,
+      assunto_resolvido     TEXT    NOT NULL,
+      corpo_html_resolvido  TEXT    NOT NULL,
+      corpo_texto_resolvido TEXT,
+      destinatarios         TEXT    NOT NULL,
+      status                TEXT    NOT NULL DEFAULT 'pendente',
+      tentativas            INTEGER NOT NULL DEFAULT 0,
+      max_tentativas        INTEGER NOT NULL DEFAULT 3,
+      erro_msg              TEXT,
+      agendado_para         DATETIME,
+      chave_dedup           TEXT,
+      criado_em             DATETIME DEFAULT CURRENT_TIMESTAMP,
+      processado_em         DATETIME
+    );
+
+    -- Histórico permanente — nunca apagado automaticamente (nem pela Lixeira
+    -- do SECOP, que é de outra tabela; este é o "extrato" de e-mail em si).
+    CREATE TABLE IF NOT EXISTS email_log (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      fila_id         INTEGER,
+      template_slug   TEXT,
+      assunto         TEXT,
+      destinatarios   TEXT,
+      status_final    TEXT NOT NULL,
+      erro_msg        TEXT,
+      tentativas_total INTEGER NOT NULL DEFAULT 0,
+      enviado_em      DATETIME,
+      criado_em       DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (fila_id) REFERENCES email_fila(id) ON DELETE SET NULL
+    );
+
+    -- Alertas pro master/admin_sistema (fila travada, motor sem SMTP válido
+    -- etc.) — aparece como badge no admin + banner no 1º login (ver auth.js).
+    CREATE TABLE IF NOT EXISTS email_alertas (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      tipo         TEXT    NOT NULL,
+      mensagem     TEXT    NOT NULL,
+      resolvido    INTEGER NOT NULL DEFAULT 0,
+      resolvido_em DATETIME,
+      criado_em    DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_email_fila_status ON email_fila(status, agendado_para);
+    CREATE INDEX IF NOT EXISTS idx_email_destinatarios_slug ON email_destinatarios_fixos(template_slug);
+    CREATE INDEX IF NOT EXISTS idx_email_log_criado ON email_log(criado_em);
+    CREATE INDEX IF NOT EXISTS idx_email_alertas_resolvido ON email_alertas(resolvido);
+  `);
+
+  // Janelas do job de lembrete de prazo (dias antes do vencimento do DFD) —
+  // mesma tabela `config` que já guarda alerta_dias_laranja/vermelho, editável
+  // na mesma aba "Parâmetros" do admin sem precisar de tela nova.
+  [
+    { chave: 'email_lembrete_dias_1', valor: '7' },
+    { chave: 'email_lembrete_dias_2', valor: '2' },
+  ].forEach(c => {
+    try { _db.prepare(`INSERT INTO config (chave, valor) VALUES (?, ?)`).run(c.chave, c.valor); } catch {}
+  });
+
+  // Seed dos templates do PAC (1º conjunto de gatilhos) — texto 100% editável
+  // depois pelo admin; isto aqui só garante que a linha existe na 1ª vez.
+  // Variáveis globais (entram em todo template, além das específicas listadas
+  // por slug): {{plataforma}}, {{ano}}, {{url_sistema}}.
+  {
+    const envolver = corpo => `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;">
+  <div style="background:#1A6B35;padding:16px 24px;border-radius:8px 8px 0 0;">
+    <span style="color:#fff;font-size:16px;font-weight:700;">{{plataforma}}</span>
+  </div>
+  <div style="border:1px solid #e2e2e2;border-top:none;border-radius:0 0 8px 8px;padding:24px;color:#222;font-size:14px;line-height:1.6;">
+    ${corpo}
+  </div>
+  <div style="padding:16px 4px;color:#999;font-size:11px;text-align:center;">
+    {{plataforma}} © {{ano}} · <a href="{{url_sistema}}" style="color:#1A6B35;">Acessar o sistema</a>
+  </div>
+</div>`;
+    const paraTexto = html => html
+      .replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n')
+      .replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ')
+      .replace(/\n{3,}/g, '\n\n').trim();
+
+    const VARS_GLOBAIS = ['plataforma', 'ano', 'url_sistema'];
+    const seedTemplate = (slug, nome, assunto, corpoBody, variaveis) => {
+      const corpo_html = envolver(corpoBody);
+      try {
+        _db.prepare(`
+          INSERT INTO email_templates (slug, nome, assunto, corpo_html, corpo_texto, variaveis_disponiveis)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(slug, nome, assunto, corpo_html, paraTexto(corpo_html), JSON.stringify([...variaveis, ...VARS_GLOBAIS]));
+      } catch {}
+    };
+
+    seedTemplate('pac.dfd.aberto', 'PAC: DFD aberto para lançamento',
+      'DFD {{dfd_titulo}} ({{dfd_ano}}) aberto para lançamento',
+      `<p>Olá, {{nome_gestor}},</p>
+       <p>O DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}) já está aberto para lançamento pelo setor <strong>{{nome_setor}}</strong>.</p>
+       <p>Prazo de entrega: <strong>{{dfd_prazo}}</strong>.</p>
+       <p>Acesse o sistema para lançar os itens do seu setor.</p>`,
+      ['dfd_titulo', 'dfd_ano', 'dfd_prazo', 'nome_gestor', 'nome_setor']);
+
+    seedTemplate('pac.dfd.lembrete.prazo', 'PAC: lembrete de prazo do DFD',
+      'Lembrete: {{dias_restantes}} dias para encerrar seu DFD',
+      `<p>Olá, {{nome_gestor}},</p>
+       <p>Faltam <strong>{{dias_restantes}} dia(s)</strong> para o prazo de entrega do DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}), setor {{nome_setor}}.</p>
+       <p>Prazo: <strong>{{dfd_prazo}}</strong>.</p>
+       <p>Finalize o lançamento do seu setor a tempo.</p>`,
+      ['dfd_titulo', 'dfd_ano', 'dfd_prazo', 'dias_restantes', 'nome_gestor', 'nome_setor']);
+
+    seedTemplate('pac.dfd.lembrete.prazo.urgente', 'PAC: lembrete urgente de prazo',
+      '⚠️ Urgente: {{dias_restantes}} dia(s) para encerrar',
+      `<p>Atenção, {{nome_gestor}},</p>
+       <p>Restam apenas <strong>{{dias_restantes}} dia(s)</strong> para o prazo do DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}), setor {{nome_setor}} — ainda não finalizado.</p>
+       <p>Prazo: <strong>{{dfd_prazo}}</strong>.</p>
+       <p>Providencie o quanto antes.</p>`,
+      ['dfd_titulo', 'dfd_ano', 'dfd_prazo', 'dias_restantes', 'nome_gestor', 'nome_setor']);
+
+    seedTemplate('pac.dfd.setor.finalizado', 'PAC: setor finalizou o DFD',
+      '{{nome_setor}} finalizou o DFD {{dfd_titulo}}',
+      `<p>O setor <strong>{{nome_setor}}</strong> (gestor: {{nome_gestor}}) finalizou o lançamento no DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}).</p>
+       <p>Setores ainda pendentes: {{setores_pendentes}}.</p>`,
+      ['dfd_titulo', 'dfd_ano', 'nome_setor', 'nome_gestor', 'setores_pendentes']);
+
+    seedTemplate('pac.dfd.pronto.consolidar', 'PAC: DFD pronto para consolidar',
+      'Todos os setores finalizaram — DFD {{dfd_titulo}} pronto',
+      `<p>Todos os <strong>{{total_setores}}</strong> setor(es) finalizaram o lançamento do DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}), totalizando <strong>{{total_itens}}</strong> item(ns).</p>
+       <p>Já é possível gerar a consolidação.</p>`,
+      ['dfd_titulo', 'dfd_ano', 'total_setores', 'total_itens']);
+
+    seedTemplate('pac.pedido.aberto', 'PAC: novo pedido de edição',
+      'Pedido de edição — {{nome_setor}} — DFD {{dfd_titulo}}',
+      `<p>O setor <strong>{{nome_setor}}</strong> (gestor: {{nome_gestor}}) solicitou um pedido de <strong>{{tipo_pedido}}</strong> no DFD <strong>{{dfd_titulo}}</strong>.</p>
+       <p>Justificativa: {{descricao_pedido}}</p>`,
+      ['dfd_titulo', 'nome_setor', 'nome_gestor', 'tipo_pedido', 'descricao_pedido']);
+
+    seedTemplate('pac.pedido.resposta', 'PAC: resposta a pedido de edição',
+      'Seu pedido de edição foi {{status_pedido}}',
+      `<p>Olá, {{nome_gestor}},</p>
+       <p>Seu pedido de <strong>{{tipo_pedido}}</strong> no DFD <strong>{{dfd_titulo}}</strong> foi <strong>{{status_pedido}}</strong>.</p>
+       <p>Resposta do DEPLA: {{resposta_depla}}</p>`,
+      ['dfd_titulo', 'tipo_pedido', 'status_pedido', 'resposta_depla', 'nome_gestor']);
+
+    seedTemplate('pac.consolidacao.iniciada', 'PAC: consolidação iniciada',
+      'Consolidação do DFD {{dfd_titulo}} iniciada',
+      `<p>A consolidação do DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}) foi iniciada pelo DEPLA.</p>
+       <p>Acompanhe o andamento pelo sistema.</p>`,
+      ['dfd_titulo', 'dfd_ano']);
+
+    seedTemplate('pac.item.cancelado', 'PAC: item cancelado na consolidação',
+      'Item cancelado na consolidação — DFD {{dfd_titulo}}',
+      `<p>Um item do setor <strong>{{nome_setor}}</strong> foi cancelado na consolidação do DFD <strong>{{dfd_titulo}}</strong>.</p>
+       <p>Item {{codigo_pac}}: {{descricao_item}}</p>
+       <p>Justificativa: {{justificativa_cancelamento}}</p>`,
+      ['dfd_titulo', 'nome_setor', 'codigo_pac', 'descricao_item', 'justificativa_cancelamento']);
+
+    seedTemplate('pac.consolidacao.finalizada', 'PAC: consolidação finalizada',
+      'DFD {{dfd_titulo}} consolidado — numeração final disponível',
+      `<p>A consolidação do DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}) foi finalizada.</p>
+       <p>Itens aprovados: <strong>{{total_itens_aprovados}}</strong> · Itens cancelados: <strong>{{total_itens_cancelados}}</strong>.</p>
+       <p>A numeração final do PAC já está disponível.</p>`,
+      ['dfd_titulo', 'dfd_ano', 'total_itens_aprovados', 'total_itens_cancelados']);
+  }
 }
 
 setupDb();

@@ -99,6 +99,38 @@
       box-shadow:0 8px 32px rgba(0,0,0,.3); color:var(--text);
     }
     .modal-box h3 { font-size:15px; margin-bottom:16px; color:var(--text); }
+
+    /* Comunicação (motor de e-mail) */
+    .comm-badge {
+      display:inline-block; min-width:16px; height:16px; padding:0 4px; margin-left:4px;
+      border-radius:9px; background:#C62828; color:#fff; font-size:10px; font-weight:800;
+      line-height:16px; text-align:center; vertical-align:middle;
+    }
+    .comm-subtabs { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:18px; border-bottom:1.5px solid var(--cinza-b); padding-bottom:10px; }
+    .comm-subtab {
+      padding:6px 14px; border-radius:6px; font-size:12.5px; font-weight:600; cursor:pointer;
+      border:1.5px solid transparent; background:none; color:var(--cinza-t); transition:.15s;
+    }
+    .comm-subtab.active { background:var(--surface-2); color:var(--verde); border-color:var(--cinza-b); }
+    .comm-pane { display:none; }
+    .comm-pane.active { display:block; }
+    .comm-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+    .comm-table th { text-align:left; padding:7px 10px; font-size:11px; text-transform:uppercase; color:var(--text-muted); border-bottom:2px solid var(--cinza-b); white-space:nowrap; }
+    .comm-table td { padding:8px 10px; border-bottom:1px solid var(--cinza-b); vertical-align:top; color:var(--text); }
+    .comm-table tr:last-child td { border-bottom:none; }
+    .comm-status { display:inline-block; padding:2px 8px; border-radius:10px; font-size:10.5px; font-weight:700; }
+    .comm-status.pendente  { background:#FFF8E1; color:#FF8F00; }
+    .comm-status.enviado   { background:#E8F5E9; color:#1B5E20; }
+    .comm-status.erro      { background:#FFEBEE; color:#C62828; }
+    .comm-status.cancelado { background:#ECEFF1; color:#455A64; }
+    .comm-var-chip {
+      display:inline-block; margin:2px 4px 2px 0; padding:2px 8px; border-radius:10px;
+      background:var(--surface-2); border:1px solid var(--cinza-b); color:var(--verde);
+      font-size:11px; font-family:monospace; cursor:pointer;
+    }
+    .comm-var-chip:hover { background:var(--verde); color:#fff; border-color:var(--verde); }
+    #comm-tpl-html, #comm-tpl-texto { width:100%; font-family:monospace; font-size:12px; padding:10px; border:1.5px solid var(--cinza-b); border-radius:6px; background:var(--surface); color:var(--text); resize:vertical; }
+    #comm-tpl-preview { border:1.5px solid var(--cinza-b); border-radius:6px; padding:12px; background:#fff; overflow:auto; height:100%; min-height:220px; }
   </style>
 </head>
 <body>
@@ -164,6 +196,7 @@
       <button class="admin-tab" onclick="mudarAba('lixeira')">Lixeira</button>
       <button class="admin-tab" onclick="mudarAba('concessionarios-removidos')">Concessionários Removidos</button>
       <button class="admin-tab" onclick="mudarAba('logs')">Logs</button>
+      <button class="admin-tab" id="tab-comunicacao" onclick="mudarAba('comunicacao')">📧 Comunicação<span id="comm-tab-badge"></span></button>
       <button class="admin-tab" id="tab-homolog" style="display:none;" onclick="mudarAba('homolog')">🛠️ Atualização na base</button>
     </div>
 
@@ -704,6 +737,147 @@
       </div>
     </div>
 
+    <!-- Aba Comunicação (motor de notificação por e-mail, transversal — ver mailer.js) -->
+    <div class="admin-pane" id="pane-comunicacao">
+      <div class="comm-subtabs">
+        <button class="comm-subtab active" onclick="mudarSubabaComm('config', this)">Configuração SMTP</button>
+        <button class="comm-subtab" onclick="mudarSubabaComm('templates', this)">Templates</button>
+        <button class="comm-subtab" onclick="mudarSubabaComm('destinatarios', this)">Destinatários Fixos</button>
+        <button class="comm-subtab" onclick="mudarSubabaComm('fila', this)">Fila<span id="comm-fila-badge"></span></button>
+        <button class="comm-subtab" onclick="mudarSubabaComm('log', this)">Log</button>
+        <button class="comm-subtab" onclick="mudarSubabaComm('alertas', this)">Alertas<span id="comm-alertas-badge"></span></button>
+      </div>
+
+      <!-- Config SMTP -->
+      <div class="comm-pane active" id="comm-pane-config">
+        <div class="admin-card" style="max-width:520px;">
+          <div class="admin-section-title">Configuração SMTP</div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label>Host</label>
+            <input type="text" id="comm-cfg-host" placeholder="smtp.exemplo.com" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+          </div>
+          <div style="display:flex;gap:10px;">
+            <div class="form-group" style="flex:1;margin-bottom:12px;">
+              <label>Porta</label>
+              <input type="number" id="comm-cfg-port" placeholder="587" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+            </div>
+            <div class="form-group" style="flex:1;margin-bottom:12px;align-self:end;">
+              <label><input type="checkbox" id="comm-cfg-secure" style="margin-right:6px;"/>TLS/SSL (secure)</label>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label>Usuário SMTP</label>
+            <input type="text" id="comm-cfg-usuario" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+          </div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label>Senha SMTP <span id="comm-cfg-senha-hint" style="font-weight:400;color:var(--text-muted);"></span></label>
+            <input type="password" id="comm-cfg-senha" placeholder="deixe em branco para manter a atual" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+          </div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label>E-mail do remetente</label>
+            <input type="email" id="comm-cfg-remetente-email" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+          </div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label>Nome do remetente</label>
+            <input type="text" id="comm-cfg-remetente-nome" placeholder="CEASA CONECTA" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+          </div>
+          <div class="form-group" style="margin-bottom:16px;">
+            <label><input type="checkbox" id="comm-cfg-ativo" style="margin-right:6px;"/>Motor de e-mail ativo</label>
+          </div>
+          <div id="comm-cfg-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin-bottom:8px;"></div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="salvarConfigEmail()">Salvar</button>
+            <button class="btn btn-secondary" onclick="testarConexaoEmail()">Testar conexão</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Templates -->
+      <div class="comm-pane" id="comm-pane-templates">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <div class="admin-section-title" style="margin-bottom:0;">Templates de e-mail</div>
+          <button class="btn btn-primary btn-sm" onclick="abrirModalTemplate()">+ Novo template</button>
+        </div>
+        <div class="table-wrap">
+          <table class="comm-table">
+            <thead><tr><th>Slug</th><th>Nome</th><th>Status</th><th></th></tr></thead>
+            <tbody id="comm-tpl-tbody"><tr><td colspan="4" style="text-align:center;color:#aaa;padding:16px;">Carregando...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Destinatários Fixos -->
+      <div class="comm-pane" id="comm-pane-destinatarios">
+        <div class="form-group" style="max-width:320px;margin-bottom:16px;">
+          <label>Template</label>
+          <select id="comm-dest-template" onchange="carregarDestinatariosFixos()" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"></select>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:16px;max-width:560px;flex-wrap:wrap;">
+          <input type="email" id="comm-dest-email" placeholder="email@exemplo.com" style="flex:2;min-width:180px;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+          <input type="text" id="comm-dest-nome" placeholder="Nome (opcional)" style="flex:1;min-width:120px;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+          <button class="btn btn-primary" onclick="adicionarDestinatarioFixo()">Adicionar</button>
+        </div>
+        <div class="table-wrap">
+          <table class="comm-table">
+            <thead><tr><th>E-mail</th><th>Nome</th><th></th></tr></thead>
+            <tbody id="comm-dest-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Fila -->
+      <div class="comm-pane" id="comm-pane-fila">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+          <div class="form-group" style="margin:0;min-width:160px;">
+            <label>Filtrar por status</label>
+            <select id="comm-fila-filtro" onchange="carregarFila()" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);">
+              <option value="">Todos</option>
+              <option value="pendente">Pendente</option>
+              <option value="enviado">Enviado</option>
+              <option value="erro">Erro</option>
+              <option value="cancelado">Cancelado</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" onclick="processarFilaAgora()">Processar fila agora</button>
+        </div>
+        <div class="table-wrap">
+          <table class="comm-table">
+            <thead><tr><th>Quando</th><th>Template</th><th>Assunto</th><th>Destinatários</th><th>Status</th><th>Tent.</th><th></th></tr></thead>
+            <tbody id="comm-fila-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Log -->
+      <div class="comm-pane" id="comm-pane-log">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+          <div class="form-group" style="margin:0;min-width:160px;">
+            <label>Template (slug)</label>
+            <input type="text" id="comm-log-filtro-template" placeholder="opcional" onchange="carregarLogEmail()" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+          </div>
+          <div class="form-group" style="margin:0;min-width:140px;">
+            <label>Status</label>
+            <select id="comm-log-filtro-status" onchange="carregarLogEmail()" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);">
+              <option value="">Todos</option>
+              <option value="enviado">Enviado</option>
+              <option value="erro">Erro</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="comm-table">
+            <thead><tr><th>Quando</th><th>Template</th><th>Assunto</th><th>Destinatários</th><th>Status</th><th>Tent.</th></tr></thead>
+            <tbody id="comm-log-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Alertas -->
+      <div class="comm-pane" id="comm-pane-alertas">
+        <div id="comm-alertas-lista"></div>
+      </div>
+    </div>
+
     <!-- Aba Atualização na base (só master, só homolog) -->
     <div class="admin-pane" id="pane-homolog">
       <div class="admin-section">
@@ -942,6 +1116,49 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-comm-template">
+  <div class="modal-box" style="max-width:840px;">
+    <h3 id="comm-tpl-modal-titulo">Novo template</h3>
+    <div style="display:flex;gap:10px;">
+      <div class="form-group" style="flex:1;margin-bottom:10px;">
+        <label>Slug (identificador único)</label>
+        <input type="text" id="comm-tpl-slug" placeholder="ex: pac.evento.novo" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+      </div>
+      <div class="form-group" style="flex:2;margin-bottom:10px;">
+        <label>Nome</label>
+        <input type="text" id="comm-tpl-nome" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label>Assunto</label>
+      <input type="text" id="comm-tpl-assunto" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+    </div>
+    <div class="form-group" style="margin-bottom:6px;">
+      <label>Variáveis disponíveis (clique pra inserir no cursor do corpo HTML)</label>
+      <div id="comm-tpl-vars"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:10px;">
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--text-muted);">Corpo HTML</label>
+        <textarea id="comm-tpl-html" rows="12" oninput="atualizarPreviewTemplate()"></textarea>
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--text-muted);">Pré-visualização</label>
+        <div id="comm-tpl-preview"></div>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>Corpo texto (fallback sem HTML, opcional)</label>
+      <textarea id="comm-tpl-texto" rows="4"></textarea>
+    </div>
+    <div id="comm-tpl-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin-bottom:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="fecharModalTemplate()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarTemplate()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 <script src="js/pwa.js"></script>
 <script src="js/auth.js"></script>
@@ -960,7 +1177,7 @@ function toast(msg, type='') {
   setTimeout(() => { el.className = ''; }, 3000);
 }
 
-const _abas = ['usuarios', 'departamentos', 'modulos', 'rotinas', 'perfis', 'tipos', 'extras', 'parametros', 'banco', 'lixeira', 'concessionarios-removidos', 'logs', 'homolog'];
+const _abas = ['usuarios', 'departamentos', 'modulos', 'rotinas', 'perfis', 'tipos', 'extras', 'parametros', 'banco', 'lixeira', 'concessionarios-removidos', 'logs', 'comunicacao', 'homolog'];
 function mudarAba(aba) {
   document.querySelectorAll('.admin-tab').forEach((t, i) => t.classList.toggle('active', _abas[i] === aba));
   _abas.forEach(a => document.getElementById(`pane-${a}`).classList.toggle('active', a === aba));
@@ -975,6 +1192,7 @@ function mudarAba(aba) {
   if (aba === 'lixeira') carregarLixeira();
   if (aba === 'concessionarios-removidos') carregarConcessionariosRemovidos();
   if (aba === 'logs') { carregarUsuariosLog(); carregarLogs(); }
+  if (aba === 'comunicacao') mudarSubabaComm(_commSubaba);
   if (aba === 'homolog') carregarMigracoes();
 }
 
@@ -993,7 +1211,9 @@ function confirmarGateSenha() {
     if (!res.ok) { const e = await res.json().catch(() => ({})); msg.textContent = e.error || 'Senha incorreta.'; return; }
     document.getElementById('gate-senha').classList.remove('open');
     document.getElementById('admin-content').style.display = '';
-    carregarUsuarios();
+    // Vindo do banner de alerta do motor de e-mail (ver auth.js) — abre
+    // direto na aba Comunicação em vez do padrão (Usuários).
+    if (location.hash === '#comunicacao') mudarAba('comunicacao'); else carregarUsuarios();
   }).catch(() => { msg.textContent = 'Erro ao confirmar senha.'; });
 }
 document.getElementById('gate-senha-input').addEventListener('keydown', e => {
@@ -1192,10 +1412,12 @@ async function salvarParametros() {
   // admin_operacional não vê Departamentos/Módulos/Rotinas/Perfis — o vínculo
   // módulo×perfil dele acontece dentro do modal "Perfil" da aba Usuários.
   if (!ehAdminSistema) {
-    ['tab-departamentos', 'tab-modulos-sistema', 'tab-rotinas', 'tab-perfis'].forEach(id => {
+    ['tab-departamentos', 'tab-modulos-sistema', 'tab-rotinas', 'tab-perfis', 'tab-comunicacao'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
+  } else {
+    carregarBadgeComunicacao();
   }
   // Aba "Atualização na base": só master E só em homolog (o marcador .homolog
   // existe no servidor). Em produção o /api/version devolve homolog:false → some.
@@ -2589,6 +2811,381 @@ async function salvarSenha() {
   });
   toast('Senha alterada com sucesso','success');
   fecharModal();
+}
+
+// ── Comunicação (motor de notificação por e-mail — ver mailer.js) ───────────
+// Transversal: hoje só o PAC dispara e-mail, mas esta tela não sabe disso —
+// só lista o que existe em email_templates/fila/log, venha de onde vier.
+let _commTemplates = [];
+let _commSubaba = 'config';
+let _commTplSlugOriginal = null;
+
+async function carregarBadgeComunicacao() {
+  try {
+    const r = await fetch('/api/email/resumo');
+    if (!r.ok) return;
+    const { alertas_nao_resolvidos, fila_erros } = await r.json();
+    const total = (alertas_nao_resolvidos || 0) + (fila_erros || 0);
+    const badge = document.getElementById('comm-tab-badge');
+    if (badge) badge.innerHTML = total > 0 ? `<span class="comm-badge">${total}</span>` : '';
+  } catch {}
+}
+
+function mudarSubabaComm(nome, btn) {
+  _commSubaba = nome;
+  document.querySelectorAll('.comm-subtab').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  else { const alvo = [...document.querySelectorAll('.comm-subtab')][['config','templates','destinatarios','fila','log','alertas'].indexOf(nome)]; if (alvo) alvo.classList.add('active'); }
+  ['config', 'templates', 'destinatarios', 'fila', 'log', 'alertas'].forEach(n => {
+    const el = document.getElementById(`comm-pane-${n}`);
+    if (el) el.classList.toggle('active', n === nome);
+  });
+  if (nome === 'config') carregarConfigEmail();
+  if (nome === 'templates') carregarTemplatesEmail();
+  if (nome === 'destinatarios') carregarSeletorTemplatesDestinatarios();
+  if (nome === 'fila') carregarFila();
+  if (nome === 'log') carregarLogEmail();
+  if (nome === 'alertas') carregarAlertasEmail();
+}
+
+function fmtDataHoraBr(iso) {
+  if (!iso) return '—';
+  const [data, hora] = String(iso).split(/[T ]/);
+  const d = (data || '').split('-');
+  return d.length < 3 ? String(iso) : `${d[2]}/${d[1]}/${d[0]}${hora ? ' ' + hora.slice(0, 5) : ''}`;
+}
+
+function resumirDestinatarios(json) {
+  try {
+    const arr = JSON.parse(json || '[]');
+    if (!arr.length) return '—';
+    return arr.length > 1 ? `${arr[0].email} +${arr.length - 1}` : arr[0].email;
+  } catch { return '—'; }
+}
+
+// ── Config SMTP ──────────────────────────────────────────────────────────
+async function carregarConfigEmail() {
+  const msg = document.getElementById('comm-cfg-msg');
+  msg.textContent = '';
+  try {
+    const config = await fetch('/api/email/config').then(r => r.json());
+    document.getElementById('comm-cfg-host').value = config?.host || '';
+    document.getElementById('comm-cfg-port').value = config?.port || '';
+    document.getElementById('comm-cfg-secure').checked = !!config?.secure;
+    document.getElementById('comm-cfg-usuario').value = config?.usuario || '';
+    document.getElementById('comm-cfg-senha').value = '';
+    document.getElementById('comm-cfg-senha-hint').textContent = config?.senha_configurada
+      ? '(já configurada — deixe em branco para manter)' : '(nenhuma senha salva ainda)';
+    document.getElementById('comm-cfg-remetente-email').value = config?.remetente_email || '';
+    document.getElementById('comm-cfg-remetente-nome').value = config?.remetente_nome || '';
+    document.getElementById('comm-cfg-ativo').checked = !!config?.ativo;
+  } catch {
+    msg.style.color = 'var(--vermelho)'; msg.textContent = 'Erro ao carregar configuração.';
+  }
+}
+
+async function salvarConfigEmail() {
+  const msg = document.getElementById('comm-cfg-msg');
+  const body = {
+    host: document.getElementById('comm-cfg-host').value.trim(),
+    port: Number(document.getElementById('comm-cfg-port').value),
+    secure: document.getElementById('comm-cfg-secure').checked,
+    usuario: document.getElementById('comm-cfg-usuario').value.trim(),
+    senha: document.getElementById('comm-cfg-senha').value,
+    remetente_email: document.getElementById('comm-cfg-remetente-email').value.trim(),
+    remetente_nome: document.getElementById('comm-cfg-remetente-nome').value.trim(),
+    ativo: document.getElementById('comm-cfg-ativo').checked,
+  };
+  try {
+    const r = await fetch('/api/email/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.error); }
+    msg.style.color = 'var(--verde)'; msg.textContent = 'Configuração salva.';
+    carregarConfigEmail();
+    carregarBadgeComunicacao();
+  } catch (e) {
+    msg.style.color = 'var(--vermelho)'; msg.textContent = e.message || 'Erro ao salvar.';
+  }
+}
+
+async function testarConexaoEmail() {
+  const msg = document.getElementById('comm-cfg-msg');
+  msg.style.color = 'var(--text-muted)'; msg.textContent = 'Testando...';
+  try {
+    const r = await fetch('/api/email/config/testar', { method: 'POST' }).then(x => x.json());
+    if (r.ok) { msg.style.color = 'var(--verde)'; msg.textContent = '✅ Conexão OK.'; }
+    else { msg.style.color = 'var(--vermelho)'; msg.textContent = `❌ ${r.erro}`; }
+  } catch {
+    msg.style.color = 'var(--vermelho)'; msg.textContent = 'Erro ao testar conexão.';
+  }
+}
+
+// ── Templates ────────────────────────────────────────────────────────────
+async function carregarTemplatesEmail() {
+  const tbody = document.getElementById('comm-tpl-tbody');
+  try {
+    _commTemplates = await fetch('/api/email/templates').then(r => r.json());
+    tbody.innerHTML = _commTemplates.map(t => `
+      <tr>
+        <td><code>${t.slug}</code></td>
+        <td>${t.nome}</td>
+        <td>${t.ativo ? '<span class="badge-ativo">Ativo</span>' : '<span class="badge-inativo">Inativo</span>'}</td>
+        <td style="white-space:nowrap;">
+          <button class="btn btn-secondary btn-sm" onclick="abrirModalTemplate('${t.slug}')">Editar</button>
+          <button class="btn btn-secondary btn-sm" onclick="alternarAtivoTemplate('${t.slug}', ${t.ativo ? 0 : 1})">${t.ativo ? 'Desativar' : 'Ativar'}</button>
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan="4" style="text-align:center;color:#aaa;padding:16px;">Nenhum template.</td></tr>';
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--vermelho);padding:16px;">Erro ao carregar templates.</td></tr>';
+  }
+}
+
+async function alternarAtivoTemplate(slug, ativo) {
+  try {
+    await fetch(`/api/email/templates/${slug}/ativo`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ativo }) });
+    toast(ativo ? 'Template ativado' : 'Template desativado', 'success');
+    carregarTemplatesEmail();
+  } catch {
+    toast('Erro ao alterar template', 'error');
+  }
+}
+
+function abrirModalTemplate(slug) {
+  _commTplSlugOriginal = slug || null;
+  document.getElementById('comm-tpl-modal-titulo').textContent = slug ? 'Editar template' : 'Novo template';
+  const t = slug ? _commTemplates.find(x => x.slug === slug) : null;
+  const slugInput = document.getElementById('comm-tpl-slug');
+  slugInput.value = t ? t.slug : '';
+  slugInput.disabled = !!t;
+  document.getElementById('comm-tpl-nome').value = t ? t.nome : '';
+  document.getElementById('comm-tpl-assunto').value = t ? t.assunto : '';
+  document.getElementById('comm-tpl-html').value = t ? t.corpo_html : '';
+  document.getElementById('comm-tpl-texto').value = t ? (t.corpo_texto || '') : '';
+  document.getElementById('comm-tpl-msg').textContent = '';
+  let variaveis = ['plataforma', 'ano', 'url_sistema'];
+  if (t && t.variaveis_disponiveis) { try { variaveis = JSON.parse(t.variaveis_disponiveis); } catch {} }
+  document.getElementById('comm-tpl-vars').innerHTML = variaveis.map(v =>
+    `<span class="comm-var-chip" onclick="inserirVariavelTemplate('${v}')">{{${v}}}</span>`).join('');
+  atualizarPreviewTemplate();
+  document.getElementById('modal-comm-template').classList.add('open');
+}
+
+function fecharModalTemplate() {
+  document.getElementById('modal-comm-template').classList.remove('open');
+}
+
+function inserirVariavelTemplate(nome) {
+  const el = document.getElementById('comm-tpl-html');
+  const texto = `{{${nome}}}`;
+  const inicio = el.selectionStart ?? el.value.length;
+  const fim = el.selectionEnd ?? el.value.length;
+  el.value = el.value.slice(0, inicio) + texto + el.value.slice(fim);
+  el.focus();
+  el.selectionStart = el.selectionEnd = inicio + texto.length;
+  atualizarPreviewTemplate();
+}
+
+// Preview simples: renderiza o HTML tal qual (sem sanitização) — o próprio
+// admin é quem escreve este HTML, mesmo nível de confiança que qualquer outro
+// campo de texto livre do painel administrativo.
+function atualizarPreviewTemplate() {
+  document.getElementById('comm-tpl-preview').innerHTML = document.getElementById('comm-tpl-html').value;
+}
+
+async function salvarTemplate() {
+  const msg = document.getElementById('comm-tpl-msg');
+  const slug = document.getElementById('comm-tpl-slug').value.trim();
+  const nome = document.getElementById('comm-tpl-nome').value.trim();
+  const assunto = document.getElementById('comm-tpl-assunto').value.trim();
+  const corpo_html = document.getElementById('comm-tpl-html').value;
+  const corpo_texto = document.getElementById('comm-tpl-texto').value;
+  if (!slug || !nome || !assunto || !corpo_html) {
+    msg.style.color = 'var(--vermelho)'; msg.textContent = 'Preencha slug, nome, assunto e corpo HTML.';
+    return;
+  }
+  try {
+    const editando = !!_commTplSlugOriginal;
+    const url = editando ? `/api/email/templates/${_commTplSlugOriginal}` : '/api/email/templates';
+    const r = await fetch(url, {
+      method: editando ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug, nome, assunto, corpo_html, corpo_texto }),
+    });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.error); }
+    toast('Template salvo', 'success');
+    fecharModalTemplate();
+    carregarTemplatesEmail();
+  } catch (e) {
+    msg.style.color = 'var(--vermelho)'; msg.textContent = e.message || 'Erro ao salvar.';
+  }
+}
+
+// ── Destinatários fixos ──────────────────────────────────────────────────
+async function carregarSeletorTemplatesDestinatarios() {
+  if (!_commTemplates.length) _commTemplates = await fetch('/api/email/templates').then(r => r.json()).catch(() => []);
+  const sel = document.getElementById('comm-dest-template');
+  const atual = sel.value;
+  sel.innerHTML = _commTemplates.map(t => `<option value="${t.slug}">${t.nome}</option>`).join('');
+  if (atual) sel.value = atual;
+  carregarDestinatariosFixos();
+}
+
+async function carregarDestinatariosFixos() {
+  const slug = document.getElementById('comm-dest-template').value;
+  const tbody = document.getElementById('comm-dest-tbody');
+  if (!slug) { tbody.innerHTML = ''; return; }
+  try {
+    const rows = await fetch(`/api/email/destinatarios/${slug}`).then(r => r.json());
+    tbody.innerHTML = rows.map(d => `
+      <tr><td>${d.email}</td><td>${d.nome || ''}</td>
+      <td><button class="btn btn-secondary btn-sm" onclick="removerDestinatarioFixo(${d.id})">Remover</button></td></tr>
+    `).join('') || '<tr><td colspan="3" style="text-align:center;color:#aaa;padding:12px;">Nenhum destinatário fixo.</td></tr>';
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="3" style="color:var(--vermelho);">Erro ao carregar.</td></tr>';
+  }
+}
+
+async function adicionarDestinatarioFixo() {
+  const slug = document.getElementById('comm-dest-template').value;
+  const email = document.getElementById('comm-dest-email').value.trim();
+  const nome = document.getElementById('comm-dest-nome').value.trim();
+  if (!slug) { toast('Selecione um template', 'error'); return; }
+  if (!email) { toast('Informe um e-mail', 'error'); return; }
+  try {
+    await fetch(`/api/email/destinatarios/${slug}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, nome }) });
+    document.getElementById('comm-dest-email').value = '';
+    document.getElementById('comm-dest-nome').value = '';
+    toast('Destinatário adicionado', 'success');
+    carregarDestinatariosFixos();
+  } catch {
+    toast('Erro ao adicionar destinatário', 'error');
+  }
+}
+
+async function removerDestinatarioFixo(id) {
+  if (!confirm('Remover este destinatário fixo?')) return;
+  try {
+    await fetch(`/api/email/destinatarios/${id}`, { method: 'DELETE' });
+    carregarDestinatariosFixos();
+  } catch {
+    toast('Erro ao remover', 'error');
+  }
+}
+
+// ── Fila ─────────────────────────────────────────────────────────────────
+async function carregarFila() {
+  const status = document.getElementById('comm-fila-filtro').value;
+  const tbody = document.getElementById('comm-fila-tbody');
+  try {
+    const rows = await fetch(`/api/email/fila${status ? '?status=' + status : ''}`).then(r => r.json());
+    tbody.innerHTML = rows.map(f => `
+      <tr>
+        <td>${fmtDataHoraBr(f.criado_em)}</td>
+        <td><code>${f.template_slug}</code></td>
+        <td>${f.assunto_resolvido}</td>
+        <td>${resumirDestinatarios(f.destinatarios)}</td>
+        <td><span class="comm-status ${f.status}">${f.status}</span></td>
+        <td>${f.tentativas}/${f.max_tentativas}</td>
+        <td style="white-space:nowrap;">
+          ${['erro', 'cancelado'].includes(f.status) ? `<button class="btn btn-secondary btn-sm" onclick="reenviarFila(${f.id})">Reenviar</button>` : ''}
+          ${f.status === 'pendente' ? `<button class="btn btn-secondary btn-sm" onclick="cancelarFila(${f.id})">Cancelar</button>` : ''}
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:16px;">Fila vazia.</td></tr>';
+    const erros = rows.filter(f => f.status === 'erro').length;
+    document.getElementById('comm-fila-badge').innerHTML = erros ? `<span class="comm-badge">${erros}</span>` : '';
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--vermelho);">Erro ao carregar a fila.</td></tr>';
+  }
+}
+
+async function reenviarFila(id) {
+  try {
+    const r = await fetch(`/api/email/fila/${id}/reenviar`, { method: 'POST' });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.error); }
+    toast('Reenfileirado', 'success');
+    carregarFila();
+  } catch (e) {
+    toast(e.message || 'Erro ao reenviar', 'error');
+  }
+}
+
+async function cancelarFila(id) {
+  if (!confirm('Cancelar este e-mail pendente?')) return;
+  try {
+    await fetch(`/api/email/fila/${id}`, { method: 'DELETE' });
+    carregarFila();
+  } catch {
+    toast('Erro ao cancelar', 'error');
+  }
+}
+
+async function processarFilaAgora() {
+  try {
+    const r = await fetch('/api/email/fila/processar', { method: 'POST' }).then(x => x.json());
+    toast(`Processado: ${r.enviados} enviado(s), ${r.erros} erro(s)`, r.erros ? 'error' : 'success');
+    carregarFila();
+    carregarBadgeComunicacao();
+  } catch {
+    toast('Erro ao processar a fila', 'error');
+  }
+}
+
+// ── Log ──────────────────────────────────────────────────────────────────
+async function carregarLogEmail() {
+  const template_slug = document.getElementById('comm-log-filtro-template').value.trim();
+  const status_final = document.getElementById('comm-log-filtro-status').value;
+  const params = new URLSearchParams();
+  if (template_slug) params.set('template_slug', template_slug);
+  if (status_final) params.set('status_final', status_final);
+  const tbody = document.getElementById('comm-log-tbody');
+  try {
+    const rows = await fetch(`/api/email/log?${params}`).then(r => r.json());
+    tbody.innerHTML = rows.map(l => `
+      <tr>
+        <td>${fmtDataHoraBr(l.criado_em)}</td>
+        <td><code>${l.template_slug || ''}</code></td>
+        <td>${l.assunto || ''}</td>
+        <td>${resumirDestinatarios(l.destinatarios)}</td>
+        <td><span class="comm-status ${l.status_final}">${l.status_final}</span></td>
+        <td>${l.tentativas_total}</td>
+      </tr>
+    `).join('') || '<tr><td colspan="6" style="text-align:center;color:#aaa;padding:16px;">Nenhum registro.</td></tr>';
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--vermelho);">Erro ao carregar o log.</td></tr>';
+  }
+}
+
+// ── Alertas ──────────────────────────────────────────────────────────────
+async function carregarAlertasEmail() {
+  const wrap = document.getElementById('comm-alertas-lista');
+  try {
+    const rows = await fetch('/api/email/alertas').then(r => r.json());
+    wrap.innerHTML = rows.length ? rows.map(a => `
+      <div class="admin-card" style="max-width:640px;margin-bottom:12px;padding:16px 20px;">
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
+          <div>
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--vermelho);margin-bottom:4px;">${a.tipo}</div>
+            <div style="font-size:13px;color:var(--text);">${a.mensagem}</div>
+            <div style="font-size:11px;color:var(--text-subtle);margin-top:6px;">${fmtDataHoraBr(a.criado_em)}</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="resolverAlertaEmail(${a.id})" style="white-space:nowrap;">Marcar como resolvido</button>
+        </div>
+      </div>
+    `).join('') : '<p style="color:var(--text-muted);">✅ Nenhum alerta ativo.</p>';
+    carregarBadgeComunicacao();
+  } catch {
+    wrap.innerHTML = '<p style="color:var(--vermelho);">Erro ao carregar alertas.</p>';
+  }
+}
+
+async function resolverAlertaEmail(id) {
+  try {
+    await fetch(`/api/email/alertas/${id}/resolver`, { method: 'PATCH' });
+    toast('Alerta resolvido', 'success');
+    carregarAlertasEmail();
+  } catch {
+    toast('Erro ao resolver alerta', 'error');
+  }
 }
 </script>
 </body>
