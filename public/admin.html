@@ -781,8 +781,14 @@
             <label>Nome do remetente</label>
             <input type="text" id="comm-cfg-remetente-nome" placeholder="CEASA CONECTA" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
           </div>
-          <div class="form-group" style="margin-bottom:16px;">
+          <div class="form-group" style="margin-bottom:12px;">
             <label><input type="checkbox" id="comm-cfg-ativo" style="margin-right:6px;"/>Motor de e-mail ativo</label>
+          </div>
+          <div class="form-group" style="margin-bottom:6px;">
+            <label><input type="checkbox" id="comm-cfg-tls-legado" style="margin-right:6px;" onchange="alternarAvisoTlsLegado()"/>⚠️ Servidor legado (aceita TLS antigo/certificado vencido)</label>
+          </div>
+          <div id="comm-cfg-tls-legado-aviso" style="display:none;font-size:11.5px;color:#B26A00;background:#FFF3CD;border:1px solid #FFE082;border-radius:6px;padding:8px 10px;margin-bottom:16px;line-height:1.5;">
+            Isto desliga uma proteção de segurança de propósito: a conexão passa a aceitar TLS 1.0 (protocolo antigo, quebrado), cifras fracas e um certificado inválido/vencido sem checar a identidade do servidor. Use só se souber exatamente por quê (ex.: servidor de e-mail antigo, como o achado em smtp.ceasaminas.com.br em 2026-09-10) e trate como temporário até o problema real ser corrigido pelo TI.
           </div>
           <div id="comm-cfg-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin-bottom:8px;"></div>
           <div style="display:flex;gap:8px;">
@@ -2864,6 +2870,11 @@ function resumirDestinatarios(json) {
 }
 
 // ── Config SMTP ──────────────────────────────────────────────────────────
+function alternarAvisoTlsLegado() {
+  const marcado = document.getElementById('comm-cfg-tls-legado').checked;
+  document.getElementById('comm-cfg-tls-legado-aviso').style.display = marcado ? 'block' : 'none';
+}
+
 async function carregarConfigEmail() {
   const msg = document.getElementById('comm-cfg-msg');
   msg.textContent = '';
@@ -2879,6 +2890,8 @@ async function carregarConfigEmail() {
     document.getElementById('comm-cfg-remetente-email').value = config?.remetente_email || '';
     document.getElementById('comm-cfg-remetente-nome').value = config?.remetente_nome || '';
     document.getElementById('comm-cfg-ativo').checked = !!config?.ativo;
+    document.getElementById('comm-cfg-tls-legado').checked = !!config?.tls_legado;
+    alternarAvisoTlsLegado();
   } catch {
     msg.style.color = 'var(--vermelho)'; msg.textContent = 'Erro ao carregar configuração.';
   }
@@ -2895,6 +2908,7 @@ async function salvarConfigEmail() {
     remetente_email: document.getElementById('comm-cfg-remetente-email').value.trim(),
     remetente_nome: document.getElementById('comm-cfg-remetente-nome').value.trim(),
     ativo: document.getElementById('comm-cfg-ativo').checked,
+    tls_legado: document.getElementById('comm-cfg-tls-legado').checked,
   };
   try {
     const r = await fetch('/api/email/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

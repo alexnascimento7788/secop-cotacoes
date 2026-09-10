@@ -18,7 +18,7 @@ router.get('/api/email/config', requireAdminSistema, (req, res) => {
 });
 
 router.post('/api/email/config', requireAdminSistema, (req, res) => {
-  const { host, port, secure, usuario, senha, remetente_email, remetente_nome, ativo } = req.body || {};
+  const { host, port, secure, usuario, senha, remetente_email, remetente_nome, ativo, tls_legado } = req.body || {};
   if (!host || !port || !remetente_email) {
     return res.status(400).json({ error: 'Host, porta e e-mail do remetente são obrigatórios.' });
   }
@@ -26,18 +26,29 @@ router.post('/api/email/config', requireAdminSistema, (req, res) => {
   // Senha em branco no form = mantém a que já estava salva (não obriga
   // redigitar a cada edição); senha explicitamente enviada substitui.
   const senha_enc = senha ? mailer.encriptarSenha(String(senha)) : (atual ? atual.senha_enc : null);
+  // Parâmetros NOMEADOS de propósito (não posicionais) — um bug real em
+  // produção (v4.20.0→4.20.1) foi exatamente um valor errado colado na
+  // posição errada de um bind posicional (`secure` recebendo o valor de
+  // `ativo`). Nomeado elimina essa classe de erro inteira.
+  const params = {
+    host: String(host).trim(), port: Number(port), secure: secure ? 1 : 0,
+    usuario: n(usuario), senha_enc: n(senha_enc), remetente_email: String(remetente_email).trim(),
+    remetente_nome: n(remetente_nome), ativo: ativo ? 1 : 0, tls_legado: tls_legado ? 1 : 0,
+  };
   if (atual) {
     db.prepare(`
-      UPDATE email_config SET host=?, port=?, secure=?, usuario=?, senha_enc=?, remetente_email=?, remetente_nome=?, ativo=?, atualizado_em=datetime('now')
-      WHERE id = ?
-    `).run(String(host).trim(), Number(port), secure ? 1 : 0, n(usuario), n(senha_enc), String(remetente_email).trim(), n(remetente_nome), ativo ? 1 : 0, atual.id);
+      UPDATE email_config SET host=@host, port=@port, secure=@secure, usuario=@usuario, senha_enc=@senha_enc,
+        remetente_email=@remetente_email, remetente_nome=@remetente_nome, ativo=@ativo, tls_legado=@tls_legado,
+        atualizado_em=datetime('now')
+      WHERE id = @id
+    `).run({ ...params, id: atual.id });
   } else {
     db.prepare(`
-      INSERT INTO email_config (host, port, secure, usuario, senha_enc, remetente_email, remetente_nome, ativo)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(String(host).trim(), Number(port), secure ? 1 : 0, n(usuario), n(senha_enc), String(remetente_email).trim(), n(remetente_nome), ativo ? 1 : 0);
+      INSERT INTO email_config (host, port, secure, usuario, senha_enc, remetente_email, remetente_nome, ativo, tls_legado)
+      VALUES (@host, @port, @secure, @usuario, @senha_enc, @remetente_email, @remetente_nome, @ativo, @tls_legado)
+    `).run(params);
   }
-  registrarLog(req, 'EMAIL', 'CONFIG', `Alterou a configuração de SMTP (motor ${ativo ? 'ativado' : 'desativado'})`);
+  registrarLog(req, 'EMAIL', 'CONFIG', `Alterou a configuração de SMTP (motor ${ativo ? 'ativado' : 'desativado'}${tls_legado ? ', TLS legado LIGADO — inseguro, temporário' : ''})`);
   res.json({ ok: true });
 });
 
