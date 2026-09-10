@@ -1128,6 +1128,7 @@ function setupDb() {
       remetente_email TEXT,
       remetente_nome  TEXT,
       ativo           INTEGER NOT NULL DEFAULT 0,
+      tls_legado      INTEGER NOT NULL DEFAULT 0,
       testado_em      DATETIME,
       criado_em       DATETIME DEFAULT CURRENT_TIMESTAMP,
       atualizado_em   DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -1213,6 +1214,15 @@ function setupDb() {
     CREATE INDEX IF NOT EXISTS idx_email_log_criado ON email_log(criado_em);
     CREATE INDEX IF NOT EXISTS idx_email_alertas_resolvido ON email_alertas(resolvido);
   `);
+  // Migração pra quem já tinha email_config sem essa coluna (CREATE TABLE IF
+  // NOT EXISTS não adiciona coluna nova numa tabela que já existe). "Servidor
+  // legado" = relaxa TLS mínimo/cifras/verificação de certificado — achado
+  // real, 2026-09-10: smtp.ceasaminas.com.br só fala TLSv1 com cifra fraca e
+  // certificado vencido desde 2019, e o OpenSSL moderno do Node recusa isso
+  // por padrão (o Outlook só funciona porque o Windows é mais permissivo).
+  // Opção explícita, desligada por padrão, com aviso na tela — decisão do
+  // Alex de aceitar o risco temporariamente até o TI corrigir o servidor.
+  try { _db.exec(`ALTER TABLE email_config ADD COLUMN tls_legado INTEGER NOT NULL DEFAULT 0`); } catch {}
 
   // Janelas do job de lembrete de prazo (dias antes do vencimento do DFD) —
   // mesma tabela `config` que já guarda alerta_dias_laranja/vermelho, editável

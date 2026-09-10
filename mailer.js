@@ -51,12 +51,23 @@ function getConfig() {
 }
 
 function montarTransporter(config) {
-  return nodemailer.createTransport({
+  const opts = {
     host: config.host,
     port: config.port,
     secure: !!config.secure,
     auth: config.usuario ? { user: config.usuario, pass: decriptarSenha(config.senha_enc) } : undefined,
-  });
+  };
+  // "Servidor legado" (opt-in, desligado por padrão, com aviso na tela) —
+  // achado real, 2026-09-10: smtp.ceasaminas.com.br só fala TLSv1 com cifra
+  // fraca e está com certificado vencido desde 2019; o OpenSSL moderno do
+  // Node recusa isso por padrão (proteção correta) — isto aqui deliberadamente
+  // desliga essa proteção só quando o Alex marcar a opção, sabendo do risco
+  // (conexão fica exposta a interceptação, mesma exposição que o Outlook já
+  // tinha o tempo todo com esse servidor, só que agora explícita e visível).
+  if (config.tls_legado) {
+    opts.tls = { minVersion: 'TLSv1', ciphers: 'DEFAULT@SECLEVEL=0', rejectUnauthorized: false };
+  }
+  return nodemailer.createTransport(opts);
 }
 
 async function testarConexao() {
