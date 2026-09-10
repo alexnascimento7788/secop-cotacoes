@@ -30,12 +30,12 @@ router.post('/api/email/config', requireAdminSistema, (req, res) => {
     db.prepare(`
       UPDATE email_config SET host=?, port=?, secure=?, usuario=?, senha_enc=?, remetente_email=?, remetente_nome=?, ativo=?, atualizado_em=datetime('now')
       WHERE id = ?
-    `).run(String(host).trim(), Number(port), ativo ? 1 : 0, n(usuario), n(senha_enc), String(remetente_email).trim(), n(remetente_nome), ativo ? 1 : 0, atual.id);
+    `).run(String(host).trim(), Number(port), secure ? 1 : 0, n(usuario), n(senha_enc), String(remetente_email).trim(), n(remetente_nome), ativo ? 1 : 0, atual.id);
   } else {
     db.prepare(`
       INSERT INTO email_config (host, port, secure, usuario, senha_enc, remetente_email, remetente_nome, ativo)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(String(host).trim(), Number(port), ativo ? 1 : 0, n(usuario), n(senha_enc), String(remetente_email).trim(), n(remetente_nome), ativo ? 1 : 0);
+    `).run(String(host).trim(), Number(port), secure ? 1 : 0, n(usuario), n(senha_enc), String(remetente_email).trim(), n(remetente_nome), ativo ? 1 : 0);
   }
   registrarLog(req, 'EMAIL', 'CONFIG', `Alterou a configuração de SMTP (motor ${ativo ? 'ativado' : 'desativado'})`);
   res.json({ ok: true });
