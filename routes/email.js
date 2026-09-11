@@ -9,6 +9,45 @@ const mailer = require('../mailer');
 
 const router = express.Router();
 
+// Valores de exemplo pra "Testar envio" (abaixo) — cobre as variáveis dos 10
+// templates seedados do PAC. Uma variável que não estiver aqui (template
+// novo criado pelo admin, com nome de variável inventado) cai num fallback
+// genérico `[exemplo de <nome>]` — nunca quebra, só fica menos bonito.
+const EXEMPLOS_VARIAVEIS = {
+  dfd_titulo: 'DFD de Teste 2027', dfd_ano: '2027', dfd_prazo: '31/12/2027',
+  nome_gestor: 'Fulano de Tal', nome_setor: 'Setor de Teste', dias_restantes: '5',
+  setores_pendentes: 'Setor A, Setor B', total_setores: '3', total_itens: '42',
+  tipo_pedido: 'editar', descricao_pedido: 'Preciso corrigir a descrição do item (exemplo de teste).',
+  status_pedido: 'aprovado', resposta_depla: 'Aprovado, pode prosseguir (exemplo de teste).',
+  codigo_pac: 'SET-0001', descricao_item: 'Aquisição de exemplo (item de teste)',
+  justificativa_cancelamento: 'Item duplicado (exemplo de teste)',
+  total_itens_aprovados: '10', total_itens_cancelados: '2',
+};
+
+// Envio manual de teste — pedido do Alex, 2026-09-11: testar um template de
+// cada vez contra um e-mail escolhido, sem precisar simular a ação real do
+// PAC que dispara esse gatilho. Preenche as variáveis com valores de
+// exemplo e processa a fila NA HORA (não espera o próximo tick de 60s).
+router.post('/api/email/templates/:slug/testar', requireAdminSistema, async (req, res) => {
+  const { email } = req.body || {};
+  if (!email || !String(email).trim()) return res.status(400).json({ error: 'Informe um e-mail de destino.' });
+  const template = db.prepare(`SELECT slug, ativo, variaveis_disponiveis FROM email_templates WHERE slug = ?`).get(req.params.slug);
+  if (!template) return res.status(404).json({ error: 'Template não encontrado' });
+  if (!template.ativo) return res.status(409).json({ error: 'Este template está inativo — ative-o antes de testar.' });
+
+  let variaveis = [];
+  try { variaveis = JSON.parse(template.variaveis_disponiveis || '[]'); } catch {}
+  const valoresExemplo = {};
+  variaveis.forEach(v => { valoresExemplo[v] = EXEMPLOS_VARIAVEIS[v] || `[exemplo de ${v}]`; });
+
+  const filaId = mailer.enfileirar(template.slug, valoresExemplo, [{ email: String(email).trim(), nome: '' }]);
+  if (!filaId) return res.status(500).json({ error: 'Não foi possível enfileirar o teste.' });
+  await mailer.processarFila();
+  const item = db.prepare(`SELECT status, erro_msg FROM email_fila WHERE id = ?`).get(filaId);
+  registrarLog(req, 'EMAIL', 'TESTE_MANUAL', `Testou o template "${template.slug}" enviando para ${email}`);
+  res.json({ ok: true, fila_id: filaId, status: item?.status, erro: item?.erro_msg });
+});
+
 // ── Config SMTP ─────────────────────────────────────────────────────────────
 router.get('/api/email/config', requireAdminSistema, (req, res) => {
   const config = db.prepare(`SELECT * FROM email_config ORDER BY id DESC LIMIT 1`).get();

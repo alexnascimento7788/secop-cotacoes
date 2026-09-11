@@ -1238,24 +1238,126 @@ function setupDb() {
   // depois pelo admin; isto aqui só garante que a linha existe na 1ª vez.
   // Variáveis globais (entram em todo template, além das específicas listadas
   // por slug): {{plataforma}}, {{ano}}, {{url_sistema}}.
+  //
+  // v2 do texto/visual (2026-09-11, pedido do Alex: "usando o logo do
+  // CeasaMinas e com mensagem aderente ao tipo") — como o slug já existia
+  // (seedTemplate original usa INSERT simples, silenciosamente ignorado se
+  // a linha já existe), essa melhoria SÓ chega em quem já tinha a v1
+  // seedada via a migração de UPDATE logo abaixo, controlada por
+  // `email_templates_v2_aplicado` — roda uma vez só, nunca mais depois
+  // disso, pra não sobrescrever um texto que o admin já tenha editado à mão
+  // na tela depois desse ponto.
   {
-    const envolver = corpo => `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;">
-  <div style="background:#1A6B35;padding:16px 24px;border-radius:8px 8px 0 0;">
-    <span style="color:#fff;font-size:16px;font-weight:700;">{{plataforma}}</span>
+    const logoBase64 = (() => {
+      try { return fs.readFileSync(path.join(__dirname, 'public', 'img', 'Ceasa_Signea.png')).toString('base64'); }
+      catch { return ''; }
+    })();
+    const cabecalho = logoBase64
+      ? `<img src="data:image/png;base64,${logoBase64}" alt="CEASAMINAS" height="38" style="display:block;" />`
+      : `<span style="color:#1A6B35;font-size:16px;font-weight:700;">{{plataforma}}</span>`;
+    const envolver = corpo => `<div style="font-family:Arial,Helvetica,sans-serif;max-width:580px;margin:0 auto;">
+  <div style="background:#ffffff;padding:20px 24px;border:1px solid #e2e2e2;border-bottom:3px solid #1A6B35;border-radius:8px 8px 0 0;">
+    ${cabecalho}
   </div>
-  <div style="border:1px solid #e2e2e2;border-top:none;border-radius:0 0 8px 8px;padding:24px;color:#222;font-size:14px;line-height:1.6;">
+  <div style="border:1px solid #e2e2e2;border-top:none;padding:28px 24px;color:#222;font-size:14px;line-height:1.65;">
     ${corpo}
   </div>
-  <div style="padding:16px 4px;color:#999;font-size:11px;text-align:center;">
-    {{plataforma}} © {{ano}} · <a href="{{url_sistema}}" style="color:#1A6B35;">Acessar o sistema</a>
+  <div style="border:1px solid #e2e2e2;border-top:none;border-radius:0 0 8px 8px;background:#f7f7f7;padding:16px 24px;color:#888;font-size:11px;text-align:center;line-height:1.6;">
+    <div>DEPLA — Departamento de Planejamento</div>
+    <div>CEASAMINAS · Centrais de Abastecimento de Minas Gerais S.A.</div>
+    <div style="margin-top:6px;"><a href="{{url_sistema}}" style="color:#1A6B35;text-decoration:none;font-weight:600;">Acessar o {{plataforma}}</a> · © {{ano}}</div>
   </div>
 </div>`;
+    const botao = texto => `<p style="margin:24px 0 4px;"><a href="{{url_sistema}}" style="background:#1A6B35;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700;font-size:13px;display:inline-block;">${texto}</a></p>`;
     const paraTexto = html => html
       .replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n')
       .replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ')
       .replace(/\n{3,}/g, '\n\n').trim();
 
     const VARS_GLOBAIS = ['plataforma', 'ano', 'url_sistema'];
+    const TEMPLATES = [
+      ['pac.dfd.aberto', 'PAC: DFD aberto para lançamento',
+        'PAC {{dfd_ano}}: DFD "{{dfd_titulo}}" aberto para lançamento — {{nome_setor}}',
+        `<p>Prezado(a) ${'{{nome_gestor}}'},</p>
+         <p>O Documento de Formalização de Demanda (DFD) <strong>{{dfd_titulo}}</strong>, referente ao Plano Anual de Contratações {{dfd_ano}}, já está disponível para lançamento pelo setor <strong>{{nome_setor}}</strong>.</p>
+         <p>Prazo para conclusão do lançamento: <strong>{{dfd_prazo}}</strong>.</p>
+         ${botao('Acessar o Lançamento')}`,
+        ['dfd_titulo', 'dfd_ano', 'dfd_prazo', 'nome_gestor', 'nome_setor']],
+
+      ['pac.dfd.lembrete.prazo', 'PAC: lembrete de prazo do DFD',
+        'Lembrete PAC: faltam {{dias_restantes}} dia(s) para o prazo do DFD {{dfd_titulo}}',
+        `<p>Prezado(a) {{nome_gestor}},</p>
+         <p>Faltam <strong>{{dias_restantes}} dia(s)</strong> para o prazo de conclusão do lançamento do DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}), referente ao setor <strong>{{nome_setor}}</strong>.</p>
+         <p>Prazo final: <strong>{{dfd_prazo}}</strong>.</p>
+         <p>Recomendamos concluir o lançamento dos itens o quanto antes para não comprometer o cronograma do Plano Anual de Contratações.</p>
+         ${botao('Acessar o Lançamento')}`,
+        ['dfd_titulo', 'dfd_ano', 'dfd_prazo', 'dias_restantes', 'nome_gestor', 'nome_setor']],
+
+      ['pac.dfd.lembrete.prazo.urgente', 'PAC: lembrete urgente de prazo',
+        '⚠️ Urgente — {{dias_restantes}} dia(s) para o prazo do DFD {{dfd_titulo}}',
+        `<div style="background:#FFF3CD;border:1px solid #FFE082;border-radius:6px;padding:12px 16px;margin-bottom:18px;color:#8a5a00;font-weight:700;">
+           ⚠️ Atenção: prazo próximo do encerramento.
+         </div>
+         <p>Prezado(a) {{nome_gestor}},</p>
+         <p>Restam apenas <strong>{{dias_restantes}} dia(s)</strong> para o encerramento do prazo do DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}) — o setor <strong>{{nome_setor}}</strong> ainda não concluiu o lançamento.</p>
+         <p>Prazo final: <strong>{{dfd_prazo}}</strong>.</p>
+         <p>Por favor, conclua o lançamento com urgência para não comprometer o cronograma do Plano Anual de Contratações.</p>
+         ${botao('Acessar o Lançamento')}`,
+        ['dfd_titulo', 'dfd_ano', 'dfd_prazo', 'dias_restantes', 'nome_gestor', 'nome_setor']],
+
+      ['pac.dfd.setor.finalizado', 'PAC: setor finalizou o DFD',
+        'PAC: setor {{nome_setor}} finalizou o lançamento — DFD {{dfd_titulo}}',
+        `<p>O setor <strong>{{nome_setor}}</strong> (responsável: {{nome_gestor}}) concluiu o lançamento de itens no DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}).</p>
+         <p>Setores ainda pendentes: <strong>{{setores_pendentes}}</strong>.</p>
+         ${botao('Ver Acompanhamento')}`,
+        ['dfd_titulo', 'dfd_ano', 'nome_setor', 'nome_gestor', 'setores_pendentes']],
+
+      ['pac.dfd.pronto.consolidar', 'PAC: DFD pronto para consolidar',
+        'PAC: DFD {{dfd_titulo}} pronto para consolidação',
+        `<p>Todos os <strong>{{total_setores}}</strong> setor(es) participantes concluíram o lançamento no DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}), totalizando <strong>{{total_itens}}</strong> item(ns).</p>
+         <p>O DFD já está pronto para a geração da consolidação.</p>
+         ${botao('Gerar Consolidação')}`,
+        ['dfd_titulo', 'dfd_ano', 'total_setores', 'total_itens']],
+
+      ['pac.pedido.aberto', 'PAC: novo pedido de edição',
+        'PAC: novo pedido de edição — {{nome_setor}} (DFD {{dfd_titulo}})',
+        `<p>O setor <strong>{{nome_setor}}</strong> (solicitante: {{nome_gestor}}) enviou um pedido de <strong>{{tipo_pedido}}</strong> no DFD <strong>{{dfd_titulo}}</strong>.</p>
+         <p><strong>Justificativa do solicitante:</strong><br>{{descricao_pedido}}</p>
+         ${botao('Analisar Pedido')}`,
+        ['dfd_titulo', 'nome_setor', 'nome_gestor', 'tipo_pedido', 'descricao_pedido']],
+
+      ['pac.pedido.resposta', 'PAC: resposta a pedido de edição',
+        'PAC: seu pedido de edição foi {{status_pedido}}',
+        `<p>Prezado(a) {{nome_gestor}},</p>
+         <p>Seu pedido de <strong>{{tipo_pedido}}</strong> no DFD <strong>{{dfd_titulo}}</strong> foi <strong>{{status_pedido}}</strong> pelo DEPLA.</p>
+         <p><strong>Retorno do DEPLA:</strong><br>{{resposta_depla}}</p>
+         ${botao('Ver na Plataforma')}`,
+        ['dfd_titulo', 'tipo_pedido', 'status_pedido', 'resposta_depla', 'nome_gestor']],
+
+      ['pac.consolidacao.iniciada', 'PAC: consolidação iniciada',
+        'PAC: consolidação do DFD {{dfd_titulo}} foi iniciada',
+        `<p>A consolidação do DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}) foi iniciada pelo DEPLA.</p>
+         <p>Acompanhe o andamento dos itens do seu setor pela plataforma.</p>
+         ${botao('Acompanhar')}`,
+        ['dfd_titulo', 'dfd_ano']],
+
+      ['pac.item.cancelado', 'PAC: item cancelado na consolidação',
+        'PAC: item cancelado na consolidação — DFD {{dfd_titulo}}',
+        `<p>Um item do setor <strong>{{nome_setor}}</strong> foi cancelado durante a consolidação do DFD <strong>{{dfd_titulo}}</strong>.</p>
+         <p><strong>Item:</strong> {{codigo_pac}} — {{descricao_item}}</p>
+         <p><strong>Justificativa do cancelamento:</strong><br>{{justificativa_cancelamento}}</p>
+         ${botao('Ver Detalhes')}`,
+        ['dfd_titulo', 'nome_setor', 'codigo_pac', 'descricao_item', 'justificativa_cancelamento']],
+
+      ['pac.consolidacao.finalizada', 'PAC: consolidação finalizada',
+        'PAC: DFD {{dfd_titulo}} consolidado — numeração final disponível',
+        `<p>A consolidação do DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}) foi finalizada.</p>
+         <p>Itens aprovados: <strong>{{total_itens_aprovados}}</strong> · Itens cancelados: <strong>{{total_itens_cancelados}}</strong>.</p>
+         <p>A numeração final do PAC já está disponível na plataforma.</p>
+         ${botao('Ver Numeração Final')}`,
+        ['dfd_titulo', 'dfd_ano', 'total_itens_aprovados', 'total_itens_cancelados']],
+    ];
+
     const seedTemplate = (slug, nome, assunto, corpoBody, variaveis) => {
       const corpo_html = envolver(corpoBody);
       try {
@@ -1265,75 +1367,24 @@ function setupDb() {
         `).run(slug, nome, assunto, corpo_html, paraTexto(corpo_html), JSON.stringify([...variaveis, ...VARS_GLOBAIS]));
       } catch {}
     };
+    TEMPLATES.forEach(t => seedTemplate(...t));
 
-    seedTemplate('pac.dfd.aberto', 'PAC: DFD aberto para lançamento',
-      'DFD {{dfd_titulo}} ({{dfd_ano}}) aberto para lançamento',
-      `<p>Olá, {{nome_gestor}},</p>
-       <p>O DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}) já está aberto para lançamento pelo setor <strong>{{nome_setor}}</strong>.</p>
-       <p>Prazo de entrega: <strong>{{dfd_prazo}}</strong>.</p>
-       <p>Acesse o sistema para lançar os itens do seu setor.</p>`,
-      ['dfd_titulo', 'dfd_ano', 'dfd_prazo', 'nome_gestor', 'nome_setor']);
-
-    seedTemplate('pac.dfd.lembrete.prazo', 'PAC: lembrete de prazo do DFD',
-      'Lembrete: {{dias_restantes}} dias para encerrar seu DFD',
-      `<p>Olá, {{nome_gestor}},</p>
-       <p>Faltam <strong>{{dias_restantes}} dia(s)</strong> para o prazo de entrega do DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}), setor {{nome_setor}}.</p>
-       <p>Prazo: <strong>{{dfd_prazo}}</strong>.</p>
-       <p>Finalize o lançamento do seu setor a tempo.</p>`,
-      ['dfd_titulo', 'dfd_ano', 'dfd_prazo', 'dias_restantes', 'nome_gestor', 'nome_setor']);
-
-    seedTemplate('pac.dfd.lembrete.prazo.urgente', 'PAC: lembrete urgente de prazo',
-      '⚠️ Urgente: {{dias_restantes}} dia(s) para encerrar',
-      `<p>Atenção, {{nome_gestor}},</p>
-       <p>Restam apenas <strong>{{dias_restantes}} dia(s)</strong> para o prazo do DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}), setor {{nome_setor}} — ainda não finalizado.</p>
-       <p>Prazo: <strong>{{dfd_prazo}}</strong>.</p>
-       <p>Providencie o quanto antes.</p>`,
-      ['dfd_titulo', 'dfd_ano', 'dfd_prazo', 'dias_restantes', 'nome_gestor', 'nome_setor']);
-
-    seedTemplate('pac.dfd.setor.finalizado', 'PAC: setor finalizou o DFD',
-      '{{nome_setor}} finalizou o DFD {{dfd_titulo}}',
-      `<p>O setor <strong>{{nome_setor}}</strong> (gestor: {{nome_gestor}}) finalizou o lançamento no DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}).</p>
-       <p>Setores ainda pendentes: {{setores_pendentes}}.</p>`,
-      ['dfd_titulo', 'dfd_ano', 'nome_setor', 'nome_gestor', 'setores_pendentes']);
-
-    seedTemplate('pac.dfd.pronto.consolidar', 'PAC: DFD pronto para consolidar',
-      'Todos os setores finalizaram — DFD {{dfd_titulo}} pronto',
-      `<p>Todos os <strong>{{total_setores}}</strong> setor(es) finalizaram o lançamento do DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}), totalizando <strong>{{total_itens}}</strong> item(ns).</p>
-       <p>Já é possível gerar a consolidação.</p>`,
-      ['dfd_titulo', 'dfd_ano', 'total_setores', 'total_itens']);
-
-    seedTemplate('pac.pedido.aberto', 'PAC: novo pedido de edição',
-      'Pedido de edição — {{nome_setor}} — DFD {{dfd_titulo}}',
-      `<p>O setor <strong>{{nome_setor}}</strong> (gestor: {{nome_gestor}}) solicitou um pedido de <strong>{{tipo_pedido}}</strong> no DFD <strong>{{dfd_titulo}}</strong>.</p>
-       <p>Justificativa: {{descricao_pedido}}</p>`,
-      ['dfd_titulo', 'nome_setor', 'nome_gestor', 'tipo_pedido', 'descricao_pedido']);
-
-    seedTemplate('pac.pedido.resposta', 'PAC: resposta a pedido de edição',
-      'Seu pedido de edição foi {{status_pedido}}',
-      `<p>Olá, {{nome_gestor}},</p>
-       <p>Seu pedido de <strong>{{tipo_pedido}}</strong> no DFD <strong>{{dfd_titulo}}</strong> foi <strong>{{status_pedido}}</strong>.</p>
-       <p>Resposta do DEPLA: {{resposta_depla}}</p>`,
-      ['dfd_titulo', 'tipo_pedido', 'status_pedido', 'resposta_depla', 'nome_gestor']);
-
-    seedTemplate('pac.consolidacao.iniciada', 'PAC: consolidação iniciada',
-      'Consolidação do DFD {{dfd_titulo}} iniciada',
-      `<p>A consolidação do DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}) foi iniciada pelo DEPLA.</p>
-       <p>Acompanhe o andamento pelo sistema.</p>`,
-      ['dfd_titulo', 'dfd_ano']);
-
-    seedTemplate('pac.item.cancelado', 'PAC: item cancelado na consolidação',
-      'Item cancelado na consolidação — DFD {{dfd_titulo}}',
-      `<p>Um item do setor <strong>{{nome_setor}}</strong> foi cancelado na consolidação do DFD <strong>{{dfd_titulo}}</strong>.</p>
-       <p>Item {{codigo_pac}}: {{descricao_item}}</p>
-       <p>Justificativa: {{justificativa_cancelamento}}</p>`,
-      ['dfd_titulo', 'nome_setor', 'codigo_pac', 'descricao_item', 'justificativa_cancelamento']);
-
-    seedTemplate('pac.consolidacao.finalizada', 'PAC: consolidação finalizada',
-      'DFD {{dfd_titulo}} consolidado — numeração final disponível',
-      `<p>A consolidação do DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}) foi finalizada.</p>
-       <p>Itens aprovados: <strong>{{total_itens_aprovados}}</strong> · Itens cancelados: <strong>{{total_itens_cancelados}}</strong>.</p>
-       <p>A numeração final do PAC já está disponível.</p>`,
-      ['dfd_titulo', 'dfd_ano', 'total_itens_aprovados', 'total_itens_cancelados']);
+    // Migração única: quem já tinha os 10 templates da v1 (texto sem logo,
+    // seedados antes de 2026-09-11) ganha o texto/visual novo por cima —
+    // só roda 1 vez (flag em `config`), nunca mais depois disso, então um
+    // texto editado manualmente pelo admin depois desta migração fica seguro.
+    const jaAplicado = _db.prepare(`SELECT valor FROM config WHERE chave = 'email_templates_v2_aplicado'`).get();
+    if (!jaAplicado) {
+      const upd = _db.prepare(`
+        UPDATE email_templates SET nome=?, assunto=?, corpo_html=?, corpo_texto=?, variaveis_disponiveis=?, atualizado_em=datetime('now')
+        WHERE slug = ?
+      `);
+      TEMPLATES.forEach(([slug, nome, assunto, corpoBody, variaveis]) => {
+        const corpo_html = envolver(corpoBody);
+        upd.run(nome, assunto, corpo_html, paraTexto(corpo_html), JSON.stringify([...variaveis, ...VARS_GLOBAIS]), slug);
+      });
+      try { _db.prepare(`INSERT INTO config (chave, valor) VALUES ('email_templates_v2_aplicado', '1')`).run(); } catch {}
+    }
   }
 }
 

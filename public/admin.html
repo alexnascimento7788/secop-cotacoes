@@ -800,6 +800,25 @@
 
       <!-- Templates -->
       <div class="comm-pane" id="comm-pane-templates">
+        <div class="admin-card" style="max-width:640px;margin-bottom:20px;padding:18px 22px;">
+          <div class="admin-section-title">Testar envio</div>
+          <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+            Manda este template agora, pra um único e-mail, com dados de exemplo no lugar das variáveis — não precisa acontecer a ação real do PAC pra testar.
+          </p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;">
+            <div class="form-group" style="flex:2;min-width:200px;margin:0;">
+              <label>Tipo de mensagem</label>
+              <select id="comm-teste-template" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"></select>
+            </div>
+            <div class="form-group" style="flex:2;min-width:200px;margin:0;">
+              <label>E-mail de destino</label>
+              <input type="email" id="comm-teste-email" placeholder="destino@exemplo.com" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+            </div>
+            <button class="btn btn-primary" onclick="testarEnvioTemplate()">Enviar teste</button>
+          </div>
+          <div id="comm-teste-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin-top:10px;"></div>
+        </div>
+
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <div class="admin-section-title" style="margin-bottom:0;">Templates de e-mail</div>
           <button class="btn btn-primary btn-sm" onclick="abrirModalTemplate()">+ Novo template</button>
@@ -2949,8 +2968,35 @@ async function carregarTemplatesEmail() {
         </td>
       </tr>
     `).join('') || '<tr><td colspan="4" style="text-align:center;color:#aaa;padding:16px;">Nenhum template.</td></tr>';
+
+    const sel = document.getElementById('comm-teste-template');
+    const atual = sel.value;
+    sel.innerHTML = _commTemplates.filter(t => t.ativo).map(t => `<option value="${t.slug}">${t.nome}</option>`).join('')
+      || '<option value="">Nenhum template ativo</option>';
+    if (atual) sel.value = atual;
   } catch {
     tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--vermelho);padding:16px;">Erro ao carregar templates.</td></tr>';
+  }
+}
+
+async function testarEnvioTemplate() {
+  const msg = document.getElementById('comm-teste-msg');
+  const slug = document.getElementById('comm-teste-template').value;
+  const email = document.getElementById('comm-teste-email').value.trim();
+  if (!slug) { msg.style.color = 'var(--vermelho)'; msg.textContent = 'Escolha um tipo de mensagem.'; return; }
+  if (!email) { msg.style.color = 'var(--vermelho)'; msg.textContent = 'Informe o e-mail de destino.'; return; }
+  msg.style.color = 'var(--text-muted)'; msg.textContent = 'Enviando...';
+  try {
+    const r = await fetch(`/api/email/templates/${slug}/testar`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+    }).then(x => x.json());
+    if (!r.ok) { msg.style.color = 'var(--vermelho)'; msg.textContent = r.error || 'Erro ao testar.'; return; }
+    if (r.status === 'enviado') { msg.style.color = 'var(--verde)'; msg.textContent = `✅ Enviado para ${email}.`; }
+    else if (r.status === 'cancelado') { msg.style.color = 'var(--vermelho)'; msg.textContent = '❌ Motor de e-mail está desligado (veja Config SMTP).'; }
+    else { msg.style.color = 'var(--vermelho)'; msg.textContent = `❌ ${r.erro || 'Falha ao enviar — veja a aba Fila para detalhes.'}`; }
+    carregarBadgeComunicacao();
+  } catch {
+    msg.style.color = 'var(--vermelho)'; msg.textContent = 'Erro ao testar envio.';
   }
 }
 
