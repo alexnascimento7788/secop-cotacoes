@@ -10,7 +10,7 @@ function toast(msg, tipo) {
 }
 
 function badgeStatusDfd(status) {
-  const map = { aberto: 'Aberto', analise: 'Em análise', fechado: 'Fechado', cancelado: 'Cancelado' };
+  const map = { aberto: 'Aberto', analise: 'Em análise', consolidado: 'Consolidado', fechado: 'Fechado', cancelado: 'Cancelado' };
   return `<span class="badge badge-${status}">${map[status] || status}</span>`;
 }
 
@@ -245,7 +245,7 @@ async function carregarDetalheDfd() {
   const dfd = await res.json();
   document.getElementById('dfd-det-titulo').textContent = `${codigoDfd(dfd)} — ${dfd.titulo}`;
   const badge = document.getElementById('dfd-det-badge');
-  const map = { aberto: 'Aberto', analise: 'Em análise', fechado: 'Fechado' };
+  const map = { aberto: 'Aberto', analise: 'Em análise', consolidado: 'Consolidado', fechado: 'Fechado' };
   badge.className = `badge badge-${dfd.status}`;
   badge.textContent = map[dfd.status] || dfd.status;
   // Data de vencimento (entrega) do DFD — pedido do Alex, 2026-09-07. DFD
@@ -271,12 +271,13 @@ async function carregarDetalheDfd() {
     btnAcomp.style.display = 'none';
   }
   const acoes = document.getElementById('dfd-det-acoes');
-  // Transições válidas mudaram (pedido do Alex, 2026-09-15): "aberto" não vai
-  // mais direto pra "fechado" (precisa passar por análise — o servidor já
-  // recusa isso, aqui só reflete no que aparece pra clicar); "fechado" só
-  // volta por "Reabrir" (não oferece mais "analise" direto do fechado, pra
-  // não confundir com o fluxo normal de baixo pra cima).
-  const opcoes = { aberto: ['analise', 'cancelado'], analise: ['fechado', 'aberto'], fechado: ['aberto'], cancelado: [] };
+  // Transições válidas (pedido do Alex, 2026-09-15): "aberto" não vai mais
+  // direto pra "fechado" (precisa passar por análise); "análise" não fecha
+  // mais direto tampouco — precisa passar por "consolidado" primeiro (via o
+  // botão "Consolidar DFD" em Acompanhamento, não por aqui — ver
+  // gerarConsolidacao); "consolidado" é quem finalmente libera "Fechar DFD"
+  // aqui no painel. "Fechado" só volta por "Reabrir".
+  const opcoes = { aberto: ['analise', 'cancelado'], analise: ['aberto'], consolidado: ['fechado', 'aberto'], fechado: ['aberto'], cancelado: [] };
   const rotulos = { aberto: '🔓 Reabrir DFD', analise: '📨 Enviar para análise', fechado: '🔒 Fechar DFD', cancelado: '🚫 Cancelar DFD' };
   acoes.innerHTML = (opcoes[dfd.status] || []).map(s =>
     `<button class="btn btn-secondary btn-sm" onclick="abrirAcaoDfd('${s}')">${rotulos[s]}</button>`
@@ -286,8 +287,8 @@ async function carregarDetalheDfd() {
 }
 
 const _explicacaoAcaoDfd = {
-  analise: 'Envia este DFD para análise do DEPLA. Só é possível quando TODOS os setores participantes já finalizaram o lançamento. A partir daqui, os setores não podem mais editar itens sem um pedido de edição aprovado.',
-  fechado: 'Fecha este DFD definitivamente. Só é possível com o DFD em análise. Depois de fechado, o DFD vira somente leitura e todos os setores participantes recebem um aviso por e-mail, com o nome de quem fechou.',
+  analise: 'Envia este DFD para análise do DEPLA. Só é possível quando nenhum item tiver campo obrigatório em branco (não depende mais de "Finalizar meu DFD" por setor). A partir daqui, os setores não podem mais editar itens sem um pedido de edição aprovado.',
+  fechado: 'Fecha este DFD definitivamente. Só é possível com o DFD já "Consolidado" (ver Gestão > Consolidação). Depois de fechado, o DFD vira somente leitura e todos os setores participantes recebem um aviso por e-mail, com o nome de quem fechou.',
   aberto: 'Reabre este DFD para edição — use apenas em situação excepcional. Reabrir NÃO desfaz numeração ou consolidação já feita, só destrava a escrita novamente. Por segurança, exige a senha mestra do PAC (definida em Administração → Configurações → Parâmetros).',
   cancelado: 'Cancela este DFD por completo — só possível enquanto ele ainda está "Aberto" (sem trabalho de consolidação em cima). Ação irreversível. Explique o motivo do cancelamento.',
 };
@@ -938,7 +939,22 @@ async function abrirConsolidadoDetalhe(dfdId, titulo, anoBase) {
   setorSel.value = '';
   document.getElementById('consol-exibir-codigo').checked = false;
   mudarConsolSubtab('ativos');
+  await carregarListasConsol();
   await renderConsolidadoDetalhe();
+}
+
+// Opções dos <select> das colunas originais (grupo A) quando editáveis
+// durante a consolidação (dfd.status === 'consolidado') — mesmo padrão de
+// carregarListas() em pac-lancamento.js, cache próprio pra não colidir com
+// _listaNatureza (lista fixa, sem relação com dfd_colunas_catalogo).
+let _listasCacheConsol = {};
+async function carregarListasConsol() {
+  const listas = [...new Set((_colunasCatalogo || []).filter(c => c.grupo === 'A' && c.lista).map(c => c.lista))];
+  const entradas = await Promise.all(listas.map(async l => {
+    const res = await fetch(`/api/pac/parametros?lista=${encodeURIComponent(l)}`);
+    return [l, res.ok ? (await res.json()).filter(p => p.ativo) : []];
+  }));
+  _listasCacheConsol = Object.fromEntries(entradas);
 }
 
 function fecharConsolidadoDetalhe() {
@@ -969,6 +985,11 @@ async function renderConsolidadoDetalhe() {
   // de consolidação".
   const dfdInfo = _dfds.find(d => d.id === _consolDfdId);
   const finalizado = dfdInfo?.status === 'fechado';
+  // "Todas as colunas liberadas pra alteração" enquanto o DFD está
+  // "Consolidado" (pedido do Alex, 2026-09-15) — antes só Natureza/
+  // Observação/Status eram editáveis por aqui; os campos originais do
+  // lançamento viravam somente leitura assim que a numeração era gerada.
+  const editavelConsol = dfdInfo?.status === 'consolidado';
   document.getElementById('consol-finalizado').style.display = finalizado ? 'block' : 'none';
   document.getElementById('consol-corpo-normal').style.display = 'block';
   if (finalizado) {
@@ -1031,7 +1052,7 @@ async function renderConsolidadoDetalhe() {
     linhas.push(`<tr class="consol-linha st-${item.status_consolidacao}" data-item-id="${item.id}">
       <td><strong>${item.numero_pac ?? '—'}</strong></td>
       ${exibirCodigo ? `<td>${item.codigo_pac || '—'}</td>` : ''}
-      ${colunasDfd.map(c => `<td>${formatarValorColuna(c, v[c.id])}</td>`).join('')}
+      ${colunasDfd.map(c => editavelConsol ? renderCelulaConsolEditavel(item, c) : `<td>${formatarValorColuna(c, v[c.id])}</td>`).join('')}
       ${temContrato ? celulaContratoLeitura(item, colunasContrato, todasColunas, item.id) : ''}
       <td>
         <select class="consol-natureza-select" onchange="salvarNaturezaConsolidacao(${item.id}, this.value)">
@@ -1058,6 +1079,70 @@ function badgeStatusConsolidacao(status) {
   const map = { nao_iniciado: 'Não iniciado', em_analise: 'Em análise', finalizado: 'Consolidação finalizada', cancelado: 'Cancelado' };
   const cor = { nao_iniciado: 'fechado', em_analise: 'analise', finalizado: 'aberto', cancelado: 'fechado' }[status] || 'fechado';
   return `<span class="badge badge-${cor}">${map[status] || status}</span>`;
+}
+
+/* ── Colunas originais editáveis durante a consolidação (dfd.status ===
+   'consolidado') — pedido do Alex, 2026-09-15. Mesmos tipos de campo do
+   catálogo (select/textarea/moeda/numero/data/texto), mesma ideia de
+   renderInputCelula em pac-lancamento.js, salvando por
+   PUT /api/pac/consolidacao/itens/:id/valores (edição pela Gestão, sem
+   vínculo de setor). ── */
+function _consolFmtMoeda(v) {
+  if (v === null || v === undefined || v === '') return '';
+  return Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function _consolParseMoeda(s) {
+  if (!s || s === '') return null;
+  const v = parseFloat(String(s).replace(/[R$\s.]/g, '').replace(',', '.'));
+  return isNaN(v) ? null : v;
+}
+
+function renderCelulaConsolEditavel(item, coluna) {
+  const valor = (item.valores || {})[coluna.id];
+  const attrs = `data-item="${item.id}" data-coluna="${coluna.id}" data-tipo="${coluna.tipo_input}" class="filtro-moderno"`;
+  if (coluna.tipo_input === 'auto') return `<td>${valor ?? ''}</td>`;
+  if (coluna.tipo_input === 'select') {
+    const opcoes = (_listasCacheConsol[coluna.lista] || []).map(o =>
+      `<option value="${o.valor.replace(/"/g, '&quot;')}"${o.valor === valor ? ' selected' : ''}>${o.valor}</option>`).join('');
+    return `<td><select ${attrs} style="min-width:110px;" onchange="salvarCampoConsolidacao(this)"><option value="">—</option>${opcoes}</select></td>`;
+  }
+  if (coluna.tipo_input === 'textarea') {
+    return `<td><textarea ${attrs} rows="1" style="min-width:180px;" onblur="salvarCampoConsolidacao(this)">${valor || ''}</textarea></td>`;
+  }
+  if (coluna.tipo_input === 'moeda') {
+    return `<td><input type="text" ${attrs} value="${valor != null ? _consolFmtMoeda(valor) : ''}" style="width:100px;text-align:right;" onblur="salvarCampoConsolidacao(this)" /></td>`;
+  }
+  if (coluna.tipo_input === 'numero') {
+    return `<td><input type="number" ${attrs} value="${valor ?? ''}" step="any" style="width:80px;" onblur="salvarCampoConsolidacao(this)" /></td>`;
+  }
+  if (coluna.tipo_input === 'data') {
+    return `<td><input type="date" ${attrs} value="${valor || ''}" style="width:135px;" onchange="salvarCampoConsolidacao(this)" /></td>`;
+  }
+  return `<td><input type="text" ${attrs} value="${valor || ''}" style="min-width:120px;" onblur="salvarCampoConsolidacao(this)" /></td>`;
+}
+
+async function salvarCampoConsolidacao(el) {
+  const itemId = el.dataset.item;
+  const colunaId = el.dataset.coluna;
+  const tipo = el.dataset.tipo;
+  let valor = el.value;
+  if (tipo === 'moeda') { const n = _consolParseMoeda(valor); valor = n == null ? '' : String(n); el.value = valor === '' ? '' : _consolFmtMoeda(n); }
+  try {
+    const res = await fetch(`/api/pac/consolidacao/itens/${itemId}/valores`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ valores: { [colunaId]: valor === '' ? null : valor } }),
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      toast(e.error || 'Erro ao salvar campo', 'error');
+      return;
+    }
+    const item = (_consolDados?.itens || []).find(i => i.id === Number(itemId));
+    if (item) { item.valores = item.valores || {}; item.valores[colunaId] = valor === '' ? null : valor; }
+    toast('Campo salvo', 'success');
+  } catch {
+    toast('Erro ao salvar campo', 'error');
+  }
 }
 
 function renderConsolCancelados() {
@@ -1481,17 +1566,18 @@ async function renderFinalizacaoAcompanhamento(dfdId) {
       : `<span class="pac-fin-badge aguardando">🕐 ${s.setor_nome} — aguardando</span>`
     ).join('') || '<span class="text-muted">Este DFD ainda não tem setores participantes.</span>';
 
-    // Gerar Consolidação também exige dfd.status === 'analise' agora (achado
-    // testando de verdade, 2026-09-08: sem essa trava dava pra consolidar com
-    // o DFD ainda "Aberto", e a listagem de DFDs mostrava um status diferente
-    // do que a Consolidação já refletia). _dfds já tem .status em cache.
+    // Consolidar DFD exige só dfd.status === 'analise' (pedido do Alex,
+    // 2026-09-15: não depende mais de "todos os setores finalizaram" —
+    // mesma mudança de filosofia da trava de "Enviar para análise", v4.22.5.
+    // Antes disso exigir status.todos_finalizados deixava esse botão
+    // impossível de aparecer pra qualquer DFD que tivesse chegado em
+    // "análise" sem passar por "Finalizar meu DFD"). _dfds já tem .status em
+    // cache (recarregado a cada mudança de status, ver mudarStatusDfd).
     const dfdSel = _dfds.find(d => d.id === Number(dfdId));
-    const podeConsolidar = status.todos_finalizados && dfdSel?.status === 'analise';
+    const podeConsolidar = dfdSel?.status === 'analise';
     document.getElementById('acomp-gerar-consolidacao-wrap').innerHTML = podeConsolidar
-      ? `<button class="btn btn-primary btn-sm" onclick="gerarConsolidacao(${dfdId})">Gerar Consolidação</button>`
-      : (status.todos_finalizados
-          ? '<span class="text-muted">Envie o DFD para análise (tela de DFDs) antes de gerar a consolidação.</span>'
-          : '');
+      ? `<button class="btn btn-primary btn-sm" onclick="gerarConsolidacao(${dfdId})">Consolidar DFD</button>`
+      : '';
   } catch { card.style.display = 'none'; }
 }
 
@@ -1615,11 +1701,12 @@ function renderKpisAcompanhamento(dfdId, status) {
 }
 
 async function gerarConsolidacao(dfdId) {
-  if (!confirm('Isso irá gerar a numeração consolidada do PAC e carregar a tela de Consolidação. Continuar?')) return;
+  if (!confirm('Isso irá gerar a numeração consolidada do PAC, mudar o status do DFD para "Consolidado" e carregar a tela de Consolidação. Continuar?')) return;
   try {
     const res = await fetch(`/api/pac/dfds/${dfdId}/gerar-consolidacao`, { method: 'POST' });
     if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-    toast('Consolidação gerada.');
+    toast('DFD consolidado.');
+    await carregarDfds(); // sincroniza _dfds com o novo status ('consolidado')
     const dfd = _dfds.find(d => d.id === Number(dfdId));
     mudarAbaPac('consolidacao');
     if (dfd) await abrirConsolidadoDetalhe(dfd.id, dfd.titulo, dfd.ano_base);

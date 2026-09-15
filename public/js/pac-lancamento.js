@@ -31,8 +31,8 @@ function parseMoeda(s) {
 }
 
 function badgeStatusDfd(status) {
-  const icone = { aberto: '●', analise: '⚠', fechado: '🔒' };
-  const map = { aberto: 'Aberto', analise: 'Em análise', fechado: 'Fechado' };
+  const icone = { aberto: '●', analise: '⚠', consolidado: '📊', fechado: '🔒' };
+  const map = { aberto: 'Aberto', analise: 'Em análise', consolidado: 'Consolidado', fechado: 'Fechado' };
   return `<span class="badge badge-${status}">${icone[status] || ''} ${map[status] || status}</span>`;
 }
 
