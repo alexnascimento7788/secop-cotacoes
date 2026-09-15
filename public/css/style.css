@@ -457,6 +457,22 @@ input[type="checkbox"].switch-moderno:checked { background: var(--verde); }
 input[type="checkbox"].switch-moderno:checked::after { left: 18px; }
 input[type="checkbox"].switch-moderno:focus-visible { outline: 2px solid var(--verde); outline-offset: 2px; }
 
+/* Selects/inputs de filtro — mesmo pedido do Alex (layout "mais atual e
+   tecnológico"): antes eram controles crus do navegador só com font-size/
+   padding inline, sem borda/raio nenhum. Reaproveitável em qualquer barra
+   de filtro do sistema. */
+.filtro-moderno {
+  border: 1.5px solid var(--cinza-b);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface);
+  transition: border-color .15s;
+}
+.filtro-moderno:focus { outline: none; border-color: var(--verde); }
+
 /* ── PAC: tabela de itens do DFD (colunas configuráveis, potencialmente muitas) ─
    1ª e 2ª colunas fixas (ID PAC / Nº PAC) durante o scroll horizontal.
    max-height + overflow-y própria (em vez de deixar a tabela esticar a
