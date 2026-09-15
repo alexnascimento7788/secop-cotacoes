@@ -350,6 +350,11 @@ async function mudarStatusDfd(status, senha_mestra, justificativa) {
       return;
     }
     toast('Status atualizado', 'success');
+    // Sem isso, o `_dfds` global (usado por Consolidação/Acompanhamento)
+    // ficava com o status velho até um F5 — pedido do Alex, 2026-09-15: "o
+    // dfd está demorando aparecer em consolidação, precisa ficar repetindo
+    // refresh". carregarDetalheDfd() só atualiza ESTA tela, não o cache.
+    await carregarDfds();
     carregarDetalheDfd();
   } catch {
     if (msg) msg.textContent = 'Erro ao mudar status do DFD.'; else toast('Erro ao mudar status do DFD', 'error');

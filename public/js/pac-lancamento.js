@@ -565,7 +565,7 @@ async function renderItens() {
       ${colunasPrincipais.map(c => renderCelula(item, c, -1, liberado)).join('')}
       ${temColContrato ? renderCelulaContrato(item, colunasContrato) : ''}
       <td style="text-align:right;white-space:nowrap;">
-        ${itemEditavel(item, liberado)
+        ${(itemEditavel(item, liberado) && itemTemPendencia(item))
           ? `<button class="btn btn-primary btn-xs" onclick="concluirItem(${item.id})" title="Confere se falta algo e confirma">✅ Concluir</button>`
           : ''}
         ${podeExcluir
@@ -912,6 +912,14 @@ async function salvarCampoItem(el) {
     const coluna = (_dfdAtual.colunas || []).find(c => String(c.id) === String(colunaId));
     if (coluna && coluna.grupo === 'A') {
       el.classList.toggle('campo-pendente', valor === '' || valor == null);
+    }
+    // Some com o botão "✅ Concluir" na hora, assim que o item deixa de ter
+    // pendência — sem isso ele ficava na linha mesmo depois de tudo
+    // preenchido, e clicar de novo só confirmava algo que já estava certo
+    // (pedido do Alex, 2026-09-15: "isto pode gerar confusão no usuário").
+    if (item && !itemTemPendencia(item)) {
+      const linha = document.querySelector(`[data-item-id="${itemId}"]`);
+      linha?.querySelector('button[onclick^="concluirItem("]')?.remove();
     }
     if (document.getElementById('lanc-filtro-pendencia')?.checked) await renderItens();
     renderFinalizacao();
