@@ -1019,7 +1019,25 @@ function renderFormNovoItem() {
 
 // Contrato é obrigatório (ver abrirModalContratoNovoItem) — só pula direto
 // pra criarItem() quando o DFD nem tem a coluna de contrato ativada.
+// Só nasce um item novo depois do último (do mesmo setor) estar completo —
+// pedido do Alex, 2026-09-15: clicar em "Novo" repetido sem preencher nada
+// ia empilhando itens em branco.
 function iniciarNovoItem() {
+  const setorId = Number(document.getElementById('novo-item-setor').value);
+  const pendentes = pendenciasDoSetor(setorId);
+  if (pendentes.length) {
+    const item = pendentes[0];
+    const colunas = (_dfdAtual.colunas || []).filter(c => c.grupo === 'A' && c.slug !== 'numero_item');
+    const faltando = colunas.find(c => {
+      const v = (item.valores || {})[c.id];
+      return v === undefined || v === null || String(v).trim() === '';
+    });
+    toast(`Finalize o item pendente antes de lançar outro${faltando ? ` (falta: ${faltando.label})` : ''}.`, 'error');
+    const alvo = (faltando && document.getElementById(`campo-${item.id}-${faltando.id}`))
+      || document.querySelector(`[data-item-id="${item.id}"]`);
+    if (alvo) { alvo.scrollIntoView({ behavior: 'smooth', block: 'center' }); alvo.focus?.(); }
+    return;
+  }
   const temColContrato = _dfdAtual.colunas.some(c => c.grupo === 'C');
   if (temColContrato) {
     abrirModalContratoNovoItem(document.getElementById('novo-item-setor').value);
