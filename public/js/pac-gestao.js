@@ -59,26 +59,40 @@ function mudarAbaPac(aba) {
   if (aba === 'consolidacao') carregarConsolidacaoLista();
   if (aba === 'solicitacoes') carregarSolicitacoes();
   if (aba === 'acompanhamento') mostrarListaAcompanhamento();
+  // Bug real achado pelo Alex, 2026-09-15: clicar em "DFDs" na sidebar não
+  // resetava pra lista — se a última visita tinha ficado no detalhe de um
+  // DFD (ex.: chegou lá por engano vindo de Consolidação), continuava preso
+  // lá, parecendo uma "página antiga" que só uma volta+ida a outra aba
+  // corrigia. Todas as outras abas já resetam pro estado inicial delas
+  // (consolidacao/acompanhamento acima) — "dfds" era a única exceção.
+  if (aba === 'dfds') fecharDetalheDfd();
 }
 
-// Atalho "ir direto pro DFD X" — usado pelo botão flutuante de Consolidação
-// (pedido do Alex, 2026-09-15: "abaixo dos cards um botão flutuante que leve
-// para DFDs e já vá para o dfd específico") e pela lista de "não
-// consolidados" acima. mudarAbaPac troca a aba visível ANTES de abrir o
-// detalhe, senão #pac-dfd-detalhe fica escondido dentro de uma pane inativa.
+// Atalho "ir direto pro DFD X" (aba de administração — Enviar p/
+// análise/Fechar/Reabrir/Cancelar). mudarAbaPac troca a aba visível ANTES de
+// abrir o detalhe, senão #pac-dfd-detalhe fica escondido dentro de uma pane
+// inativa.
 function irParaDfd(id) {
   mudarAbaPac('dfds');
   abrirDetalheDfd(id);
 }
 
-// Botão "📊 Acompanhamento" dentro do DFD aberto — mesma ideia, indo pro
-// outro lado (pedido do Alex, 2026-09-15). Pula a lista de entrada (o DFD já
-// está escolhido) e vai direto pro detalhe.
-async function irParaAcompanhamentoDoDfd() {
-  const id = _dfdAtualId;
+// Atalho pro PRÓXIMO PASSO do fluxo (Acompanhamento/"Gerar Consolidação") —
+// usado pelo botão do DFD em análise/aberto e pela lista "Não consolidados"
+// de Consolidação (pedido do Alex, 2026-09-15: clicar num DFD em análise ali
+// caía por engano na tela de administração do DFD, sem porta pra iniciar a
+// consolidação). Pula a lista de entrada de Acompanhamento (o DFD já está
+// escolhido) e vai direto pro detalhe, onde mora o botão "Gerar Consolidação".
+function irIniciarConsolidacao(id) {
   mudarAbaPac('acompanhamento');
-  await popularSelectDfdsExecucao();
   abrirAcompanhamentoDoDfd(id);
+}
+
+// Botão "📊 Acompanhamento"/"🧾 Ir para Consolidação" dentro do DFD aberto —
+// mesmo destino de irIniciarConsolidacao, só que a partir do DFD já aberto
+// nesta página (usa o _dfdAtualId local em vez de receber por parâmetro).
+function irParaAcompanhamentoDoDfd() {
+  irIniciarConsolidacao(_dfdAtualId);
 }
 
 // Porta de entrada de Acompanhamento — pedido do Alex, 2026-09-15: lista
@@ -240,11 +254,22 @@ async function carregarDetalheDfd() {
     ? `Vencimento: ${fmtBrData(dfd.data_entrega)}` : 'Vencimento: não informado';
 
   fecharAcaoDfd();
-  // Só faz sentido levar pra Acompanhamento enquanto o DFD ainda está
-  // "Aberto" — é o único status que aparece no seletor de lá agora (ver
-  // popularSelectDfdsExecucao, pedido do Alex 2026-09-15: DFD em análise sai
-  // de Acompanhamento e só aparece em Consolidação).
-  document.getElementById('dfd-det-btn-acomp').style.display = dfd.status === 'aberto' ? '' : 'none';
+  // Botão de atalho pro próximo passo do fluxo — pedido do Alex, 2026-09-15:
+  // "se tenho um [DFD] que está em análise ele pode me levar para o mesmo já
+  // em Consolidação". "Aberto" ainda usa a MESMA tela (Acompanhamento) só
+  // que pra ver progresso; "análise" cai no mesmo lugar, mas é lá que mora o
+  // botão "Gerar Consolidação" (ver renderFinalizacaoAcompanhamento) — daí o
+  // rótulo mudar conforme o status, mesmo destino (irParaAcompanhamentoDoDfd).
+  const btnAcomp = document.getElementById('dfd-det-btn-acomp');
+  if (dfd.status === 'aberto') {
+    btnAcomp.style.display = '';
+    btnAcomp.textContent = '📊 Acompanhamento';
+  } else if (dfd.status === 'analise') {
+    btnAcomp.style.display = '';
+    btnAcomp.textContent = '🧾 Ir para Consolidação';
+  } else {
+    btnAcomp.style.display = 'none';
+  }
   const acoes = document.getElementById('dfd-det-acoes');
   // Transições válidas mudaram (pedido do Alex, 2026-09-15): "aberto" não vai
   // mais direto pra "fechado" (precisa passar por análise — o servidor já
@@ -851,7 +876,7 @@ async function carregarConsolidacaoLista() {
       <td>${d.ano_base}</td>
       <td>${badgeStatusDfd(d.status)}</td>
       <td style="text-align:right;white-space:nowrap;">
-        <button class="btn btn-secondary btn-sm" onclick="irParaDfd(${d.id})">Abrir DFD</button>
+        <button class="btn btn-primary btn-sm" onclick="irIniciarConsolidacao(${d.id})">Iniciar Consolidação</button>
       </td>
     </tr>
   `).join('') || `<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum DFD aguardando consolidação.</td></tr>`;
