@@ -405,62 +405,83 @@
 
     <!-- ═══ Acompanhamento (DEPLA) ═══ -->
     <div id="pane-acompanhamento" class="pac-pane active">
-      <!-- Indicadores do DFD selecionado — ver renderKpisAcompanhamento() -->
-      <div id="acomp-kpis" style="display:none;margin-bottom:18px;"></div>
-      <!-- Filtros + dados do DFD viraram ícone+flyout — pedido do Alex,
-           2026-09-08: "fica algo mais profissional e na tela ganhamos mais
-           espaço" (mesmo padrão do flyout de pedidos em pac-lancamento.js). -->
-      <div style="position:relative;margin-bottom:16px;">
-        <button class="btn btn-secondary btn-sm" onclick="alternarFiltrosAcompFlyout()">⚙️ Filtros e dados do DFD</button>
-        <div class="pac-card" id="acomp-filtros-flyout" style="display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:20;min-width:560px;max-width:min(90vw, 760px);box-shadow:0 6px 20px rgba(0,0,0,.2);">
-          <div class="pac-filtros">
-            <div class="form-group"><label>DFD (exercício)</label><select id="acomp-dfd-select" onchange="carregarAcompanhamento()"></select></div>
-            <div class="form-group"><label>Setor</label><select id="acomp-filtro-setor" onchange="renderTabelaAcompanhamento()"><option value="">Todos</option></select></div>
-            <div class="form-group"><label>Status</label>
-              <select id="acomp-filtro-status" onchange="renderTabelaAcompanhamento()">
-                <option value="">Todos</option>
-                <option>Não Iniciado</option><option>Processado DEPLA</option>
-                <option>Fracionamento Aberto</option><option>Processo Finalizado</option><option>Cancelado</option>
-              </select>
-            </div>
-            <div class="form-group"><label>Fonte pagadora</label>
-              <select id="acomp-filtro-fonte" onchange="renderTabelaAcompanhamento()">
-                <option value="">Todas</option><option value="TU">TU</option><option value="RDC">RDC</option><option value="MLP">MLP</option>
-              </select>
-            </div>
+      <!-- Porta de entrada — pedido do Alex, 2026-09-15: em vez de cair direto
+           numa tabela com um <select> de DFD escondido num filtro, lista os
+           DFDs "abertos" (só eles fazem sentido acompanhar — em análise em
+           diante já saiu daqui, ver popularSelectDfdsExecucao) com colunas
+           informativas; clicar entra no detalhe de verdade (mesma tela de
+           sempre, só a entrada mudou). -->
+      <div id="acomp-lista">
+        <div class="pac-card">
+          <div class="pac-card-title">DFDs em lançamento</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Código</th><th>Título</th><th>Ano</th><th>Vencimento</th><th>Setores finalizados</th><th>Itens lançados</th><th></th></tr></thead>
+              <tbody id="acomp-lista-tbody"><tr><td colspan="7" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
+            </table>
           </div>
-          <div class="text-muted" id="acomp-vencimento" style="margin-top:10px;font-size:12.5px;"></div>
         </div>
       </div>
-      <!-- Finalização por setor + botão "Gerar Consolidação" — só aparece
-           quando todos os setores participantes já finalizaram e o DFD ainda
-           não foi consolidado (ver renderFinalizacaoAcompanhamento()). Barra
-           de progresso geral primeiro (pedido do Alex, 2026-09-06: a lista
-           de chips sozinha fica feia com muitos setores) — os chips continuam
-           abaixo, só pra apontar quem falta. -->
-      <div class="pac-card" id="acomp-finalizacao-card" style="display:none;">
-        <div class="pac-card-title">Finalização por setor</div>
-        <div class="pac-fin-resumo">
-          <span id="acomp-fin-fracao">—</span>
-          <div class="pac-progress-track"><div class="pac-progress-fill" id="acomp-fin-progress-fill" style="width:0%;"></div></div>
-          <span id="acomp-fin-pct">0%</span>
+
+      <div id="acomp-detalhe" style="display:none;">
+        <button class="btn btn-secondary btn-sm" onclick="mostrarListaAcompanhamento()" style="margin-bottom:14px;">← Voltar aos DFDs</button>
+        <!-- Indicadores do DFD selecionado — ver renderKpisAcompanhamento() -->
+        <div id="acomp-kpis" style="display:none;margin-bottom:18px;"></div>
+        <!-- Filtros (Setor/Status/Fonte) — a escolha do DFD em si agora é a
+             lista acima, não mora mais aqui dentro (era um <select> escondido
+             num flyout, confundia com filtro de verdade). -->
+        <div style="position:relative;margin-bottom:16px;">
+          <input type="hidden" id="acomp-dfd-select" />
+          <button class="btn btn-secondary btn-sm" onclick="alternarFiltrosAcompFlyout()">⚙️ Filtros</button>
+          <div class="pac-card" id="acomp-filtros-flyout" style="display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:20;min-width:480px;max-width:min(90vw, 760px);box-shadow:0 6px 20px rgba(0,0,0,.2);">
+            <div class="pac-filtros">
+              <div class="form-group"><label>Setor</label><select id="acomp-filtro-setor" onchange="renderTabelaAcompanhamento()"><option value="">Todos</option></select></div>
+              <div class="form-group"><label>Status</label>
+                <select id="acomp-filtro-status" onchange="renderTabelaAcompanhamento()">
+                  <option value="">Todos</option>
+                  <option>Não Iniciado</option><option>Processado DEPLA</option>
+                  <option>Fracionamento Aberto</option><option>Processo Finalizado</option><option>Cancelado</option>
+                </select>
+              </div>
+              <div class="form-group"><label>Fonte pagadora</label>
+                <select id="acomp-filtro-fonte" onchange="renderTabelaAcompanhamento()">
+                  <option value="">Todas</option><option value="TU">TU</option><option value="RDC">RDC</option><option value="MLP">MLP</option>
+                </select>
+              </div>
+            </div>
+            <div class="text-muted" id="acomp-vencimento" style="margin-top:10px;font-size:12.5px;"></div>
+          </div>
         </div>
-        <div class="pac-fin-badges" id="acomp-fin-badges"></div>
-        <div id="acomp-gerar-consolidacao-wrap"></div>
-      </div>
-      <div class="pac-card">
-        <div class="table-wrap dfd-table-wrap"><table id="acomp-table" class="dfd-table">
-          <thead id="acomp-thead"></thead>
-          <tbody id="acomp-tbody"><tr><td colspan="14" style="padding:20px;text-align:center;color:var(--text-subtle);">Selecione um DFD.</td></tr></tbody>
-          <tfoot id="acomp-tfoot"></tfoot>
-        </table></div>
-      </div>
-      <div class="pac-card" id="acomp-sem-pac-card" style="display:none;">
-        <div class="pac-card-title">Contratações não planejadas</div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>TOTVS</th><th>SEI</th><th>Data</th><th>Setor</th><th>Descrição</th><th>TU+MLP</th><th>RDC</th></tr></thead>
-          <tbody id="acomp-sem-pac-tbody"></tbody>
-        </table></div>
+        <!-- Finalização por setor + botão "Gerar Consolidação" — só aparece
+             quando todos os setores participantes já finalizaram e o DFD ainda
+             não foi consolidado (ver renderFinalizacaoAcompanhamento()). Barra
+             de progresso geral primeiro (pedido do Alex, 2026-09-06: a lista
+             de chips sozinha fica feia com muitos setores) — os chips continuam
+             abaixo, só pra apontar quem falta. -->
+        <div class="pac-card" id="acomp-finalizacao-card" style="display:none;">
+          <div class="pac-card-title">Finalização por setor</div>
+          <div class="pac-fin-resumo">
+            <span id="acomp-fin-fracao">—</span>
+            <div class="pac-progress-track"><div class="pac-progress-fill" id="acomp-fin-progress-fill" style="width:0%;"></div></div>
+            <span id="acomp-fin-pct">0%</span>
+          </div>
+          <div class="pac-fin-badges" id="acomp-fin-badges"></div>
+          <div id="acomp-gerar-consolidacao-wrap"></div>
+        </div>
+        <div class="pac-card">
+          <div class="table-wrap dfd-table-wrap"><table id="acomp-table" class="dfd-table">
+            <thead id="acomp-thead"></thead>
+            <tbody id="acomp-tbody"><tr><td colspan="14" style="padding:20px;text-align:center;color:var(--text-subtle);">Selecione um DFD.</td></tr></tbody>
+            <tfoot id="acomp-tfoot"></tfoot>
+          </table></div>
+        </div>
+        <div class="pac-card" id="acomp-sem-pac-card" style="display:none;">
+          <div class="pac-card-title">Contratações não planejadas</div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>TOTVS</th><th>SEI</th><th>Data</th><th>Setor</th><th>Descrição</th><th>TU+MLP</th><th>RDC</th></tr></thead>
+            <tbody id="acomp-sem-pac-tbody"></tbody>
+          </table></div>
+        </div>
       </div>
     </div>
 
