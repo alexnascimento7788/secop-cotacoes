@@ -70,6 +70,12 @@ async function _aplicarModulo(user) {
   if (pageModulo && pageModulo !== modulo_ativo) { window.location.replace(ativo.home); return false; }
 
   document.documentElement.setAttribute('data-modulo', ativo.slug);
+  // Cache pro próximo carregamento de página aplicar a cor certa de cara (ver
+  // snippet inline no <head> de cada página, mesmo padrão do data-theme) — sem
+  // isso, toda navegação nasce com o accent padrão (verde do SECOP) até essas
+  // 2 chamadas de API resolverem, e só então troca pra cor do módulo real.
+  // Foi isso que o Alex via como "módulo diferente por alguns segundos".
+  try { localStorage.setItem('secop_modulo_cache', ativo.slug); } catch {}
   _injetarModuloLabel(ativo, (modulos || []).length > 1, user.modulo_departamento_nome);
   return true;
 }
