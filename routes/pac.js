@@ -373,9 +373,28 @@ router.patch('/api/pac/dfds/:id/status', pac, requireRotina('pac-gestao', 'alter
   }
 
   if (status === 'analise') {
-    const setoresPart = db.prepare(`SELECT finalizado_em FROM dfd_setores WHERE dfd_id = ?`).all(dfd.id);
-    if (!setoresPart.length || setoresPart.some(s => !s.finalizado_em)) {
-      return res.status(409).json({ error: 'Nem todos os setores finalizaram o lançamento ainda — não é possível enviar para análise.' });
+    // Trava mudou (pedido do Alex, 2026-09-15): não depende mais de
+    // "Finalizar meu DFD" por setor (dfd_setores.finalizado_em) — esse botão
+    // continua existindo só como sinalização/trava de escrita do próprio
+    // setor, mas NUNCA mais bloqueia sozinho o envio pra análise. O único
+    // motivo real de bloquear é ter item com campo (grupo A) ainda em
+    // branco — nesse caso, aponta exatamente qual(is) setor(es) tem o
+    // problema, pra Gestão saber onde cobrar.
+    const setoresPart = db.prepare(`
+      SELECT ds.setor_id, s.nome FROM dfd_setores ds JOIN setores s ON s.id = ds.setor_id WHERE ds.dfd_id = ?
+    `).all(dfd.id);
+    if (!setoresPart.length) {
+      return res.status(409).json({ error: 'Este DFD ainda não tem setor participante — não é possível enviar para análise.' });
+    }
+    const setoresComPendencia = setoresPart
+      .map(s => ({ nome: s.nome, pendencias: itensComPendencia(dfd.id, s.setor_id) }))
+      .filter(s => s.pendencias.length > 0);
+    if (setoresComPendencia.length) {
+      const nomes = setoresComPendencia.map(s => `${s.nome} (${s.pendencias.length} item(ns))`).join(', ');
+      return res.status(409).json({
+        error: `Ainda há campo(s) em branco em: ${nomes}. Preencha antes de enviar para análise.`,
+        setoresComPendencia: setoresComPendencia.map(s => s.nome),
+      });
     }
   }
   if (status === 'fechado' && dfd.status !== 'analise') {
