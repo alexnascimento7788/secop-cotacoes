@@ -343,7 +343,7 @@ router.put('/api/pac/dfds/:id', pac, requireRotina('pac-gestao', 'alterar'), (re
   res.json({ ok: true });
 });
 
-const DFD_STATUS_VALIDOS = new Set(['aberto', 'analise', 'fechado', 'cancelado']);
+const DFD_STATUS_VALIDOS = new Set(['aberto', 'analise', 'consolidado', 'fechado', 'cancelado']);
 // Regras de transição reforçadas — pedido do Alex, 2026-09-15: hoje dava pra
 // mandar um DFD pra análise mesmo sem todos os setores terem finalizado o
 // lançamento (itensComPendencia/dfd_setores.finalizado_em já impedem um
@@ -397,8 +397,8 @@ router.patch('/api/pac/dfds/:id/status', pac, requireRotina('pac-gestao', 'alter
       });
     }
   }
-  if (status === 'fechado' && dfd.status !== 'analise') {
-    return res.status(409).json({ error: 'Envie o DFD para análise antes de fechá-lo.' });
+  if (status === 'fechado' && dfd.status !== 'consolidado') {
+    return res.status(409).json({ error: 'Consolide o DFD (Gestão > Consolidação) antes de fechá-lo.' });
   }
   if (status === 'aberto' && dfd.status !== 'aberto' && dfdEmTramitacaoBloqueado(dfd.id)) {
     return res.status(409).json({ error: MSG_DFD_EM_TRAMITACAO });
@@ -897,15 +897,15 @@ router.post('/api/pac/dfds/:id/gerar-consolidacao', pac, requireRotina('pac-gest
   // trava). Enviar pra análise (routes/pac.js, PATCH /dfds/:id/status) passa a
   // ser pré-requisito de verdade pra gerar consolidação.
   if (dfd.status !== 'analise') {
-    return res.status(409).json({ error: 'Envie o DFD para análise antes de gerar a consolidação.' });
+    return res.status(409).json({ error: 'Envie o DFD para análise antes de consolidar.' });
   }
   if (db.prepare(`SELECT 1 FROM pac_consolidacoes WHERE dfd_id = ?`).get(dfd.id)) {
     return res.status(409).json({ error: 'Este DFD já foi consolidado.' });
   }
-  const setoresPart = db.prepare(`SELECT finalizado_em FROM dfd_setores WHERE dfd_id = ?`).all(dfd.id);
-  if (!setoresPart.length || setoresPart.some(s => !s.finalizado_em)) {
-    return res.status(409).json({ error: 'Nem todos os setores finalizaram o lançamento ainda.' });
-  }
+  // A exigência de "todos os setores finalizaram" saiu daqui (pedido do
+  // Alex, 2026-09-15, mesma mudança de filosofia da v4.22.5): já ter
+  // chegado a "análise" é o suficiente — "Finalizar meu DFD" continua
+  // existindo, mas nunca mais bloqueia sozinho um passo do fluxo.
   // Momento 2: renumera GLOBALMENTE (setores.ordem ASC → numero_pac local
   // ASC), 1..N sobre todos os itens ainda não cancelados.
   // Zera numero_pac ANTES de reatribuir (mesma técnica de renumerarPacFinal,
@@ -933,7 +933,13 @@ router.post('/api/pac/dfds/:id/gerar-consolidacao', pac, requireRotina('pac-gest
     .run(...itens.map(i => i.id));
   db.prepare(`INSERT INTO pac_consolidacoes (dfd_id, consolidado_por, total_itens) VALUES (?, ?, ?)`)
     .run(dfd.id, req.user.user_id, itens.length);
-  registrarLog(req, 'PAC', 'GEROU_CONSOLIDACAO', `Gerou a consolidação do DFD "${dfd.titulo}" #${dfd.id} (${itens.length} itens numerados)`);
+  // Sincroniza o status logo aqui — pedido do Alex, 2026-09-15: "na gestão de
+  // dfd ele fica em análise [depois de consolidar], precisamos sincronizar os
+  // status". A partir de "consolidado", todas as colunas do lançamento ficam
+  // liberadas pra alteração pelo DEPLA (ver PUT /consolidacao/itens/:id/valores)
+  // e "Fechar DFD" passa a exigir esse status (ver PATCH /dfds/:id/status).
+  db.prepare(`UPDATE dfds SET status = 'consolidado', atualizado_em = datetime('now') WHERE id = ?`).run(dfd.id);
+  registrarLog(req, 'PAC', 'GEROU_CONSOLIDACAO', `Consolidou o DFD "${dfd.titulo}" #${dfd.id} (${itens.length} itens numerados)`);
   {
     const dfdCompleto = db.prepare(`SELECT ano_base FROM dfds WHERE id = ?`).get(dfd.id);
     const setoresParticipantes = db.prepare(`SELECT setor_id FROM dfd_setores WHERE dfd_id = ?`).all(dfd.id);
@@ -1013,6 +1019,38 @@ router.patch('/api/pac/itens/:id/natureza-consolidacao', pac, requireRotina('pac
   if (!item) return res.status(404).json({ error: 'Item não encontrado' });
   const natureza = req.body?.natureza;
   db.prepare(`UPDATE dfd_itens SET natureza_consolidacao = ? WHERE id = ?`).run(natureza ? String(natureza).trim() : null, item.id);
+  res.json({ ok: true });
+});
+
+// Edição das colunas ORIGINAIS do lançamento (grupo A), mas pela GESTÃO —
+// pedido do Alex, 2026-09-15: "quando consolidação for acionada, todas as
+// colunas devem estar liberadas a alteração". Só funciona com o DFD já
+// "consolidado" (não em análise, não fechado). Diferente de
+// PUT /api/pac/itens/:id (edição do setor, com requireDfdEditavel e vínculo
+// de setor): aqui quem edita é o DEPLA, sem nenhum dos dois.
+router.put('/api/pac/consolidacao/itens/:id/valores', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const item = db.prepare(`SELECT id, dfd_id FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
+  if (!item) return res.status(404).json({ error: 'Item não encontrado' });
+  const dfd = db.prepare(`SELECT status FROM dfds WHERE id = ?`).get(item.dfd_id);
+  if (!dfd || dfd.status !== 'consolidado') {
+    return res.status(409).json({ error: 'Só é possível editar os campos originais enquanto o DFD está "Consolidado".' });
+  }
+  const erroEspecificacao = validarEspecificacaoObjeto(req.body?.valores);
+  if (erroEspecificacao) return res.status(400).json({ error: erroEspecificacao.mensagem, especificacaoMinima: erroEspecificacao });
+  const colunasAtivas = new Set(db.prepare(`
+    SELECT dca.coluna_id FROM dfd_colunas_ativas dca JOIN dfd_colunas_catalogo c ON c.id = dca.coluna_id
+    WHERE dca.dfd_id = ? AND c.grupo = 'A'
+  `).all(item.dfd_id).map(r => r.coluna_id));
+  const upsert = db.prepare(`
+    INSERT INTO dfd_itens_valores (item_id, coluna_id, valor) VALUES (?, ?, ?)
+    ON CONFLICT(item_id, coluna_id) DO UPDATE SET valor = excluded.valor
+  `);
+  Object.entries(req.body?.valores || {}).forEach(([colunaId, valor]) => {
+    if (!colunasAtivas.has(Number(colunaId))) return;
+    upsert.run(item.id, Number(colunaId), valor == null ? null : String(valor));
+  });
+  db.prepare(`UPDATE dfd_itens SET atualizado_em = datetime('now') WHERE id = ?`).run(item.id);
+  registrarLog(req, 'PAC', 'EDITOU_ITEM_CONSOLIDACAO', `Editou campos originais do item #${item.id} (DFD #${item.dfd_id}) durante a consolidação`);
   res.json({ ok: true });
 });
 
