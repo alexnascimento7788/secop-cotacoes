@@ -175,6 +175,10 @@ async function entrar(slug, btn) {
       return;
     }
     const { home } = await res.json();
+    // Já grava o módulo escolhido no cache local — a próxima página lê isso
+    // de forma síncrona (ver snippet no <head>) e nasce com a cor certa, sem
+    // esperar o auth.js confirmar de novo via API.
+    try { localStorage.setItem('secop_modulo_cache', slug); } catch {}
     window.location.replace(home || '/index.html');
   } catch {
     err.textContent = 'Erro de conexão com o servidor.';
