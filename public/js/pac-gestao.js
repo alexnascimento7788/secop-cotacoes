@@ -58,7 +58,7 @@ function mudarAbaPac(aba) {
   if (aba === 'pedidos') carregarPedidos();
   if (aba === 'consolidacao') carregarConsolidacaoLista();
   if (aba === 'solicitacoes') carregarSolicitacoes();
-  if (aba === 'acompanhamento') carregarAcompanhamento();
+  if (aba === 'acompanhamento') mostrarListaAcompanhamento();
 }
 
 // Atalho "ir direto pro DFD X" — usado pelo botão flutuante de Consolidação
@@ -72,13 +72,54 @@ function irParaDfd(id) {
 }
 
 // Botão "📊 Acompanhamento" dentro do DFD aberto — mesma ideia, indo pro
-// outro lado (pedido do Alex, 2026-09-15).
+// outro lado (pedido do Alex, 2026-09-15). Pula a lista de entrada (o DFD já
+// está escolhido) e vai direto pro detalhe.
 async function irParaAcompanhamentoDoDfd() {
   const id = _dfdAtualId;
   mudarAbaPac('acompanhamento');
   await popularSelectDfdsExecucao();
-  const sel = document.getElementById('acomp-dfd-select');
-  if (sel) { sel.value = id; carregarAcompanhamento(); }
+  abrirAcompanhamentoDoDfd(id);
+}
+
+// Porta de entrada de Acompanhamento — pedido do Alex, 2026-09-15: lista
+// de DFDs "abertos" com colunas informativas, clicar entra no detalhe (em
+// vez de cair direto numa tabela com um <select> escondido num filtro).
+async function mostrarListaAcompanhamento() {
+  document.getElementById('acomp-lista').style.display = 'block';
+  document.getElementById('acomp-detalhe').style.display = 'none';
+  pararAutoRefreshAcompanhamento();
+  if (!_dfds.length) await carregarDfds();
+  const tbody = document.getElementById('acomp-lista-tbody');
+  const abertos = _dfds.filter(d => d.status === 'aberto');
+  if (!abertos.length) {
+    tbody.innerHTML = `<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum DFD em lançamento no momento.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = `<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
+  const linhas = await Promise.all(abertos.map(async d => {
+    const res = await fetch(`/api/pac/dfds/${d.id}/status-finalizacao`);
+    const status = res.ok ? await res.json() : { setores: [] };
+    const total = status.setores.length;
+    const finalizados = status.setores.filter(s => s.finalizado_em).length;
+    return `
+      <tr>
+        <td><strong>${codigoDfd(d)}</strong></td>
+        <td>${d.titulo}</td>
+        <td>${d.ano_base}</td>
+        <td>${d.data_entrega ? fmtBrData(d.data_entrega) : 'não informado'}</td>
+        <td>${total ? `${finalizados} de ${total}` : '—'}</td>
+        <td>${d.itens_count ?? 0}</td>
+        <td style="text-align:right;"><button class="btn btn-primary btn-sm" onclick="abrirAcompanhamentoDoDfd(${d.id})">Abrir →</button></td>
+      </tr>`;
+  }));
+  tbody.innerHTML = linhas.join('');
+}
+
+function abrirAcompanhamentoDoDfd(id) {
+  document.getElementById('acomp-lista').style.display = 'none';
+  document.getElementById('acomp-detalhe').style.display = 'block';
+  document.getElementById('acomp-dfd-select').value = id;
+  carregarAcompanhamento();
 }
 
 // 'pac-solicitacoes' é rotina própria (independente de 'pac-gestao') — quem
@@ -742,14 +783,10 @@ async function popularSelectDfdsExecucao() {
   if (!_dfds.length) await carregarDfds();
   const opts = _dfds.map(d => `<option value="${d.id}">${codigoDfd(d)} — ${d.titulo}</option>`).join('');
   const solSel = document.getElementById('sol-dfd-select');
-  const acompSel = document.getElementById('acomp-dfd-select');
   if (solSel) solSel.innerHTML = opts;
-  // Pedido do Alex, 2026-09-15: assim que o DFD é enviado para análise, ele
-  // sai de Acompanhamento e só aparece em Consolidação — Acompanhamento
-  // (aqui) fica restrito a quem ainda está "Aberto" (em lançamento).
-  if (acompSel) acompSel.innerHTML = _dfds.filter(d => d.status === 'aberto')
-    .map(d => `<option value="${d.id}">${codigoDfd(d)} — ${d.titulo}</option>`).join('')
-    || `<option value="">Nenhum DFD aberto no momento</option>`;
+  // acomp-dfd-select virou <input type="hidden"> — a escolha do DFD agora é
+  // a lista de entrada de Acompanhamento (mostrarListaAcompanhamento, já
+  // restrita a status==='aberto'), não um <select> aqui.
 
   try {
     const [setoresRes, naturezaRes] = await Promise.all([
@@ -1349,10 +1386,13 @@ let _acompAutoRefreshTimer = null;
 function iniciarAutoRefreshAcompanhamento() {
   if (_acompAutoRefreshTimer) return;
   _acompAutoRefreshTimer = setInterval(() => {
-    const pane = document.getElementById('pane-acompanhamento');
+    const detalhe = document.getElementById('acomp-detalhe');
     const dfdId = document.getElementById('acomp-dfd-select')?.value;
-    if (pane && pane.offsetParent !== null && dfdId) carregarAcompanhamento();
+    if (detalhe && detalhe.offsetParent !== null && dfdId) carregarAcompanhamento();
   }, 30000);
+}
+function pararAutoRefreshAcompanhamento() {
+  if (_acompAutoRefreshTimer) { clearInterval(_acompAutoRefreshTimer); _acompAutoRefreshTimer = null; }
 }
 
 async function carregarAcompanhamento() {
