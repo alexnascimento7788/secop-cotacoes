@@ -202,6 +202,20 @@ router.delete('/api/email/fila/:id', requireAdminSistema, (req, res) => {
   res.json({ ok: true });
 });
 
+// Exclusão de verdade (apaga a linha) — só item com erro, só master. Pedido
+// do Alex (2026-09-15): fila pode acumular erro de teste/configuração errada
+// que não vale a pena manter — diferente do cancelamento acima (que preserva
+// rastro de uma decisão), aqui o item nunca chegou a ser útil.
+router.delete('/api/email/fila/:id/erro', (req, res) => {
+  if (req.user.username !== 'master') return res.status(403).json({ error: 'Acesso restrito ao master' });
+  const item = db.prepare(`SELECT id, status FROM email_fila WHERE id = ?`).get(req.params.id);
+  if (!item) return res.status(404).json({ error: 'Item não encontrado' });
+  if (item.status !== 'erro') return res.status(409).json({ error: 'Só é possível excluir item com status "erro".' });
+  db.prepare(`DELETE FROM email_fila WHERE id = ?`).run(item.id);
+  registrarLog(req, 'EMAIL', 'EXCLUIU_FILA_ERRO', `Excluiu definitivamente o item #${item.id} (erro) da fila de e-mail`);
+  res.json({ ok: true });
+});
+
 router.post('/api/email/fila/processar', requireAdminSistema, async (req, res) => {
   const resumo = await mailer.processarFila();
   registrarLog(req, 'EMAIL', 'PROCESSOU_FILA', `Processamento manual: ${resumo.enviados} enviado(s), ${resumo.erros} erro(s) de ${resumo.processados} item(ns)`);

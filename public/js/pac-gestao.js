@@ -10,7 +10,7 @@ function toast(msg, tipo) {
 }
 
 function badgeStatusDfd(status) {
-  const map = { aberto: 'Aberto', analise: 'Em análise', fechado: 'Fechado' };
+  const map = { aberto: 'Aberto', analise: 'Em análise', fechado: 'Fechado', cancelado: 'Cancelado' };
   return `<span class="badge badge-${status}">${map[status] || status}</span>`;
 }
 
@@ -59,6 +59,26 @@ function mudarAbaPac(aba) {
   if (aba === 'consolidacao') carregarConsolidacaoLista();
   if (aba === 'solicitacoes') carregarSolicitacoes();
   if (aba === 'acompanhamento') carregarAcompanhamento();
+}
+
+// Atalho "ir direto pro DFD X" — usado pelo botão flutuante de Consolidação
+// (pedido do Alex, 2026-09-15: "abaixo dos cards um botão flutuante que leve
+// para DFDs e já vá para o dfd específico") e pela lista de "não
+// consolidados" acima. mudarAbaPac troca a aba visível ANTES de abrir o
+// detalhe, senão #pac-dfd-detalhe fica escondido dentro de uma pane inativa.
+function irParaDfd(id) {
+  mudarAbaPac('dfds');
+  abrirDetalheDfd(id);
+}
+
+// Botão "📊 Acompanhamento" dentro do DFD aberto — mesma ideia, indo pro
+// outro lado (pedido do Alex, 2026-09-15).
+async function irParaAcompanhamentoDoDfd() {
+  const id = _dfdAtualId;
+  mudarAbaPac('acompanhamento');
+  await popularSelectDfdsExecucao();
+  const sel = document.getElementById('acomp-dfd-select');
+  if (sel) { sel.value = id; carregarAcompanhamento(); }
 }
 
 // 'pac-solicitacoes' é rotina própria (independente de 'pac-gestao') — quem
@@ -178,14 +198,64 @@ async function carregarDetalheDfd() {
   document.getElementById('dfd-det-vencimento').textContent = dfd.data_entrega
     ? `Vencimento: ${fmtBrData(dfd.data_entrega)}` : 'Vencimento: não informado';
 
+  fecharAcaoDfd();
+  // Só faz sentido levar pra Acompanhamento enquanto o DFD ainda está
+  // "Aberto" — é o único status que aparece no seletor de lá agora (ver
+  // popularSelectDfdsExecucao, pedido do Alex 2026-09-15: DFD em análise sai
+  // de Acompanhamento e só aparece em Consolidação).
+  document.getElementById('dfd-det-btn-acomp').style.display = dfd.status === 'aberto' ? '' : 'none';
   const acoes = document.getElementById('dfd-det-acoes');
-  const opcoes = { aberto: ['analise', 'fechado'], analise: ['aberto', 'fechado'], fechado: ['aberto', 'analise'] };
-  const rotulos = { aberto: 'Reabrir', analise: 'Enviar p/ análise', fechado: 'Fechar' };
+  // Transições válidas mudaram (pedido do Alex, 2026-09-15): "aberto" não vai
+  // mais direto pra "fechado" (precisa passar por análise — o servidor já
+  // recusa isso, aqui só reflete no que aparece pra clicar); "fechado" só
+  // volta por "Reabrir" (não oferece mais "analise" direto do fechado, pra
+  // não confundir com o fluxo normal de baixo pra cima).
+  const opcoes = { aberto: ['analise', 'cancelado'], analise: ['fechado', 'aberto'], fechado: ['aberto'], cancelado: [] };
+  const rotulos = { aberto: '🔓 Reabrir DFD', analise: '📨 Enviar para análise', fechado: '🔒 Fechar DFD', cancelado: '🚫 Cancelar DFD' };
   acoes.innerHTML = (opcoes[dfd.status] || []).map(s =>
-    `<button class="btn btn-secondary btn-sm" onclick="mudarStatusDfd('${s}')">${rotulos[s]}</button>`
+    `<button class="btn btn-secondary btn-sm" onclick="abrirAcaoDfd('${s}')">${rotulos[s]}</button>`
   ).join(' ');
 
   await renderItensDfd(dfd.colunas);
+}
+
+const _explicacaoAcaoDfd = {
+  analise: 'Envia este DFD para análise do DEPLA. Só é possível quando TODOS os setores participantes já finalizaram o lançamento. A partir daqui, os setores não podem mais editar itens sem um pedido de edição aprovado.',
+  fechado: 'Fecha este DFD definitivamente. Só é possível com o DFD em análise. Depois de fechado, o DFD vira somente leitura e todos os setores participantes recebem um aviso por e-mail, com o nome de quem fechou.',
+  aberto: 'Reabre este DFD para edição — use apenas em situação excepcional. Reabrir NÃO desfaz numeração ou consolidação já feita, só destrava a escrita novamente. Por segurança, exige a senha mestra do PAC (definida em Administração → Configurações → Parâmetros).',
+  cancelado: 'Cancela este DFD por completo — só possível enquanto ele ainda está "Aberto" (sem trabalho de consolidação em cima). Ação irreversível. Explique o motivo do cancelamento.',
+};
+let _acaoDfdAlvo = null;
+
+function abrirAcaoDfd(statusAlvo) {
+  _acaoDfdAlvo = statusAlvo;
+  document.getElementById('dfd-acao-titulo').textContent =
+    { analise: 'Enviar para análise', fechado: 'Fechar DFD', aberto: 'Reabrir DFD', cancelado: 'Cancelar DFD' }[statusAlvo];
+  document.getElementById('dfd-acao-explicacao').textContent = _explicacaoAcaoDfd[statusAlvo] || '';
+  document.getElementById('dfd-acao-senha-wrap').style.display = statusAlvo === 'aberto' ? 'block' : 'none';
+  document.getElementById('dfd-acao-justificativa-wrap').style.display = statusAlvo === 'cancelado' ? 'block' : 'none';
+  document.getElementById('dfd-acao-senha').value = '';
+  document.getElementById('dfd-acao-justificativa').value = '';
+  document.getElementById('dfd-acao-msg').textContent = '';
+  document.getElementById('dfd-det-acao-painel').style.display = 'block';
+  document.getElementById('dfd-det-acao-painel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function fecharAcaoDfd() {
+  _acaoDfdAlvo = null;
+  const painel = document.getElementById('dfd-det-acao-painel');
+  if (painel) painel.style.display = 'none';
+}
+
+async function executarAcaoDfd() {
+  if (!_acaoDfdAlvo) return;
+  if (_acaoDfdAlvo === 'cancelado' && !document.getElementById('dfd-acao-justificativa').value.trim()) {
+    document.getElementById('dfd-acao-msg').textContent = 'Explique o motivo do cancelamento.';
+    return;
+  }
+  const senha = document.getElementById('dfd-acao-senha').value;
+  const justificativa = document.getElementById('dfd-acao-justificativa').value;
+  await mudarStatusDfd(_acaoDfdAlvo, senha, justificativa);
 }
 
 // "Setores participantes"/"Colunas ativas" são configuração pontual do DFD,
@@ -202,15 +272,21 @@ function fecharConfigDfd() {
   document.getElementById('modal-dfd-config').classList.remove('open');
 }
 
-async function mudarStatusDfd(status) {
+async function mudarStatusDfd(status, senha_mestra, justificativa) {
+  const msg = document.getElementById('dfd-acao-msg');
   try {
     const res = await fetch(`/api/pac/dfds/${_dfdAtualId}/status`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, senha_mestra, justificativa }),
     });
-    if (!res.ok) throw new Error();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (msg) msg.textContent = data.error || 'Erro ao mudar status do DFD.'; else toast(data.error || 'Erro ao mudar status do DFD', 'error');
+      return;
+    }
+    toast('Status atualizado', 'success');
     carregarDetalheDfd();
   } catch {
-    toast('Erro ao mudar status do DFD', 'error');
+    if (msg) msg.textContent = 'Erro ao mudar status do DFD.'; else toast('Erro ao mudar status do DFD', 'error');
   }
 }
 
@@ -491,9 +567,9 @@ async function toggleSetorUsuario(userId, vinculado) {
 /* ── Parâmetros (listas de dropdown) ────────────────────────────────────── */
 
 const LISTAS_PARAMETRO = [
-  ['tipo', 'Tipo'], ['subitem', 'Subitem'], ['prioridade', 'Prioridade'],
+  ['tipo', 'Tipo'], ['subitem', 'Subitem (histórico — Objeto virou digitável)'], ['prioridade', 'Prioridade'],
   ['fonte_pagadora', 'Fonte Pagadora'], ['unidade_medida', 'Unidade'], ['sim_nao', 'Sim/Não'],
-  ['natureza_orcamentaria', 'Natureza Orçamentária'],
+  ['tipo_contratacao', 'Tipo de Contratação'], ['natureza_orcamentaria', 'Natureza Orçamentária'],
 ];
 
 function popularSelectListas() {
@@ -668,7 +744,12 @@ async function popularSelectDfdsExecucao() {
   const solSel = document.getElementById('sol-dfd-select');
   const acompSel = document.getElementById('acomp-dfd-select');
   if (solSel) solSel.innerHTML = opts;
-  if (acompSel) acompSel.innerHTML = opts;
+  // Pedido do Alex, 2026-09-15: assim que o DFD é enviado para análise, ele
+  // sai de Acompanhamento e só aparece em Consolidação — Acompanhamento
+  // (aqui) fica restrito a quem ainda está "Aberto" (em lançamento).
+  if (acompSel) acompSel.innerHTML = _dfds.filter(d => d.status === 'aberto')
+    .map(d => `<option value="${d.id}">${codigoDfd(d)} — ${d.titulo}</option>`).join('')
+    || `<option value="">Nenhum DFD aberto no momento</option>`;
 
   try {
     const [setoresRes, naturezaRes] = await Promise.all([
@@ -699,22 +780,47 @@ async function popularSelectDfdsExecucao() {
    finalizar a consolidação de um setor a numeração é reordenada de novo
    (Momento 3), excluindo cancelados da sequência ativa. ────────────────────── */
 
+// Pedido do Alex, 2026-09-15: página inicial de Consolidação só com os
+// DFDs "não consolidados" (o que precisa de ação), guias separadas pra
+// consolidados/cancelados — antes só existia a tabela de consolidados.
+function mudarConsolListaSubtab(sub) {
+  document.querySelectorAll('.consol-lista-subtab').forEach(b => b.classList.toggle('active', b.dataset.sub === sub));
+  ['pendentes', 'consolidados', 'cancelados'].forEach(s =>
+    document.getElementById(`consol-lista-${s}`).style.display = s === sub ? 'block' : 'none');
+}
+
 async function carregarConsolidacaoLista() {
   document.getElementById('consol-lista').style.display = 'block';
   document.getElementById('consol-detalhe').style.display = 'none';
   if (!_dfds.length) await carregarDfds();
-  const tbody = document.getElementById('consol-tbody');
-  tbody.innerHTML = `<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
-  const linhas = (await Promise.all(_dfds.map(async d => {
+
+  const consolidacoes = (await Promise.all(_dfds.map(async d => {
     const res = await fetch(`/api/pac/dfds/${d.id}/consolidado`);
     const info = res.ok ? await res.json() : { consolidado: false };
-    return info.consolidado ? { dfd: d, info } : null;
-  }))).filter(Boolean);
-  if (!linhas.length) {
-    tbody.innerHTML = `<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum DFD consolidado ainda.</td></tr>`;
-    return;
-  }
-  tbody.innerHTML = linhas.map(({ dfd, info }) => `
+    return { dfd: d, info };
+  })));
+
+  const cancelados = _dfds.filter(d => d.status === 'cancelado');
+  const consolidados = consolidacoes.filter(c => c.info.consolidado);
+  // "Não consolidados" = já em análise (saiu de Acompanhamento) mas ainda
+  // sem consolidação gerada — é o que precisa de atenção do DEPLA aqui.
+  const pendentes = _dfds.filter(d => d.status === 'analise' && !consolidados.some(c => c.dfd.id === d.id));
+
+  const tbodyPend = document.getElementById('consol-tbody-pendentes');
+  tbodyPend.innerHTML = pendentes.map(d => `
+    <tr>
+      <td><strong>${codigoDfd(d)}</strong></td>
+      <td>${d.titulo}</td>
+      <td>${d.ano_base}</td>
+      <td>${badgeStatusDfd(d.status)}</td>
+      <td style="text-align:right;white-space:nowrap;">
+        <button class="btn btn-secondary btn-sm" onclick="irParaDfd(${d.id})">Abrir DFD</button>
+      </td>
+    </tr>
+  `).join('') || `<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum DFD aguardando consolidação.</td></tr>`;
+
+  const tbody = document.getElementById('consol-tbody');
+  tbody.innerHTML = consolidados.map(({ dfd, info }) => `
     <tr>
       <td><strong>${codigoDfd(dfd)}</strong></td>
       <td>${dfd.titulo}</td>
@@ -725,7 +831,19 @@ async function carregarConsolidacaoLista() {
         <button class="btn btn-secondary btn-sm" onclick="abrirConsolidadoDetalhe(${dfd.id},'${(dfd.titulo || '').replace(/'/g, "\\'")}',${dfd.ano_base})">Ver consolidado</button>
       </td>
     </tr>
-  `).join('');
+  `).join('') || `<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum DFD consolidado ainda.</td></tr>`;
+
+  const tbodyCanc = document.getElementById('consol-tbody-cancelados');
+  tbodyCanc.innerHTML = cancelados.map(d => `
+    <tr>
+      <td><strong>${codigoDfd(d)}</strong></td>
+      <td>${d.titulo}</td>
+      <td>${d.ano_base}</td>
+      <td>${d.justificativa_cancelamento || '—'}</td>
+      <td>${d.cancelado_por_username || '—'}</td>
+      <td>${fmtBrData(d.cancelado_em)}</td>
+    </tr>
+  `).join('') || `<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum DFD cancelado.</td></tr>`;
 }
 
 let _consolDfdId = null;
@@ -788,6 +906,11 @@ async function renderConsolidadoDetalhe() {
   document.getElementById('consol-corpo-normal').style.display = 'block';
   if (finalizado) {
     document.getElementById('consol-relatorio-numero').textContent = codigoDfd(dfdInfo);
+    // Pedido do Alex, 2026-09-15: "DFD uma vez reordenado, não pode ter mais
+    // esta opção" — servidor já bloqueia (409), aqui só some o botão.
+    const jaReordenado = !!dfdInfo?.reordenado_em;
+    document.getElementById('consol-btn-reordenar').style.display = jaReordenado ? 'none' : '';
+    document.getElementById('consol-reordenar-feito').style.display = jaReordenado ? 'inline' : 'none';
   }
 
   // Filtro por setor — populado com os setores que realmente têm item aqui.

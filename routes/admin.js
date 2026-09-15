@@ -143,7 +143,7 @@ router.put('/api/admin/usuarios/:id/secad-cidades', requireAdminAny, (req, res) 
 
 // Chaves de config que NUNCA podem ir pro frontend (segredos). Este endpoint é
 // consumido por qualquer usuário logado (auth.js), então segredos ficam de fora.
-const CONFIG_SECRETA = new Set(['cpfhub_api_key']);
+const CONFIG_SECRETA = new Set(['cpfhub_api_key', 'pac_senha_mestra_hash', 'pac_senha_mestra_salt']);
 
 router.get('/api/config', (req, res) => {
   const rows = db.prepare(`SELECT chave, valor FROM config`).all();
@@ -161,6 +161,23 @@ router.put('/api/admin/config', requireAdminAny, (req, res) => {
   // Redige segredos (ex.: cpfhub_api_key) no log — nunca gravar o valor em claro.
   const resumo = entries.map(([c, v]) => `${c}=${CONFIG_SECRETA.has(c) ? '***' : v}`).join(', ');
   registrarLog(req, 'CONFIG', 'ALTEROU', `Parâmetros atualizados: ${resumo}`);
+  res.json({ ok: true });
+});
+
+// Senha mestra do PAC (gate extra pra reabrir um DFD já fechado/em análise —
+// ver PATCH /api/pac/dfds/:id/status) — nunca fica em texto puro, mesmo
+// esquema de hash+salt já usado pra senha de usuário (crypto.pbkdf2Sync).
+// Write-only por design: não existe rota de leitura (CONFIG_SECRETA já
+// esconde as 2 chaves do GET /api/config genérico).
+router.put('/api/admin/senha-mestra-pac', requireAdminAny, (req, res) => {
+  const { senha } = req.body || {};
+  if (!senha || String(senha).length < 6) return res.status(400).json({ error: 'A senha mestra precisa ter ao menos 6 caracteres.' });
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(String(senha), salt, 100000, 64, 'sha512').toString('hex');
+  const upsert = db.prepare(`INSERT INTO config (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor`);
+  upsert.run('pac_senha_mestra_hash', hash);
+  upsert.run('pac_senha_mestra_salt', salt);
+  registrarLog(req, 'CONFIG', 'ALTEROU', 'Definiu/alterou a senha mestra do PAC (reabrir DFD)');
   res.json({ ok: true });
 });
 

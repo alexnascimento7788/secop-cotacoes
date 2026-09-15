@@ -26,6 +26,27 @@ function setoresDoUsuario(userId) {
   return db.prepare(`SELECT setor_id FROM setor_usuarios WHERE user_id = ?`).all(userId).map(r => r.setor_id);
 }
 
+// "Especificação do Objeto" (descricao_objeto) precisa de um mínimo de
+// caracteres quando preenchida — pedido do Alex, 2026-09-15, parametrizável
+// (config.pac_especificacao_min_caracteres, default 50) em vez de fixo no
+// código. Só valida quando o valor VEM no payload (não bloqueia um rascunho
+// que ainda não chegou nesse campo — quem barra "em branco" no fechamento é
+// itensComPendencia, mais abaixo). colunaId() é hoisted (function
+// declaration), pode ser chamada aqui mesmo definida depois no arquivo.
+function validarEspecificacaoObjeto(valores) {
+  if (!valores) return null;
+  const colId = colunaId('descricao_objeto');
+  if (colId == null || !(colId in valores)) return null;
+  const valor = valores[colId];
+  if (valor == null || String(valor).trim() === '') return null;
+  const minimo = Number(db.prepare(`SELECT valor FROM config WHERE chave = 'pac_especificacao_min_caracteres'`).get()?.valor) || 50;
+  const atual = String(valor).trim().length;
+  if (atual < minimo) {
+    return { mensagem: `A Especificação do Objeto precisa ter ao menos ${minimo} caracteres (tem ${atual}).`, minimo, atual };
+  }
+  return null;
+}
+
 // DEPLA (perfil com 'ver' em pac-gestao) enxerga o DFD inteiro (todos os
 // setores lado a lado); gestor de setor só o próprio recorte — usado pra
 // decidir o filtro nas listagens de DFDs/itens/pedidos.
@@ -111,6 +132,26 @@ router.get('/api/pac/meus-setores', pac, requireRotinaPac('ver'), (req, res) => 
   if (!ids.length) return res.json([]);
   const ph = ids.map(() => '?').join(',');
   res.json(db.prepare(`SELECT id, nome FROM setores WHERE id IN (${ph}) AND ativo = 1 ORDER BY ordem`).all(...ids));
+});
+
+// Setor "padrão" de quem atua em mais de 1 setor — só afeta a saudação/
+// indicador de prazo em Lançamento (ver atualizarCabecalhoUsuario em
+// pac-lancamento.js), nunca o que ele pode acessar (isso é setor_usuarios).
+// Autoatendimento (o próprio usuário escolhe) em vez de campo no cadastro do
+// admin — só ele sabe qual é o setor "principal" do dia a dia dele, e assim
+// evita mexer no admin.html sob pressão de tempo (Alex ausente pra validar).
+router.get('/api/pac/meu-setor-default', pac, requireRotinaPac('ver'), (req, res) => {
+  const row = db.prepare(`SELECT setor_default_id FROM users WHERE id = ?`).get(req.user.user_id);
+  res.json({ setor_default_id: row?.setor_default_id ?? null });
+});
+
+router.put('/api/pac/meu-setor-default', pac, requireRotinaPac('ver'), (req, res) => {
+  const { setor_id } = req.body || {};
+  if (setor_id != null && req.user.username !== 'master' && !setoresDoUsuario(req.user.user_id).includes(Number(setor_id))) {
+    return res.status(403).json({ error: 'Você não pertence a este setor.' });
+  }
+  db.prepare(`UPDATE users SET setor_default_id = ? WHERE id = ?`).run(setor_id || null, req.user.user_id);
+  res.json({ ok: true });
 });
 
 // ── PAC: setores (cadastro do DEPLA) ──────────────────────────────────────────
@@ -235,9 +276,10 @@ router.get('/api/pac/dfds', pac, requireRotinaPac('ver'), (req, res) => {
   if (temPacGestao(req)) {
     // DEPLA/master: contagem de TODOS os itens do DFD (todos os setores).
     rows = db.prepare(`
-      SELECT d.*,
+      SELECT d.*, u.username AS cancelado_por_username,
         (SELECT COUNT(*) FROM dfd_itens WHERE dfd_id = d.id AND excluido_em IS NULL) AS itens_count
-      FROM dfds d ORDER BY d.ano_base DESC, d.id DESC
+      FROM dfds d LEFT JOIN users u ON u.id = d.cancelado_por
+      ORDER BY d.ano_base DESC, d.id DESC
     `).all();
   } else {
     const meus = setoresDoUsuario(req.user.user_id);
@@ -300,14 +342,74 @@ router.put('/api/pac/dfds/:id', pac, requireRotina('pac-gestao', 'alterar'), (re
   res.json({ ok: true });
 });
 
-const DFD_STATUS_VALIDOS = new Set(['aberto', 'analise', 'fechado']);
+const DFD_STATUS_VALIDOS = new Set(['aberto', 'analise', 'fechado', 'cancelado']);
+// Regras de transição reforçadas — pedido do Alex, 2026-09-15: hoje dava pra
+// mandar um DFD pra análise mesmo sem todos os setores terem finalizado o
+// lançamento (itensComPendencia/dfd_setores.finalizado_em já impedem um
+// setor de finalizar com linha incompleta, mas nada impedia PULAR essa
+// checagem inteira mandando o DFD direto pra análise). "Fechar" também não
+// checava nada, e "Reabrir" (voltar de análise/fechado pra aberto) não tinha
+// nenhum freio a mais, apesar de ser a ação mais arriscada (destrava escrita
+// num DFD que já passou por consolidação).
 router.patch('/api/pac/dfds/:id/status', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
-  const { status } = req.body || {};
+  const { status, senha_mestra, justificativa } = req.body || {};
   if (!DFD_STATUS_VALIDOS.has(status)) return res.status(400).json({ error: 'Status inválido' });
-  const dfd = db.prepare(`SELECT titulo FROM dfds WHERE id = ?`).get(req.params.id);
+  const dfd = db.prepare(`SELECT id, titulo, ano_base, status FROM dfds WHERE id = ?`).get(req.params.id);
   if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
+
+  if (status === 'cancelado') {
+    // Só cancela um DFD ainda "aberto" — uma vez em análise/fechado, já tem
+    // trabalho de setor/consolidação em cima, então usar o cancelamento de
+    // ITEM (já existente) é o caminho certo, não cancelar o documento inteiro.
+    if (dfd.status !== 'aberto') return res.status(409).json({ error: 'Só é possível cancelar um DFD ainda aberto (sem consolidação em andamento).' });
+    if (!String(justificativa || '').trim()) return res.status(400).json({ error: 'Justificativa é obrigatória para cancelar.' });
+    db.prepare(`
+      UPDATE dfds SET status = 'cancelado', justificativa_cancelamento = ?, cancelado_por = ?, cancelado_em = datetime('now'), atualizado_em = datetime('now')
+      WHERE id = ?
+    `).run(String(justificativa).trim(), req.user.user_id, dfd.id);
+    registrarLog(req, 'PAC', 'CANCELOU_DFD', `Cancelou o DFD "${dfd.titulo}": ${String(justificativa).trim()}`);
+    return res.json({ ok: true });
+  }
+
+  if (status === 'analise') {
+    const setoresPart = db.prepare(`SELECT finalizado_em FROM dfd_setores WHERE dfd_id = ?`).all(dfd.id);
+    if (!setoresPart.length || setoresPart.some(s => !s.finalizado_em)) {
+      return res.status(409).json({ error: 'Nem todos os setores finalizaram o lançamento ainda — não é possível enviar para análise.' });
+    }
+  }
+  if (status === 'fechado' && dfd.status !== 'analise') {
+    return res.status(409).json({ error: 'Envie o DFD para análise antes de fechá-lo.' });
+  }
+  if (status === 'aberto') {
+    // Reabrir é a ação mais sensível (destrava escrita num DFD que já pode
+    // ter sido consolidado) — exige a senha mestra do PAC, configurada em
+    // Configurações → Parâmetros. Sem ela configurada ainda, bloqueia com
+    // uma mensagem clara em vez de deixar reabrir de graça.
+    const cfgHash = db.prepare(`SELECT valor FROM config WHERE chave = 'pac_senha_mestra_hash'`).get()?.valor;
+    const cfgSalt = db.prepare(`SELECT valor FROM config WHERE chave = 'pac_senha_mestra_salt'`).get()?.valor;
+    if (!cfgHash || !cfgSalt) {
+      return res.status(409).json({ error: 'Configure a senha mestra do PAC em Configurações → Parâmetros antes de reabrir um DFD.' });
+    }
+    if (!senha_mestra) {
+      return res.status(401).json({ error: 'Informe a senha mestra para reabrir este DFD.', precisaSenhaMestra: true });
+    }
+    const hashInformado = crypto.pbkdf2Sync(String(senha_mestra), cfgSalt, 100000, 64, 'sha512').toString('hex');
+    if (hashInformado !== cfgHash) {
+      return res.status(401).json({ error: 'Senha mestra incorreta.', precisaSenhaMestra: true });
+    }
+  }
+
   db.prepare(`UPDATE dfds SET status = ?, atualizado_em = datetime('now') WHERE id = ?`).run(status, req.params.id);
   registrarLog(req, 'PAC', 'MUDOU_STATUS_DFD', `DFD "${dfd.titulo}" → ${status}`);
+  if (status === 'fechado') {
+    const setoresParticipantes = db.prepare(`SELECT setor_id FROM dfd_setores WHERE dfd_id = ?`).all(dfd.id);
+    setoresParticipantes.forEach(({ setor_id }) => {
+      mailer.enfileirar('pac.dfd.fechado.gestao', {
+        dfd_titulo: dfd.titulo, dfd_ano: dfd.ano_base,
+        nome_gestor: req.user.nome_completo || req.user.username,
+      }, mailer.resolverDestinatarios('setor', { setor_id }));
+    });
+  }
   res.json({ ok: true });
 });
 
@@ -420,6 +522,8 @@ router.post('/api/pac/dfds/:id/itens', pac, requireRotina('pac-lancamento', 'inc
   const setor = db.prepare(`SELECT id, nome, sigla FROM setores WHERE id = ?`).get(setor_id);
   const participa = db.prepare(`SELECT 1 FROM dfd_setores WHERE dfd_id = ? AND setor_id = ?`).get(dfdId, setor_id);
   if (!participa) return res.status(400).json({ error: 'Este setor não participa deste DFD.' });
+  const erroEspecificacao = validarEspecificacaoObjeto(valores);
+  if (erroEspecificacao) return res.status(400).json({ error: erroEspecificacao.mensagem, especificacaoMinima: erroEspecificacao });
 
   const max = db.prepare(`SELECT COALESCE(MAX(numero_item), 0) AS m FROM dfd_itens WHERE dfd_id = ? AND setor_id = ?`).get(dfdId, setor_id).m;
   const numeroItem = max + 1;
@@ -461,6 +565,8 @@ router.put('/api/pac/itens/:id',
     if (req.user.username !== 'master' && !setoresDoUsuario(req.user.user_id).includes(item.setor_id)) {
       return res.status(403).json({ error: 'Você não pertence ao setor deste item.' });
     }
+    const erroEspecificacao = validarEspecificacaoObjeto(req.body?.valores);
+    if (erroEspecificacao) return res.status(400).json({ error: erroEspecificacao.mensagem, especificacaoMinima: erroEspecificacao });
     const colunasAtivas = new Set(db.prepare(`SELECT coluna_id FROM dfd_colunas_ativas WHERE dfd_id = ?`).all(item.dfd_id).map(r => r.coluna_id));
     const upsert = db.prepare(`
       INSERT INTO dfd_itens_valores (item_id, coluna_id, valor) VALUES (?, ?, ?)
@@ -977,10 +1083,15 @@ const NATUREZA_ORDEM = [
 // cruzando setor, pela Natureza de cada um; item sem Natureza preenchida
 // (legado, ou coluna não ativada nesse DFD) cai no fim, não trava nada.
 router.post('/api/pac/dfds/:id/reordenar-por-classificacao', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
-  const dfd = db.prepare(`SELECT id, status, titulo FROM dfds WHERE id = ?`).get(req.params.id);
+  const dfd = db.prepare(`SELECT id, status, titulo, reordenado_em FROM dfds WHERE id = ?`).get(req.params.id);
   if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
   if (dfd.status !== 'fechado') {
     return res.status(409).json({ error: 'Só é possível reordenar por classificação depois que o DFD inteiro for finalizado.' });
+  }
+  // Pedido do Alex, 2026-09-15: "DFD uma vez reordenado, não pode ter mais
+  // esta opção" — ação de mão única, não é possível desfazer nem repetir.
+  if (dfd.reordenado_em) {
+    return res.status(409).json({ error: 'Este DFD já foi reordenado por classificação — a ação só pode ser feita uma vez.' });
   }
   const itens = db.prepare(`
     SELECT di.id, di.natureza_consolidacao AS natureza
@@ -999,6 +1110,7 @@ router.post('/api/pac/dfds/:id/reordenar-por-classificacao', pac, requireRotina(
   `).run(dfd.id);
   const upd = db.prepare(`UPDATE dfd_itens SET numero_pac = ? WHERE id = ?`);
   itens.forEach((item, i) => upd.run(String(i + 1), item.id));
+  db.prepare(`UPDATE dfds SET reordenado_em = datetime('now') WHERE id = ?`).run(dfd.id);
   registrarLog(req, 'PAC', 'REORDENOU_POR_CLASSIFICACAO', `Reordenou o numero_pac do DFD "${dfd.titulo}" #${dfd.id} por classificação (${itens.length} itens)`);
   res.json({ ok: true, total_itens: itens.length });
 });
