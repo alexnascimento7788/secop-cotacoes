@@ -174,10 +174,36 @@
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
               <div id="dfd-det-acoes"></div>
+              <button class="btn btn-secondary btn-sm" id="dfd-det-btn-acomp" onclick="irParaAcompanhamentoDoDfd()" style="display:none;">📊 Acompanhamento</button>
               <button class="btn btn-secondary btn-sm" onclick="abrirConfigDfd()">⚙️ Configurações</button>
             </div>
           </div>
         </div>
+
+        <!-- Painel de ação — cada botão de dfd-det-acoes abre isto em vez de
+             disparar direto, com explicação do que a ação faz + confirmação
+             explícita + voltar (pedido do Alex, 2026-09-15: "botões mais auto
+             indicativos [...] abram uma aba específica deles, com o botão de
+             executar a função ali dentro e um explicativo ao usuário do que
+             ele faz assim como o voltar"). -->
+        <div class="pac-card" id="dfd-det-acao-painel" style="display:none;border-color:var(--laranja, #d68a00);">
+          <div class="pac-card-title" id="dfd-acao-titulo">—</div>
+          <p class="text-muted" id="dfd-acao-explicacao" style="font-size:13px;line-height:1.6;"></p>
+          <div class="form-group" id="dfd-acao-senha-wrap" style="display:none;max-width:280px;">
+            <label for="dfd-acao-senha">Senha mestra do PAC</label>
+            <input type="password" id="dfd-acao-senha" autocomplete="off" />
+          </div>
+          <div class="form-group" id="dfd-acao-justificativa-wrap" style="display:none;max-width:480px;">
+            <label for="dfd-acao-justificativa">Motivo do cancelamento</label>
+            <textarea id="dfd-acao-justificativa" rows="2"></textarea>
+          </div>
+          <div id="dfd-acao-msg" style="font-size:12.5px;font-weight:600;color:var(--vermelho);min-height:16px;margin:4px 0;"></div>
+          <div style="display:flex;gap:8px;margin-top:10px;">
+            <button class="btn btn-primary btn-sm" id="dfd-acao-executar" onclick="executarAcaoDfd()">Executar</button>
+            <button class="btn btn-secondary btn-sm" onclick="fecharAcaoDfd()">Voltar</button>
+          </div>
+        </div>
+
         <div class="pac-card">
           <div class="pac-card-title">Itens lançados (todos os setores)</div>
           <div class="table-wrap dfd-table-wrap">
@@ -193,7 +219,31 @@
     <!-- ═══ Consolidação ═══ -->
     <div id="pane-consolidacao" class="pac-pane">
       <div id="consol-lista">
-        <div class="pac-card">
+        <!-- 3 guias — pedido do Alex, 2026-09-15: página inicial só com os
+             não consolidados (é o que precisa de ação), consolidados e
+             cancelados em guias à parte. -->
+        <div class="consol-subtabs">
+          <button class="consol-subtab consol-lista-subtab active" data-sub="pendentes" onclick="mudarConsolListaSubtab('pendentes')">Não consolidados</button>
+          <button class="consol-subtab consol-lista-subtab" data-sub="consolidados" onclick="mudarConsolListaSubtab('consolidados')">DFDs consolidados</button>
+          <button class="consol-subtab consol-lista-subtab" data-sub="cancelados" onclick="mudarConsolListaSubtab('cancelados')">DFDs cancelados</button>
+        </div>
+
+        <div class="pac-card" id="consol-lista-pendentes">
+          <div class="pac-card-title">DFDs não consolidados</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Código</th><th>Título</th><th>Ano</th><th>Status</th><th></th></tr></thead>
+              <tbody id="consol-tbody-pendentes"><tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
+            </table>
+          </div>
+          <p class="text-muted" style="margin-top:10px;font-size:12.5px;">
+            Um DFD entra aqui assim que é enviado para análise (some de Acompanhamento). Use
+            "Gerar Consolidação" — hoje dentro do próprio DFD, em Administração → DFDs — quando
+            todos os setores já tiverem finalizado o lançamento.
+          </p>
+        </div>
+
+        <div class="pac-card" id="consol-lista-consolidados" style="display:none;">
           <div class="pac-card-title">DFDs consolidados</div>
           <div class="table-wrap">
             <table>
@@ -201,10 +251,16 @@
               <tbody id="consol-tbody"><tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
             </table>
           </div>
-          <p class="text-muted" style="margin-top:10px;font-size:12.5px;">
-            Um DFD entra aqui depois que todos os setores finalizarem o lançamento e o
-            DEPLA clicar "Gerar Consolidação" na aba Acompanhamento.
-          </p>
+        </div>
+
+        <div class="pac-card" id="consol-lista-cancelados" style="display:none;">
+          <div class="pac-card-title">DFDs cancelados</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Código</th><th>Título</th><th>Ano</th><th>Motivo</th><th>Cancelado por</th><th>Quando</th></tr></thead>
+              <tbody id="consol-tbody-cancelados"><tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
+            </table>
+          </div>
         </div>
       </div>
       <div id="consol-detalhe" style="display:none;">
@@ -222,7 +278,8 @@
               <!-- Reordena numero_pac por classificação (Tipo/Subitem/Natureza) —
                    pedido do Alex, 2026-09-08: "de preferência um botão
                    específico" — ação separada, não roda sozinha. -->
-              <button class="btn btn-secondary" onclick="reordenarPorClassificacao()">🔀 Reordenar por classificação</button>
+              <button class="btn btn-secondary" id="consol-btn-reordenar" onclick="reordenarPorClassificacao()">🔀 Reordenar por classificação</button>
+              <span class="text-muted" id="consol-reordenar-feito" style="display:none;font-size:12.5px;align-self:center;">🔀 Já reordenado por classificação — ação de uso único.</span>
               <button class="btn btn-primary" id="consol-btn-relatorio" onclick="abrirRelatorioDfd()">🖨 Emitir Relatório DFD nº <span id="consol-relatorio-numero"></span></button>
             </div>
           </div>

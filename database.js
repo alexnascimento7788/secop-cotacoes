@@ -114,6 +114,9 @@ function setupDb() {
     { chave: 'alerta_dias_vermelho', valor: '10' },
     { chave: 'inatividade_minutos',  valor: '30' },
     { chave: 'lixeira_dias',         valor: '60' },
+    // Mínimo de caracteres da "Especificação do Objeto" no PAC (pedido do
+    // Alex, 2026-09-15) — parametrizável em vez de fixo no código.
+    { chave: 'pac_especificacao_min_caracteres', valor: '50' },
   ].forEach(c => {
     try {
       _db.prepare(`INSERT INTO config (chave, valor) VALUES (?, ?)`).run(c.chave, c.valor);
@@ -946,6 +949,21 @@ function setupDb() {
   // (criados antes desta versão) ficam com NULL, sem migração retroativa
   // forçada (ninguém tem como adivinhar a data deles).
   try { _db.exec(`ALTER TABLE dfds ADD COLUMN data_entrega TEXT`); } catch {}
+  // Reordenar por classificação só pode acontecer 1 vez (pedido do Alex,
+  // 2026-09-15: "DFD uma vez reordenado, não pode ter mais esta opção") —
+  // ver POST /api/pac/dfds/:id/reordenar-por-classificacao.
+  try { _db.exec(`ALTER TABLE dfds ADD COLUMN reordenado_em DATETIME`); } catch {}
+  // Setor "padrão" do usuário (quem atua em mais de 1 setor tem um principal)
+  // — usado só pra saudação/indicador de prazo em Lançamento, nunca restringe
+  // a quais setores ele tem acesso (isso continua sendo setor_usuarios).
+  try { _db.exec(`ALTER TABLE users ADD COLUMN setor_default_id INTEGER REFERENCES setores(id)`); } catch {}
+  // DFD cancelado (nível do documento inteiro, não item) — pedido do Alex,
+  // 2026-09-15: Consolidação ganha uma guia "DFDs cancelados" separada de
+  // "DFDs consolidados"; mesmas 3 colunas de auditoria que dfd_itens já usa
+  // pra cancelamento de item (justificativa/quem/quando).
+  try { _db.exec(`ALTER TABLE dfds ADD COLUMN justificativa_cancelamento TEXT`); } catch {}
+  try { _db.exec(`ALTER TABLE dfds ADD COLUMN cancelado_por INTEGER REFERENCES users(id)`); } catch {}
+  try { _db.exec(`ALTER TABLE dfds ADD COLUMN cancelado_em DATETIME`); } catch {}
 
   // Seed dos setores participantes do PAC (nomes exatamente como fornecidos)
   [
@@ -974,6 +992,10 @@ function setupDb() {
     // já é o estado "Pendente" por ausência de valor — é "nunca foi
     // capturado nesta migração"). Ver routes/pac-importacao.js.
     seedLista('sim_nao', ['Sim', 'Não', 'Não informado']);
+    // Pedido do Alex, 2026-09-15: "Dependência?" vira "Tipo de Contratação"
+    // com opções fechadas (não reaproveita 'sim_nao' — são listas
+    // independentes, mudar uma não pode mudar a outra).
+    seedLista('tipo_contratacao', ['Aditivo', 'Nova Contratação']);
     // Natureza de despesa — pedido do Alex, 2026-09-08: árvore de
     // classificação (Tipo → Subitem → Natureza) que decide, no fim, a ORDEM
     // do numero_pac quando o DFD inteiro finaliza (ver reordenarPorClassificacao
@@ -1002,16 +1024,16 @@ function setupDb() {
     };
     seedColuna('numero_item',      'Nº',                       'A', 'auto',     null,             0, 1);
     seedColuna('tipo',             'Tipo',                     'A', 'select',   'tipo',           0, 2);
-    seedColuna('subitem',          'Subitem',                  'A', 'select',   'subitem',        0, 3);
+    seedColuna('subitem',          'Objeto',                   'A', 'texto',    null,             1, 3);
     seedColuna('encaminhar_para',  'Encaminhar para',          'A', 'texto',    null,             0, 4);
-    seedColuna('descricao_objeto', 'Descrição do Objeto',      'A', 'textarea', null,             1, 5);
+    seedColuna('descricao_objeto', 'Especificação do Objeto',  'A', 'textarea', null,             1, 5);
     seedColuna('unidade_medida',   'Unidade',                  'A', 'select',   'unidade_medida', 0, 6);
     seedColuna('quantidade',       'Qtd',                      'A', 'numero',   null,             0, 7);
     seedColuna('valor_estimado',   'Valor Est. Anual (R$)',    'A', 'moeda',    null,             0, 8);
     seedColuna('justificativa',    'Justificativa',            'A', 'textarea', null,             0, 9);
     seedColuna('prioridade',       'Prioridade',                'A', 'select',   'prioridade',     0, 10);
     seedColuna('data_desejada',    'Data Desejada',            'A', 'data',     null,             0, 11);
-    seedColuna('dependencia',      'Dependência?',             'A', 'select',   'sim_nao',        0, 12);
+    seedColuna('dependencia',      'Tipo de Contratação',      'A', 'select',   'tipo_contratacao', 0, 12);
     seedColuna('fonte_pagadora',   'Fonte Pagadora',           'A', 'select',   'fonte_pagadora', 0, 13);
     seedColuna('possui_contrato',  'Possui Contrato?',         'B', 'select',   'sim_nao',        0, 14);
     seedColuna('numero_contrato',  'Nº Contrato',              'C', 'texto',    null,             0, 15);
@@ -1024,6 +1046,17 @@ function setupDb() {
     // que já trata QUALQUER coluna do grupo C genericamente, sem código novo).
     seedColuna('contrato_renovado', 'O contrato será renovado?', 'C', 'select', 'sim_nao',        0, 18);
   }
+
+  // Migração pra quem já tinha o catálogo seedado antes desta versão — o
+  // seedColuna() acima só faz INSERT (silenciosamente ignorado se a linha já
+  // existe), então bases já em uso continuam com o label/tipo antigo sem
+  // isto. Idempotente e sem risco de sobrescrever customização: diferente de
+  // email_templates, este catálogo nunca tem edição manual pelo admin (só
+  // toggle ativo/ordem por DFD, em dfd_colunas_ativas) — sempre seguro
+  // reafirmar o valor-alvo. Pedido do Alex, 2026-09-15.
+  _db.exec(`UPDATE dfd_colunas_catalogo SET label = 'Objeto', tipo_input = 'texto', lista = NULL, obrigatoria = 1 WHERE slug = 'subitem'`);
+  _db.exec(`UPDATE dfd_colunas_catalogo SET label = 'Especificação do Objeto' WHERE slug = 'descricao_objeto'`);
+  _db.exec(`UPDATE dfd_colunas_catalogo SET label = 'Tipo de Contratação', lista = 'tipo_contratacao' WHERE slug = 'dependencia'`);
   // Natureza (pedido do Alex, 2026-09-08) NÃO é coluna do catálogo genérico —
   // 1ª tentativa botou como grupo 'A' igual Tipo/Subitem, e ela apareceu
   // junto das colunas "oficiais" que o setor edita em Lançamento (errado,
@@ -1356,6 +1389,17 @@ function setupDb() {
          <p>A numeração final do PAC já está disponível na plataforma.</p>
          ${botao('Ver Numeração Final')}`,
         ['dfd_titulo', 'dfd_ano', 'total_itens_aprovados', 'total_itens_cancelados']],
+
+      // Pedido do Alex, 2026-09-15: gestor de setor precisa saber quando o
+      // DEPLA fecha o DFD manualmente (rota PATCH /dfds/:id/status), não só
+      // quando o fechamento é automático (consolidação 100% concluída, que já
+      // tem pac.consolidacao.finalizada acima).
+      ['pac.dfd.fechado.gestao', 'PAC: DFD fechado pela gestão',
+        'PAC: o DFD {{dfd_titulo}} foi fechado pela gestão',
+        `<p>O DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}) foi <strong>fechado pela gestão</strong>, por {{nome_gestor}}.</p>
+         <p>A partir de agora este DFD está em modo somente leitura.</p>
+         ${botao('Ver DFD')}`,
+        ['dfd_titulo', 'dfd_ano', 'nome_gestor']],
     ];
 
     const seedTemplate = (slug, nome, assunto, corpoBody, variaveis) => {

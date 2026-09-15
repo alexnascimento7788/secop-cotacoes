@@ -430,6 +430,13 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 [data-theme="dark"] .badge-analise { background: rgba(202,138,4,.22); color: #fde047; }
 [data-theme="dark"] .badge-fechado { background: rgba(100,116,139,.25); color: #cbd5e1; }
 
+/* PAC: campo obrigatório do lançamento ainda em branco — pedido do Alex,
+   2026-09-15: "acenda um alerta na borda [...] com o fundo vermelho e o
+   texto em branco item não preenchido", além do aviso já existente no
+   cabeçalho da página. */
+.campo-pendente { background: var(--vermelho) !important; color: #fff !important; border-color: var(--vermelho) !important; }
+.campo-pendente::placeholder { color: #fff; opacity: .9; }
+
 /* ── PAC: tabela de itens do DFD (colunas configuráveis, potencialmente muitas) ─
    1ª e 2ª colunas fixas (ID PAC / Nº PAC) durante o scroll horizontal.
    max-height + overflow-y própria (em vez de deixar a tabela esticar a

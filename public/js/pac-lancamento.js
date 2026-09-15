@@ -105,26 +105,87 @@ function renderAvatarHeader(user) {
   el.innerHTML = `<div style="width:36px;height:36px;border-radius:50%;background:var(--verde);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;">${iniciais}</div>`;
 }
 
-// Linha 3 do cabeçalho: nome + setor(es) + departamento gestor do módulo —
-// tudo já vem de getCurrentUser()/meus-setores, nenhuma requisição nova.
-// (Antes mostrava um texto fixo "Departamento de Planejamento (DEPLA)" —
-// herdado por engano do pac-gestao.html; aqui quem lança pode ser gestor de
-// qualquer setor, por isso vem dinâmico.)
-async function atualizarCabecalhoUsuario() {
-  const el = document.getElementById('pac-lanc-linha3');
+// Linha 3/4 do cabeçalho — pedido do Alex, 2026-09-15: a linha antiga (nome +
+// lista de setores) ficava feia com quem tem muitos setores (ex.: master, 2
+// linhas quebradas). Vira saudação por horário + 1 linha de análise
+// preditiva sobre o DFD "aberto" mais recente do setor padrão do usuário
+// (novo campo users.setor_default_id, autoatendimento — ver
+// PUT /api/pac/meu-setor-default). Sem setor padrão definido, usa o 1º da
+// lista. "itens_count" já vem de GET /api/pac/dfds (soma dos setores do
+// usuário) — não dá pra separar por setor individual sem requisição extra
+// por DFD, então "começou?" aqui é por usuário, não por setor específico.
+function saudacaoPorHorario() {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 12) return 'Bom dia';
+  if (h >= 12 && h < 18) return 'Boa tarde';
+  return 'Boa noite';
+}
+
+async function salvarSetorDefault(setorId) {
   try {
-    const [user, setoresRes] = await Promise.all([
+    await fetch('/api/pac/meu-setor-default', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ setor_id: Number(setorId) }),
+    });
+    toast('Setor padrão atualizado', 'success');
+  } catch {
+    toast('Erro ao salvar setor padrão', 'error');
+  }
+}
+
+function diasRestantes(dataIso) {
+  if (!dataIso) return null;
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const alvo = new Date(String(dataIso).split(/[T ]/)[0] + 'T00:00:00');
+  return Math.round((alvo - hoje) / 86400000);
+}
+
+async function atualizarCabecalhoUsuario() {
+  const linha3 = document.getElementById('pac-lanc-linha3');
+  const linha4 = document.getElementById('pac-lanc-linha4');
+  try {
+    const [user, setoresRes, setorDefRes] = await Promise.all([
       window.getCurrentUser(),
       fetch('/api/pac/meus-setores'),
+      fetch('/api/pac/meu-setor-default'),
     ]);
     _meusSetores = setoresRes.ok ? await setoresRes.json() : [];
+    const setorDefaultId = setorDefRes.ok ? (await setorDefRes.json()).setor_default_id : null;
     const nome = (user && (user.nome_completo || user.username)) || '';
-    const setores = _meusSetores.map(s => s.nome).join(', ') || 'nenhum setor vinculado';
-    const depto = (user && user.modulo_departamento_nome) || 'DEPLA';
-    el.textContent = `${nome} — ${setores} → ${depto}`;
+    linha3.textContent = `${saudacaoPorHorario()}, ${nome}!`;
+
+    // Setores além do padrão, pra não esconder que existe mais coisa pra
+    // preencher (pedido do Alex: "não impede de na tela termos também vc tem
+    // o Detin e Sepad a preencher") + escolha do setor padrão (autoatendimento).
+    if (_meusSetores.length > 1) {
+      const nomes = _meusSetores.map(s => s.nome).join(' e ');
+      const opcoes = _meusSetores.map(s => `<option value="${s.id}"${s.id === setorDefaultId ? ' selected' : ''}>${s.nome}</option>`).join('');
+      linha3.innerHTML = linha3.textContent + ` Você tem ${nomes} a preencher. ` +
+        `<span style="white-space:nowrap;">Setor padrão: <select id="pac-lanc-setor-default" onchange="salvarSetorDefault(this.value)" style="font-size:11.5px;padding:1px 4px;">${opcoes}</select></span>`;
+    }
+
+    // Análise preditiva sobre o DFD "aberto" mais relevante — o de maior
+    // ano_base ainda aberto, dentre os que aparecem pro usuário.
+    let dfds = [];
+    try { dfds = await fetch('/api/pac/dfds').then(r => r.ok ? r.json() : []); } catch {}
+    const abertos = dfds.filter(d => d.status === 'aberto').sort((a, b) => b.ano_base - a.ano_base || b.id - a.id);
+    const atual = abertos[0];
+    if (!atual) {
+      linha4.style.display = 'none';
+    } else {
+      const dias = diasRestantes(atual.data_entrega);
+      const prazoTxto = dias == null ? '' : dias > 0 ? ` Você tem ${dias} dia(s) para lançar.` : dias === 0 ? ' O prazo termina hoje!' : ` O prazo já venceu há ${-dias} dia(s).`;
+      if (!atual.itens_count) {
+        linha4.textContent = `Notei que você ainda não iniciou o PAC ${atual.ano_base}.${prazoTxto}`;
+      } else {
+        linha4.textContent = dias == null
+          ? `Vi que você já começou o PAC ${atual.ano_base}. Continue lançando os itens.`
+          : `Vi que você já começou o PAC ${atual.ano_base}. Falta pouco? Termina em ${fmtBr(atual.data_entrega)}${prazoTxto}`;
+      }
+      linha4.style.display = '';
+    }
     renderAvatarHeader(user);
   } catch {
-    el.textContent = '';
+    linha3.textContent = '';
   }
 }
 
@@ -462,6 +523,28 @@ async function renderItens() {
   _itensAtuais = res.ok ? await res.json() : [];
   let itensExibidos = filtroSetorId ? _itensAtuais.filter(i => i.setor_id === filtroSetorId) : _itensAtuais;
 
+  // Filtros adicionais — pedido do Alex, 2026-09-15: fonte pagadora, data
+  // desejada, nº PAC, objeto (a antiga coluna "Subitem", agora digitável).
+  const colunaPorSlug = slug => (_dfdAtual.colunas || []).find(c => c.slug === slug);
+  const colFonte = colunaPorSlug('fonte_pagadora');
+  const colData = colunaPorSlug('data_desejada');
+  const colObjeto = colunaPorSlug('subitem');
+
+  const selFonte = document.getElementById('lanc-filtro-fonte');
+  if (selFonte && colFonte && !selFonte.dataset.montado) {
+    selFonte.innerHTML = '<option value="">Todas</option>' + (_listasCache.fonte_pagadora || []).map(o => `<option value="${o.valor}">${o.valor}</option>`).join('');
+    selFonte.dataset.montado = '1';
+  }
+  const fFonte = selFonte?.value;
+  const fData = document.getElementById('lanc-filtro-data')?.value;
+  const fNumeroPac = document.getElementById('lanc-filtro-numero-pac')?.value.trim().toLowerCase();
+  const fObjeto = document.getElementById('lanc-filtro-objeto')?.value.trim().toLowerCase();
+
+  if (fFonte && colFonte) itensExibidos = itensExibidos.filter(i => (i.valores || {})[colFonte.id] === fFonte);
+  if (fData && colData) itensExibidos = itensExibidos.filter(i => (i.valores || {})[colData.id] === fData);
+  if (fNumeroPac) itensExibidos = itensExibidos.filter(i => String(i.numero_pac || '').toLowerCase().includes(fNumeroPac) || String(i.codigo_pac || '').toLowerCase().includes(fNumeroPac));
+  if (fObjeto && colObjeto) itensExibidos = itensExibidos.filter(i => String((i.valores || {})[colObjeto.id] || '').toLowerCase().includes(fObjeto));
+
   // Filtro "só itens com campo em branco" — pedido do Alex, 2026-09-07: o
   // aviso de pendência só cita os 5 primeiros números, isso deixa ver a
   // lista completa (com todas as colunas, pra achar o campo vazio de vez).
@@ -502,6 +585,9 @@ async function renderItens() {
       ${colunasPrincipais.map(c => renderCelula(item, c, -1, liberado)).join('')}
       ${temColContrato ? renderCelulaContrato(item, colunasContrato) : ''}
       <td style="text-align:right;white-space:nowrap;">
+        ${itemEditavel(item, liberado)
+          ? `<button class="btn btn-primary btn-xs" onclick="concluirItem(${item.id})" title="Confere se falta algo e confirma">✅ Concluir</button>`
+          : ''}
         ${podeExcluir
           ? `<button class="btn btn-danger btn-xs" onclick="excluirItem(${item.id})">Excluir</button>`
           : (podeSolicitar ? `<button class="btn btn-secondary btn-xs" onclick="abrirPedido(${item.id}, 'excluir')">Solicitar exclusão</button>` : '')}
@@ -583,7 +669,12 @@ function renderCelula(item, coluna, indice, liberado) {
   // deliberado deixa mais claro o que está acontecendo do que só tirar o
   // foco do campo sem querer.
   const somenteViaLiberado = !(_dfdAtual.status === 'aberto' && !_finalizacaoPorSetor[item.setor_id]);
-  return `<td class="${classe}" data-label="${coluna.label}">${renderInputCelula(item.id, coluna, valor, somenteViaLiberado)}</td>`;
+  // Campo obrigatório (grupo A) ainda em branco — destaque visual direto no
+  // campo, além do aviso já existente no topo da página (pedido do Alex,
+  // 2026-09-15). "numero_item" nunca é editável aqui (tipo 'auto'), não
+  // precisa excluir de novo.
+  const pendente = coluna.grupo === 'A' && (valor === undefined || valor === null || String(valor).trim() === '');
+  return `<td class="${classe}" data-label="${coluna.label}">${renderInputCelula(item.id, coluna, valor, somenteViaLiberado, pendente)}</td>`;
 }
 
 function formatarValorExibicao(coluna, valor) {
@@ -593,30 +684,31 @@ function formatarValorExibicao(coluna, valor) {
   return valor;
 }
 
-function renderInputCelula(itemId, coluna, valor, comBotaoSalvar) {
+function renderInputCelula(itemId, coluna, valor, comBotaoSalvar, pendente) {
   const domId = `campo-${itemId}-${coluna.id}`;
   const base = `id="${domId}" data-item="${itemId}" data-coluna="${coluna.id}" data-tipo="${coluna.tipo_input}"`;
+  const classePendente = pendente ? ' campo-pendente' : '';
   const botaoSalvar = comBotaoSalvar
     ? ` <button type="button" class="btn btn-primary btn-xs" style="vertical-align:middle;" onclick="salvarCampoItem(document.getElementById('${domId}'))" title="Salvar">💾</button>`
     : '';
   if (coluna.tipo_input === 'select') {
     const opcoes = (_listasCache[coluna.lista] || []).map(o =>
       `<option value="${o.valor}" ${o.valor === valor ? 'selected' : ''}>${o.valor}</option>`).join('');
-    return `<select ${base} style="min-width:120px;"><option value="">—</option>${opcoes}</select>${botaoSalvar}`;
+    return `<select ${base} class="${classePendente.trim()}" style="min-width:120px;"><option value="">${pendente ? 'Item não preenchido' : '—'}</option>${opcoes}</select>${botaoSalvar}`;
   }
   if (coluna.tipo_input === 'textarea') {
-    return `<textarea ${base} rows="1" style="min-width:200px;">${valor || ''}</textarea>${botaoSalvar}`;
+    return `<textarea ${base} class="${classePendente.trim()}" rows="1" style="min-width:200px;" placeholder="${pendente ? 'Item não preenchido' : ''}">${valor || ''}</textarea>${botaoSalvar}`;
   }
   if (coluna.tipo_input === 'moeda') {
-    return `<input type="text" ${base} value="${valor != null ? fmtMoeda(valor) : ''}" style="width:110px;text-align:right;" placeholder="0,00" />${botaoSalvar}`;
+    return `<input type="text" ${base} class="${classePendente.trim()}" value="${valor != null ? fmtMoeda(valor) : ''}" style="width:110px;text-align:right;" placeholder="${pendente ? 'Item não preenchido' : '0,00'}" />${botaoSalvar}`;
   }
   if (coluna.tipo_input === 'numero') {
-    return `<input type="number" ${base} value="${valor ?? ''}" style="width:80px;" step="any" />${botaoSalvar}`;
+    return `<input type="number" ${base} class="${classePendente.trim()}" value="${valor ?? ''}" style="width:80px;" step="any" placeholder="${pendente ? 'Não preenchido' : ''}" />${botaoSalvar}`;
   }
   if (coluna.tipo_input === 'data') {
-    return `<input type="date" ${base} value="${valor || ''}" style="width:140px;" />${botaoSalvar}`;
+    return `<input type="date" ${base} class="${classePendente.trim()}" value="${valor || ''}" style="width:140px;" />${botaoSalvar}`;
   }
-  return `<input type="text" ${base} value="${valor || ''}" style="min-width:140px;" />${botaoSalvar}`;
+  return `<input type="text" ${base} class="${classePendente.trim()}" value="${valor || ''}" style="min-width:140px;" placeholder="${pendente ? 'Item não preenchido' : ''}" />${botaoSalvar}`;
 }
 
 /* ── Popup "Dados do contrato" (grupo C) — aberto pela coluna única Contrato ── */
@@ -807,7 +899,12 @@ async function salvarCampoItem(el) {
       toast(e.error || 'Não foi possível salvar.', 'error');
       return;
     }
-    if (!res.ok) { toast(await mensagemErro(res, 'Erro ao salvar campo'), 'error'); return; }
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      if (e.especificacaoMinima) { abrirModalEspecificacaoMin(e.especificacaoMinima.mensagem); return; }
+      toast(e.error || 'Erro ao salvar campo', 'error');
+      return;
+    }
     // Edição sob um pedido aprovado consome o pedido (uso único) — recarrega
     // pra refletir que a linha volta a ficar bloqueada.
     if (_dfdAtual.status !== 'aberto') { await renderMeusPedidos(); await renderItens(); return; }
@@ -825,6 +922,39 @@ async function salvarCampoItem(el) {
   } catch {
     toast('Erro ao salvar campo', 'error');
   }
+}
+
+// "Salvar item" explícito — pedido do Alex, 2026-09-15: "hoje quando termina
+// fica confuso se aperta tab ou enter". Cada campo já salva sozinho ao sair
+// dele (wireCelulas/salvarCampoItem, blur/change) — este botão não manda
+// nada de novo, só confirma pro usuário que não falta campo (mesmo critério
+// de itemTemPendencia) e, se faltar, rola até o primeiro campo em branco em
+// vez de deixar ele procurando na tabela.
+function concluirItem(itemId) {
+  const item = _itensAtuais.find(i => String(i.id) === String(itemId));
+  if (!item) return;
+  if (!itemTemPendencia(item)) {
+    toast('Item completo — todos os campos já estão salvos.', 'success');
+    return;
+  }
+  const colunas = (_dfdAtual.colunas || []).filter(c => c.grupo === 'A' && c.slug !== 'numero_item');
+  const faltando = colunas.find(c => {
+    const v = (item.valores || {})[c.id];
+    return v === undefined || v === null || String(v).trim() === '';
+  });
+  toast(faltando ? `Falta preencher: ${faltando.label}` : 'Ainda há campo(s) em branco neste item.', 'error');
+  if (faltando) {
+    const campo = document.getElementById(`campo-${itemId}-${faltando.id}`);
+    if (campo) { campo.scrollIntoView({ behavior: 'smooth', block: 'center' }); campo.focus(); }
+  }
+}
+
+function abrirModalEspecificacaoMin(mensagem) {
+  document.getElementById('esp-min-msg').textContent = mensagem;
+  document.getElementById('modal-especificacao-min').classList.add('open');
+}
+function fecharModalEspecificacaoMin() {
+  document.getElementById('modal-especificacao-min').classList.remove('open');
 }
 
 function ofertarPedidoEdicao(itemId) {

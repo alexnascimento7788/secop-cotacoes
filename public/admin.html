@@ -397,6 +397,40 @@
           </div>
         </div>
         <div class="admin-section" style="margin-top:24px;">
+          <div class="admin-section-title">PAC — Especificação do Objeto</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Em Lançamento, o campo "Especificação do Objeto" exige este mínimo de
+            caracteres — se o gestor preencher com menos, um aviso aparece antes de salvar.
+          </p>
+          <div class="add-user-form">
+            <div class="form-group" style="max-width:160px;">
+              <label>Mínimo de caracteres</label>
+              <input type="number" id="cfg-pac-especificacao-min" min="1" />
+            </div>
+            <button class="btn btn-primary" onclick="salvarEspecificacaoMin()" style="white-space:nowrap;">
+              Salvar
+            </button>
+          </div>
+        </div>
+        <div class="admin-section" style="margin-top:24px;">
+          <div class="admin-section-title">PAC — Senha mestra (reabrir DFD)</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Exigida em Gestão &gt; DFDs sempre que alguém tentar "Reabrir" um DFD que já
+            está em análise ou fechado — ação sensível, precisa de uma confirmação a mais.
+            Por segurança, a senha atual nunca é exibida aqui, só substituída.
+          </p>
+          <div class="add-user-form">
+            <div class="form-group" style="max-width:220px;">
+              <label>Nova senha mestra</label>
+              <input type="password" id="cfg-pac-senha-mestra" autocomplete="new-password" />
+            </div>
+            <button class="btn btn-primary" onclick="salvarSenhaMestraPac()" style="white-space:nowrap;">
+              Salvar
+            </button>
+          </div>
+          <div id="pac-senha-mestra-msg" style="margin-top:10px;font-size:13px;font-weight:600;min-height:18px;"></div>
+        </div>
+        <div class="admin-section" style="margin-top:24px;">
           <div class="admin-section-title">Validação de CPF (cpfhub.io)</div>
           <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
             Chave de integração da API de consulta de CPF. Fica guardada só no
@@ -1349,6 +1383,7 @@ async function carregarParametros() {
     document.getElementById('cfg-inatividade').value   = cfg.inatividade_minutos  || 30;
     document.getElementById('cfg-lixeira-dias').value  = cfg.lixeira_dias         || 60;
     document.getElementById('cfg-edicao-livre').checked = cfg.secop_edicao_livre === '1';
+    document.getElementById('cfg-pac-especificacao-min').value = cfg.pac_especificacao_min_caracteres || 50;
     const lixeiraTxt = document.getElementById('lixeira-dias-txt');
     if (lixeiraTxt) lixeiraTxt.textContent = cfg.lixeira_dias || 60;
   } catch {}
@@ -1392,6 +1427,40 @@ async function salvarEdicaoLivre(ligado) {
   } catch {
     toast('Erro ao salvar', 'error');
     carregarParametros();
+  }
+}
+
+async function salvarEspecificacaoMin() {
+  const val = parseInt(document.getElementById('cfg-pac-especificacao-min').value);
+  if (!val || val < 1) { toast('Informe um mínimo de caracteres válido.', 'error'); return; }
+  try {
+    const res = await fetch('/api/admin/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pac_especificacao_min_caracteres: val }),
+    });
+    if (!res.ok) throw new Error();
+    toast('Mínimo de caracteres salvo!', 'success');
+  } catch { toast('Erro ao salvar', 'error'); }
+}
+
+async function salvarSenhaMestraPac() {
+  const msg = document.getElementById('pac-senha-mestra-msg');
+  const inp = document.getElementById('cfg-pac-senha-mestra');
+  const senha = inp.value;
+  msg.textContent = '';
+  if (!senha || senha.length < 6) { msg.style.color = 'var(--vermelho)'; msg.textContent = 'A senha precisa ter ao menos 6 caracteres.'; return; }
+  try {
+    const res = await fetch('/api/admin/senha-mestra-pac', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Erro ao salvar.');
+    inp.value = '';
+    msg.style.color = 'var(--verde)'; msg.textContent = 'Senha mestra atualizada.';
+    toast('Senha mestra do PAC atualizada!', 'success');
+  } catch (e) {
+    msg.style.color = 'var(--vermelho)'; msg.textContent = e.message || 'Erro ao salvar.';
   }
 }
 
@@ -3136,7 +3205,11 @@ async function carregarFila() {
   const status = document.getElementById('comm-fila-filtro').value;
   const tbody = document.getElementById('comm-fila-tbody');
   try {
-    const rows = await fetch(`/api/email/fila${status ? '?status=' + status : ''}`).then(r => r.json());
+    const [rows, user] = await Promise.all([
+      fetch(`/api/email/fila${status ? '?status=' + status : ''}`).then(r => r.json()),
+      window.getCurrentUser(),
+    ]);
+    const ehMaster = user.username === 'master';
     tbody.innerHTML = rows.map(f => `
       <tr>
         <td>${fmtDataHoraBr(f.criado_em)}</td>
@@ -3148,6 +3221,7 @@ async function carregarFila() {
         <td style="white-space:nowrap;">
           ${['erro', 'cancelado'].includes(f.status) ? `<button class="btn btn-secondary btn-sm" onclick="reenviarFila(${f.id})">Reenviar</button>` : ''}
           ${f.status === 'pendente' ? `<button class="btn btn-secondary btn-sm" onclick="cancelarFila(${f.id})">Cancelar</button>` : ''}
+          ${f.status === 'erro' && ehMaster ? `<button class="btn btn-danger btn-sm" onclick="excluirFilaErro(${f.id})">Excluir</button>` : ''}
         </td>
       </tr>
     `).join('') || '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:16px;">Fila vazia.</td></tr>';
@@ -3176,6 +3250,18 @@ async function cancelarFila(id) {
     carregarFila();
   } catch {
     toast('Erro ao cancelar', 'error');
+  }
+}
+
+async function excluirFilaErro(id) {
+  if (!confirm('Excluir definitivamente este item da fila? Não tem volta.')) return;
+  try {
+    const r = await fetch(`/api/email/fila/${id}/erro`, { method: 'DELETE' });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error); }
+    toast('Excluído', 'success');
+    carregarFila();
+  } catch (e) {
+    toast(e.message || 'Erro ao excluir', 'error');
   }
 }
 
