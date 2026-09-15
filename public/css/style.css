@@ -423,14 +423,16 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 .badge-cancelado{ background: #e5e7eb; color: #4b5563; }
 
 /* PAC: status do DFD (Documento de Formalização de Demanda) */
-.badge-aberto      { background: #dbeafe; color: #1e40af; }
-.badge-analise     { background: #fef9c3; color: #854d0e; }
-.badge-consolidado { background: #ede9fe; color: #5b21b6; }
-.badge-fechado     { background: #e5e7eb; color: #4b5563; }
-[data-theme="dark"] .badge-aberto      { background: rgba(37,99,235,.2); color: #93c5fd; }
-[data-theme="dark"] .badge-analise     { background: rgba(202,138,4,.22); color: #fde047; }
-[data-theme="dark"] .badge-consolidado { background: rgba(124,58,237,.22); color: #c4b5fd; }
-[data-theme="dark"] .badge-fechado     { background: rgba(100,116,139,.25); color: #cbd5e1; }
+.badge-aberto          { background: #dbeafe; color: #1e40af; }
+.badge-analise         { background: #fef9c3; color: #854d0e; }
+.badge-em_consolidacao { background: #dbeafe; color: #1e40af; }
+.badge-consolidado     { background: #ede9fe; color: #5b21b6; }
+.badge-fechado         { background: #e5e7eb; color: #4b5563; }
+[data-theme="dark"] .badge-aberto          { background: rgba(37,99,235,.2); color: #93c5fd; }
+[data-theme="dark"] .badge-analise         { background: rgba(202,138,4,.22); color: #fde047; }
+[data-theme="dark"] .badge-em_consolidacao { background: rgba(37,99,235,.2); color: #93c5fd; }
+[data-theme="dark"] .badge-consolidado     { background: rgba(124,58,237,.22); color: #c4b5fd; }
+[data-theme="dark"] .badge-fechado         { background: rgba(100,116,139,.25); color: #cbd5e1; }
 
 /* PAC: campo obrigatório do lançamento ainda em branco — pedido do Alex,
    2026-09-15: "acenda um alerta na borda [...] com o fundo vermelho e o

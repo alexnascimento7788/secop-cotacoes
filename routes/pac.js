@@ -343,7 +343,7 @@ router.put('/api/pac/dfds/:id', pac, requireRotina('pac-gestao', 'alterar'), (re
   res.json({ ok: true });
 });
 
-const DFD_STATUS_VALIDOS = new Set(['aberto', 'analise', 'consolidado', 'fechado', 'cancelado']);
+const DFD_STATUS_VALIDOS = new Set(['aberto', 'analise', 'em_consolidacao', 'consolidado', 'fechado', 'cancelado']);
 // Regras de transição reforçadas — pedido do Alex, 2026-09-15: hoje dava pra
 // mandar um DFD pra análise mesmo sem todos os setores terem finalizado o
 // lançamento (itensComPendencia/dfd_setores.finalizado_em já impedem um
@@ -397,8 +397,29 @@ router.patch('/api/pac/dfds/:id/status', pac, requireRotina('pac-gestao', 'alter
       });
     }
   }
+  // Fluxo corrigido (pedido do Alex, 2026-09-15, 2ª volta): a consolidação
+  // tem 2 momentos, não 1 — "em_consolidacao" é a fase de trabalho (colunas
+  // originais liberadas pro DEPLA editar, ver PUT /consolidacao/itens/:id/
+  // valores), "consolidado" é o checkpoint de "terminei" antes de poder
+  // fechar. "Iniciar Consolidação" (POST /gerar-consolidacao) leva analise→
+  // em_consolidacao; este botão aqui ("Finalizar Consolidação") leva
+  // em_consolidacao→consolidado.
+  if (status === 'consolidado') {
+    if (dfd.status !== 'em_consolidacao') {
+      return res.status(409).json({ error: 'Inicie a consolidação antes de finalizá-la.' });
+    }
+    const pendentesPorSetor = db.prepare(`
+      SELECT s.nome, COUNT(*) AS n FROM dfd_itens di JOIN setores s ON s.id = di.setor_id
+      WHERE di.dfd_id = ? AND di.excluido_em IS NULL AND di.status_consolidacao NOT IN ('finalizado', 'cancelado')
+      GROUP BY s.id
+    `).all(dfd.id);
+    if (pendentesPorSetor.length) {
+      const nomes = pendentesPorSetor.map(s => `${s.nome} (${s.n} item(ns))`).join(', ');
+      return res.status(409).json({ error: `Ainda há item(ns) sem "Consolidação finalizada"/"Cancelado" em: ${nomes}.` });
+    }
+  }
   if (status === 'fechado' && dfd.status !== 'consolidado') {
-    return res.status(409).json({ error: 'Consolide o DFD (Gestão > Consolidação) antes de fechá-lo.' });
+    return res.status(409).json({ error: 'Finalize a consolidação antes de fechá-lo.' });
   }
   if (status === 'aberto' && dfd.status !== 'aberto' && dfdEmTramitacaoBloqueado(dfd.id)) {
     return res.status(409).json({ error: MSG_DFD_EM_TRAMITACAO });
@@ -897,7 +918,7 @@ router.post('/api/pac/dfds/:id/gerar-consolidacao', pac, requireRotina('pac-gest
   // trava). Enviar pra análise (routes/pac.js, PATCH /dfds/:id/status) passa a
   // ser pré-requisito de verdade pra gerar consolidação.
   if (dfd.status !== 'analise') {
-    return res.status(409).json({ error: 'Envie o DFD para análise antes de consolidar.' });
+    return res.status(409).json({ error: 'Envie o DFD para análise antes de iniciar a consolidação.' });
   }
   if (db.prepare(`SELECT 1 FROM pac_consolidacoes WHERE dfd_id = ?`).get(dfd.id)) {
     return res.status(409).json({ error: 'Este DFD já foi consolidado.' });
@@ -935,11 +956,12 @@ router.post('/api/pac/dfds/:id/gerar-consolidacao', pac, requireRotina('pac-gest
     .run(dfd.id, req.user.user_id, itens.length);
   // Sincroniza o status logo aqui — pedido do Alex, 2026-09-15: "na gestão de
   // dfd ele fica em análise [depois de consolidar], precisamos sincronizar os
-  // status". A partir de "consolidado", todas as colunas do lançamento ficam
-  // liberadas pra alteração pelo DEPLA (ver PUT /consolidacao/itens/:id/valores)
-  // e "Fechar DFD" passa a exigir esse status (ver PATCH /dfds/:id/status).
-  db.prepare(`UPDATE dfds SET status = 'consolidado', atualizado_em = datetime('now') WHERE id = ?`).run(dfd.id);
-  registrarLog(req, 'PAC', 'GEROU_CONSOLIDACAO', `Consolidou o DFD "${dfd.titulo}" #${dfd.id} (${itens.length} itens numerados)`);
+  // status". "em_consolidacao" é a fase de TRABALHO: todas as colunas do
+  // lançamento ficam liberadas pra alteração pelo DEPLA (ver PUT
+  // /consolidacao/itens/:id/valores) até o botão "Finalizar Consolidação"
+  // (PATCH status='consolidado') travar de novo e liberar "Fechar DFD".
+  db.prepare(`UPDATE dfds SET status = 'em_consolidacao', atualizado_em = datetime('now') WHERE id = ?`).run(dfd.id);
+  registrarLog(req, 'PAC', 'GEROU_CONSOLIDACAO', `Iniciou a consolidação do DFD "${dfd.titulo}" #${dfd.id} (${itens.length} itens numerados)`);
   {
     const dfdCompleto = db.prepare(`SELECT ano_base FROM dfds WHERE id = ?`).get(dfd.id);
     const setoresParticipantes = db.prepare(`SELECT setor_id FROM dfd_setores WHERE dfd_id = ?`).all(dfd.id);
@@ -1032,8 +1054,8 @@ router.put('/api/pac/consolidacao/itens/:id/valores', pac, requireRotina('pac-ge
   const item = db.prepare(`SELECT id, dfd_id FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
   if (!item) return res.status(404).json({ error: 'Item não encontrado' });
   const dfd = db.prepare(`SELECT status FROM dfds WHERE id = ?`).get(item.dfd_id);
-  if (!dfd || dfd.status !== 'consolidado') {
-    return res.status(409).json({ error: 'Só é possível editar os campos originais enquanto o DFD está "Consolidado".' });
+  if (!dfd || dfd.status !== 'em_consolidacao') {
+    return res.status(409).json({ error: 'Só é possível editar os campos originais enquanto a consolidação está em andamento ("Em consolidação").' });
   }
   const erroEspecificacao = validarEspecificacaoObjeto(req.body?.valores);
   if (erroEspecificacao) return res.status(400).json({ error: erroEspecificacao.mensagem, especificacaoMinima: erroEspecificacao });
@@ -1094,19 +1116,18 @@ router.post('/api/pac/dfds/:dfd_id/setores/:setor_id/finalizar-consolidacao', pa
   // depois) é seguro — recalcula 1..N determinístico sobre quem ainda está ativo.
   const total = renumerarPacFinal(dfdId);
   // Se depois disso NENHUM item do DFD inteiro (todos os setores, não só o
-  // que acabou de finalizar) ainda estiver pendente, o DFD fecha sozinho —
-  // pedido do Alex: hoje só quem muda dfds.status é a tela de DFDs, então um
-  // DFD com consolidação 100% concluída ficava com "Aberto"/"Em análise" na
-  // listagem, parecendo 2 fontes de verdade divergentes.
+  // que acabou de finalizar) ainda estiver pendente, o DFD NÃO fecha mais
+  // sozinho (mudança de fluxo, 2ª volta, 2026-09-15: agora existe o
+  // checkpoint explícito "Finalizar Consolidação", em_consolidacao→
+  // consolidado, no painel de ações do DFD — fechar direto daqui pularia
+  // esse checkpoint). Só dispara o aviso por e-mail avisando que já dá pra
+  // finalizar a consolidação.
   const aindaPendenteNoDfd = db.prepare(`
     SELECT COUNT(*) AS n FROM dfd_itens
     WHERE dfd_id = ? AND excluido_em IS NULL AND status_consolidacao NOT IN ('finalizado', 'cancelado')
   `).get(dfdId).n;
-  if (aindaPendenteNoDfd === 0) {
-    db.prepare(`UPDATE dfds SET status = 'fechado', atualizado_em = datetime('now') WHERE id = ?`).run(dfdId);
-  }
   registrarLog(req, 'PAC', 'FINALIZOU_CONSOLIDACAO_SETOR', `Finalizou a consolidação do setor #${setorId} no DFD #${dfdId} — renumeração final (${total} item(ns) ativo(s))` +
-    (aindaPendenteNoDfd === 0 ? ' — DFD fechado (todos os setores concluídos)' : ''));
+    (aindaPendenteNoDfd === 0 ? ' — pronto para "Finalizar Consolidação"' : ''));
   if (aindaPendenteNoDfd === 0) {
     const dfdInfo = db.prepare(`SELECT titulo, ano_base FROM dfds WHERE id = ?`).get(dfdId);
     const aprovados  = db.prepare(`SELECT COUNT(*) AS n FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND status_consolidacao = 'finalizado'`).get(dfdId).n;
@@ -1119,7 +1140,7 @@ router.post('/api/pac/dfds/:dfd_id/setores/:setor_id/finalizar-consolidacao', pa
       }, mailer.resolverDestinatarios('setor', { setor_id }));
     });
   }
-  res.json({ ok: true, total_itens_ativos: total, dfd_fechado: aindaPendenteNoDfd === 0 });
+  res.json({ ok: true, total_itens_ativos: total, pronto_para_finalizar: aindaPendenteNoDfd === 0 });
 });
 
 // Ordem de prioridade da reordenação final por classificação — pedido do
