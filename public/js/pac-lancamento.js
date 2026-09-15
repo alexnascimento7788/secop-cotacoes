@@ -105,31 +105,17 @@ function renderAvatarHeader(user) {
   el.innerHTML = `<div style="width:36px;height:36px;border-radius:50%;background:var(--verde);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;">${iniciais}</div>`;
 }
 
-// Linha 3/4 do cabeçalho — pedido do Alex, 2026-09-15: a linha antiga (nome +
-// lista de setores) ficava feia com quem tem muitos setores (ex.: master, 2
-// linhas quebradas). Vira saudação por horário + 1 linha de análise
-// preditiva sobre o DFD "aberto" mais recente do setor padrão do usuário
-// (novo campo users.setor_default_id, autoatendimento — ver
-// PUT /api/pac/meu-setor-default). Sem setor padrão definido, usa o 1º da
-// lista. "itens_count" já vem de GET /api/pac/dfds (soma dos setores do
-// usuário) — não dá pra separar por setor individual sem requisição extra
-// por DFD, então "começou?" aqui é por usuário, não por setor específico.
+// Linha 3/4 do cabeçalho — pedido do Alex, 2026-09-15: a saudação + análise
+// preditiva só faz sentido com um DFD já aberto (antes disso, na tela que
+// lista os DFDs, fica escondida — ver atualizarCabecalhoUsuario/abrirDfd/
+// fecharDfd). O campo de "setor padrão" autoatendimento (v4.22.0) saiu —
+// não tinha uso real; a ordem de _meusSetores já vem de `setores.ordem`
+// (definida no admin), não precisa de escolha do usuário.
 function saudacaoPorHorario() {
   const h = new Date().getHours();
   if (h >= 5 && h < 12) return 'Bom dia';
   if (h >= 12 && h < 18) return 'Boa tarde';
   return 'Boa noite';
-}
-
-async function salvarSetorDefault(setorId) {
-  try {
-    await fetch('/api/pac/meu-setor-default', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ setor_id: Number(setorId) }),
-    });
-    toast('Setor padrão atualizado', 'success');
-  } catch {
-    toast('Erro ao salvar setor padrão', 'error');
-  }
 }
 
 function diasRestantes(dataIso) {
@@ -139,54 +125,45 @@ function diasRestantes(dataIso) {
   return Math.round((alvo - hoje) / 86400000);
 }
 
+let _nomeUsuarioPac = '';
+
 async function atualizarCabecalhoUsuario() {
-  const linha3 = document.getElementById('pac-lanc-linha3');
-  const linha4 = document.getElementById('pac-lanc-linha4');
+  document.getElementById('pac-lanc-linha3').style.display = 'none';
+  document.getElementById('pac-lanc-linha4').style.display = 'none';
   try {
-    const [user, setoresRes, setorDefRes] = await Promise.all([
+    const [user, setoresRes] = await Promise.all([
       window.getCurrentUser(),
       fetch('/api/pac/meus-setores'),
-      fetch('/api/pac/meu-setor-default'),
     ]);
     _meusSetores = setoresRes.ok ? await setoresRes.json() : [];
-    const setorDefaultId = setorDefRes.ok ? (await setorDefRes.json()).setor_default_id : null;
-    const nome = (user && (user.nome_completo || user.username)) || '';
-    linha3.textContent = `${saudacaoPorHorario()}, ${nome}!`;
-
-    // Setores além do padrão, pra não esconder que existe mais coisa pra
-    // preencher (pedido do Alex: "não impede de na tela termos também vc tem
-    // o Detin e Sepad a preencher") + escolha do setor padrão (autoatendimento).
-    if (_meusSetores.length > 1) {
-      const nomes = _meusSetores.map(s => s.nome).join(' e ');
-      const opcoes = _meusSetores.map(s => `<option value="${s.id}"${s.id === setorDefaultId ? ' selected' : ''}>${s.nome}</option>`).join('');
-      linha3.innerHTML = linha3.textContent + ` Você tem ${nomes} a preencher. ` +
-        `<span style="white-space:nowrap;">Setor padrão: <select id="pac-lanc-setor-default" onchange="salvarSetorDefault(this.value)" style="font-size:11.5px;padding:1px 4px;">${opcoes}</select></span>`;
-    }
-
-    // Análise preditiva sobre o DFD "aberto" mais relevante — o de maior
-    // ano_base ainda aberto, dentre os que aparecem pro usuário.
-    let dfds = [];
-    try { dfds = await fetch('/api/pac/dfds').then(r => r.ok ? r.json() : []); } catch {}
-    const abertos = dfds.filter(d => d.status === 'aberto').sort((a, b) => b.ano_base - a.ano_base || b.id - a.id);
-    const atual = abertos[0];
-    if (!atual) {
-      linha4.style.display = 'none';
-    } else {
-      const dias = diasRestantes(atual.data_entrega);
-      const prazoTxto = dias == null ? '' : dias > 0 ? ` Você tem ${dias} dia(s) para lançar.` : dias === 0 ? ' O prazo termina hoje!' : ` O prazo já venceu há ${-dias} dia(s).`;
-      if (!atual.itens_count) {
-        linha4.textContent = `Notei que você ainda não iniciou o PAC ${atual.ano_base}.${prazoTxto}`;
-      } else {
-        linha4.textContent = dias == null
-          ? `Vi que você já começou o PAC ${atual.ano_base}. Continue lançando os itens.`
-          : `Vi que você já começou o PAC ${atual.ano_base}. Falta pouco? Termina em ${fmtBr(atual.data_entrega)}${prazoTxto}`;
-      }
-      linha4.style.display = '';
-    }
+    _nomeUsuarioPac = (user && (user.nome_completo || user.username)) || '';
     renderAvatarHeader(user);
-  } catch {
-    linha3.textContent = '';
+  } catch {}
+}
+
+// Saudação + análise preditiva sobre o DFD que acabou de ser aberto — só
+// aparece dentro do DFD (pedido do Alex, 2026-09-15: "a mensagem deve ocorrer
+// somente com o dfd aberto e não na tela que lista os dfds"). Precisa de
+// _itensAtuais já carregado (chamar depois de renderItens() em abrirDfd).
+function renderMensagemLancamento() {
+  const linha3 = document.getElementById('pac-lanc-linha3');
+  const linha4 = document.getElementById('pac-lanc-linha4');
+  linha3.textContent = `${saudacaoPorHorario()}, ${_nomeUsuarioPac}!`;
+  if (_meusSetores.length > 1) {
+    linha3.textContent += ` Você tem ${_meusSetores.map(s => s.nome).join(' e ')} a preencher.`;
   }
+  linha3.style.display = '';
+
+  const dias = diasRestantes(_dfdAtual.data_entrega);
+  const prazoTxto = dias == null ? '' : dias > 0 ? ` Você tem ${dias} dia(s) para lançar.` : dias === 0 ? ' O prazo termina hoje!' : ` O prazo já venceu há ${-dias} dia(s).`;
+  if (!_itensAtuais.length) {
+    linha4.textContent = `Notei que você ainda não iniciou o PAC ${_dfdAtual.ano_base}.${prazoTxto}`;
+  } else {
+    linha4.textContent = dias == null
+      ? `Vi que você já começou o PAC ${_dfdAtual.ano_base}. Continue lançando os itens.`
+      : `Vi que você já começou o PAC ${_dfdAtual.ano_base}. Falta pouco? Termina em ${fmtBr(_dfdAtual.data_entrega)}${prazoTxto}`;
+  }
+  linha4.style.display = '';
 }
 
 const ICONE_VAZIO = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-subtle)" stroke-width="1.5"><path d="M9 12h6M9 16h6M9 8h1"/><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
@@ -252,6 +229,7 @@ async function abrirDfd(id) {
   await carregarStatusFinalizacao(); // calcula _finalizacaoPorSetor antes da tabela usar
   await renderItens(); // popula _itensAtuais (renderFinalizacao precisa disso pra decidir "tem item lançado?")
   renderFinalizacao();
+  renderMensagemLancamento();
   iniciarAutoRefreshKpis();
 }
 
@@ -288,6 +266,8 @@ function fecharDfd() {
   document.getElementById('pac-dfd-lista').style.display = 'block';
   document.getElementById('pac-lanc-titulo').textContent = 'Lançamento';
   document.getElementById('pac-lanc-linha2').style.display = 'none';
+  document.getElementById('pac-lanc-linha3').style.display = 'none';
+  document.getElementById('pac-lanc-linha4').style.display = 'none';
   carregarDfds();
 }
 
@@ -694,7 +674,16 @@ function renderInputCelula(itemId, coluna, valor, comBotaoSalvar, pendente) {
   if (coluna.tipo_input === 'select') {
     const opcoes = (_listasCache[coluna.lista] || []).map(o =>
       `<option value="${o.valor}" ${o.valor === valor ? 'selected' : ''}>${o.valor}</option>`).join('');
-    return `<select ${base} class="${classePendente.trim()}" style="min-width:120px;"><option value="">${pendente ? 'Item não preenchido' : '—'}</option>${opcoes}</select>${botaoSalvar}`;
+    // Largura FIXA (não só min-width) — pedido do Alex, 2026-09-15: uma opção
+    // errada/comprida demais vinda da importação (ex.: valor de Unidade
+    // bugado) fazia o navegador dimensionar o <select> fechado pela opção
+    // mais larga da LISTA inteira, mesmo sem estar selecionada — a coluna
+    // "esticava" e desalinhava as seguintes (Qtd/Valor Estimado apareciam
+    // deslocadas, "dentro" de Unidade). width fixo tira esse comportamento;
+    // Unidade especificamente volta ao tamanho normal (é sempre texto curto).
+    const largura = coluna.slug === 'unidade_medida' ? 90 : 150;
+    const tituloAtual = valor ? ` title="${String(valor).replace(/"/g, '&quot;')}"` : '';
+    return `<select ${base} class="${classePendente.trim()}" style="width:${largura}px;max-width:${largura}px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"${tituloAtual}><option value="">${pendente ? 'Item não preenchido' : '—'}</option>${opcoes}</select>${botaoSalvar}`;
   }
   if (coluna.tipo_input === 'textarea') {
     return `<textarea ${base} class="${classePendente.trim()}" rows="1" style="min-width:200px;" placeholder="${pendente ? 'Item não preenchido' : ''}">${valor || ''}</textarea>${botaoSalvar}`;
@@ -916,6 +905,13 @@ async function salvarCampoItem(el) {
     if (item) {
       item.valores = item.valores || {};
       item.valores[colunaId] = valor === '' ? null : valor;
+    }
+    // Tira (ou recoloca) o destaque vermelho na hora, sem esperar um F5 —
+    // bug relatado pelo Alex, 2026-09-15: preencher um campo obrigatório
+    // não limpava o vermelho sozinho até recarregar a página.
+    const coluna = (_dfdAtual.colunas || []).find(c => String(c.id) === String(colunaId));
+    if (coluna && coluna.grupo === 'A') {
+      el.classList.toggle('campo-pendente', valor === '' || valor == null);
     }
     if (document.getElementById('lanc-filtro-pendencia')?.checked) await renderItens();
     renderFinalizacao();

@@ -117,6 +117,9 @@ function setupDb() {
     // Mínimo de caracteres da "Especificação do Objeto" no PAC (pedido do
     // Alex, 2026-09-15) — parametrizável em vez de fixo no código.
     { chave: 'pac_especificacao_min_caracteres', valor: '50' },
+    // Regra "só 1 DFD em tramitação por vez" (pedido do Alex, 2026-09-15) —
+    // '1' libera vários simultâneos, uso pensado pra homologação/teste.
+    { chave: 'pac_permitir_multiplos_dfds', valor: '0' },
   ].forEach(c => {
     try {
       _db.prepare(`INSERT INTO config (chave, valor) VALUES (?, ?)`).run(c.chave, c.valor);

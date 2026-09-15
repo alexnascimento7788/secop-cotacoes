@@ -437,6 +437,26 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 .campo-pendente { background: var(--vermelho) !important; color: #fff !important; border-color: var(--vermelho) !important; }
 .campo-pendente::placeholder { color: #fff; opacity: .9; }
 
+/* Checkbox "moderno" (switch/toggle) — pedido do Alex, 2026-09-15: o
+   checkbox cru do navegador nos filtros do PAC estava com "layout arcaico".
+   Reaproveitável em qualquer checkbox do sistema (admin.html já usa também). */
+input[type="checkbox"].switch-moderno {
+  -webkit-appearance: none; appearance: none;
+  width: 36px; height: 20px; border-radius: 999px;
+  background: var(--cinza-t); border: none; cursor: pointer;
+  position: relative; flex-shrink: 0; margin: 0;
+  transition: background .15s;
+}
+input[type="checkbox"].switch-moderno::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.35);
+  transition: left .15s;
+}
+input[type="checkbox"].switch-moderno:checked { background: var(--verde); }
+input[type="checkbox"].switch-moderno:checked::after { left: 18px; }
+input[type="checkbox"].switch-moderno:focus-visible { outline: 2px solid var(--verde); outline-offset: 2px; }
+
 /* ── PAC: tabela de itens do DFD (colunas configuráveis, potencialmente muitas) ─
    1ª e 2ª colunas fixas (ID PAC / Nº PAC) durante o scroll horizontal.
    max-height + overflow-y própria (em vez de deixar a tabela esticar a
@@ -504,6 +524,10 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
   color: var(--text);
   background: var(--surface);
   transition: border-color .15s;
+  /* Nunca deixa um controle "estourar" a célula (ex.: opção de lista muito
+     comprida vinda de importação) e desalinhar as colunas seguintes. */
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .dfd-table td select:focus,
 .dfd-table td input:focus,
