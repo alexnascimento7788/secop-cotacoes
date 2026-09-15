@@ -145,7 +145,7 @@
           <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
             <div id="lanc-filtro-setor-wrap" style="display:none;">
               <label for="lanc-filtro-setor" style="font-size:12px;color:var(--text-subtle);margin-right:6px;">Setor:</label>
-              <select id="lanc-filtro-setor" onchange="renderItens()"><option value="">Todos os meus setores</option></select>
+              <select id="lanc-filtro-setor" class="filtro-moderno" onchange="renderItens()"><option value="">Todos os meus setores</option></select>
             </div>
             <!-- Só aparece quando há pelo menos 1 item com campo em branco —
                  filtro pra ver a lista COMPLETA (o aviso acima só cita os 5
@@ -158,19 +158,19 @@
             <!-- Filtros adicionais — pedido do Alex, 2026-09-15 -->
             <div style="display:flex;align-items:center;gap:4px;">
               <label for="lanc-filtro-fonte" style="font-size:12px;color:var(--text-subtle);">Fonte pagadora:</label>
-              <select id="lanc-filtro-fonte" onchange="renderItens()" style="font-size:12.5px;padding:2px 4px;"><option value="">Todas</option></select>
+              <select id="lanc-filtro-fonte" class="filtro-moderno" onchange="renderItens()"><option value="">Todas</option></select>
             </div>
             <div style="display:flex;align-items:center;gap:4px;">
               <label for="lanc-filtro-data" style="font-size:12px;color:var(--text-subtle);">Data desejada:</label>
-              <input type="date" id="lanc-filtro-data" onchange="renderItens()" style="font-size:12.5px;padding:2px 4px;" />
+              <input type="date" id="lanc-filtro-data" class="filtro-moderno" onchange="renderItens()" />
             </div>
             <div style="display:flex;align-items:center;gap:4px;">
               <label for="lanc-filtro-numero-pac" style="font-size:12px;color:var(--text-subtle);">Nº PAC:</label>
-              <input type="text" id="lanc-filtro-numero-pac" oninput="renderItens()" style="font-size:12.5px;padding:2px 4px;width:70px;" />
+              <input type="text" id="lanc-filtro-numero-pac" class="filtro-moderno" oninput="renderItens()" style="width:70px;" />
             </div>
             <div style="display:flex;align-items:center;gap:4px;">
               <label for="lanc-filtro-objeto" style="font-size:12px;color:var(--text-subtle);">Objeto:</label>
-              <input type="text" id="lanc-filtro-objeto" oninput="renderItens()" style="font-size:12.5px;padding:2px 4px;width:120px;" />
+              <input type="text" id="lanc-filtro-objeto" class="filtro-moderno" oninput="renderItens()" style="width:120px;" />
             </div>
             <button class="btn btn-secondary btn-xs" onclick="atualizarLancamento()" title="Recarrega itens e o aviso de pendência">🔄 Atualizar</button>
           </div>
