@@ -294,7 +294,12 @@ app.get('/api/version', (_req, res) => {
 app.get('*', (req, res) => {
   if (!req.path.startsWith('/api')) {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    return;
   }
+  // Achado testando a remoção de /api/pac/meu-setor-default (v4.22.2): uma
+  // rota /api/ que não bate em NENHUM router acima caía aqui sem resposta
+  // nenhuma — a conexão ficava pendurada pra sempre em vez de dar 404.
+  res.status(404).json({ error: 'Rota não encontrada' });
 });
 
 // Rede de segurança: qualquer exceção não tratada em QUALQUER rota (não só

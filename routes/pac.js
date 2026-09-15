@@ -47,6 +47,21 @@ function validarEspecificacaoObjeto(valores) {
   return null;
 }
 
+// Só 1 DFD "em tramitação" (aberto ou em análise) por vez — pedido do Alex,
+// 2026-09-15. Em homologação/teste, config.pac_permitir_multiplos_dfds = '1'
+// (toggle em Configurações → Parâmetros) libera a válvula de escape.
+// excetoId ignora o próprio DFD na contagem — usado ao reabrir (ele já está
+// em 'fechado'/'cancelado' nesse ponto, então nunca se conta a si mesmo, mas
+// o parâmetro fica aqui pronto pra qualquer outro chamador futuro).
+function dfdEmTramitacaoBloqueado(excetoId) {
+  const permiteMultiplos = db.prepare(`SELECT valor FROM config WHERE chave = 'pac_permitir_multiplos_dfds'`).get()?.valor === '1';
+  if (permiteMultiplos) return false;
+  const sql = `SELECT COUNT(*) AS n FROM dfds WHERE status IN ('aberto', 'analise')` + (excetoId ? ` AND id != ?` : '');
+  const row = excetoId ? db.prepare(sql).get(excetoId) : db.prepare(sql).get();
+  return row.n > 0;
+}
+const MSG_DFD_EM_TRAMITACAO = 'Já existe um DFD em tramitação (aberto ou em análise) — finalize-o antes de abrir outro. Em homologação, é possível liberar vários DFDs simultâneos em Configurações → Parâmetros.';
+
 // DEPLA (perfil com 'ver' em pac-gestao) enxerga o DFD inteiro (todos os
 // setores lado a lado); gestor de setor só o próprio recorte — usado pra
 // decidir o filtro nas listagens de DFDs/itens/pedidos.
@@ -134,25 +149,10 @@ router.get('/api/pac/meus-setores', pac, requireRotinaPac('ver'), (req, res) => 
   res.json(db.prepare(`SELECT id, nome FROM setores WHERE id IN (${ph}) AND ativo = 1 ORDER BY ordem`).all(...ids));
 });
 
-// Setor "padrão" de quem atua em mais de 1 setor — só afeta a saudação/
-// indicador de prazo em Lançamento (ver atualizarCabecalhoUsuario em
-// pac-lancamento.js), nunca o que ele pode acessar (isso é setor_usuarios).
-// Autoatendimento (o próprio usuário escolhe) em vez de campo no cadastro do
-// admin — só ele sabe qual é o setor "principal" do dia a dia dele, e assim
-// evita mexer no admin.html sob pressão de tempo (Alex ausente pra validar).
-router.get('/api/pac/meu-setor-default', pac, requireRotinaPac('ver'), (req, res) => {
-  const row = db.prepare(`SELECT setor_default_id FROM users WHERE id = ?`).get(req.user.user_id);
-  res.json({ setor_default_id: row?.setor_default_id ?? null });
-});
-
-router.put('/api/pac/meu-setor-default', pac, requireRotinaPac('ver'), (req, res) => {
-  const { setor_id } = req.body || {};
-  if (setor_id != null && req.user.username !== 'master' && !setoresDoUsuario(req.user.user_id).includes(Number(setor_id))) {
-    return res.status(403).json({ error: 'Você não pertence a este setor.' });
-  }
-  db.prepare(`UPDATE users SET setor_default_id = ? WHERE id = ?`).run(setor_id || null, req.user.user_id);
-  res.json({ ok: true });
-});
+// Autoatendimento de "setor padrão" removido (v4.22.2, pedido do Alex,
+// 2026-09-15: "campo que se ficar como está não será usado") — a ordem de
+// GET /api/pac/meus-setores já vem de `setores.ordem` (admin), sem precisar
+// de escolha do usuário. Coluna users.setor_default_id fica sem uso.
 
 // ── PAC: setores (cadastro do DEPLA) ──────────────────────────────────────────
 
@@ -303,6 +303,7 @@ router.post('/api/pac/dfds', pac, requireRotina('pac-gestao', 'incluir'), (req, 
   // Obrigatório pra DFD NOVO (pedido do Alex, 2026-09-07) — DFDs criados
   // antes desta versão continuam com data_entrega NULL, sem retroatividade.
   if (!data_entrega) return res.status(400).json({ error: 'Data de vencimento (entrega) é obrigatória' });
+  if (dfdEmTramitacaoBloqueado()) return res.status(409).json({ error: MSG_DFD_EM_TRAMITACAO });
   const info = db.prepare(`INSERT INTO dfds (ano_base, titulo, descricao, data_entrega, criado_por) VALUES (?, ?, ?, ?, ?)`)
     .run(ano_base, String(titulo).trim(), descricao ? String(descricao).trim() : null, String(data_entrega), req.user.user_id);
   const dfdId = info.lastInsertRowid;
@@ -379,6 +380,9 @@ router.patch('/api/pac/dfds/:id/status', pac, requireRotina('pac-gestao', 'alter
   }
   if (status === 'fechado' && dfd.status !== 'analise') {
     return res.status(409).json({ error: 'Envie o DFD para análise antes de fechá-lo.' });
+  }
+  if (status === 'aberto' && dfd.status !== 'aberto' && dfdEmTramitacaoBloqueado(dfd.id)) {
+    return res.status(409).json({ error: MSG_DFD_EM_TRAMITACAO });
   }
   if (status === 'aberto') {
     // Reabrir é a ação mais sensível (destrava escrita num DFD que já pode

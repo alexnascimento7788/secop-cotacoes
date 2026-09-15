@@ -413,6 +413,19 @@
           </div>
         </div>
         <div class="admin-section" style="margin-top:24px;">
+          <div class="admin-section-title">PAC — Múltiplos DFDs em tramitação</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Por padrão, só é permitido ter 1 DFD "em tramitação" (aberto ou em
+            análise) por vez — criar um novo ou reabrir um já fechado é
+            bloqueado enquanto houver outro em andamento. Ligue isto para
+            permitir vários ao mesmo tempo (uso pensado para homologação/teste).
+          </p>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13.5px;">
+            <input type="checkbox" id="cfg-pac-multiplos-dfds" class="switch-moderno" onchange="salvarPermitirMultiplosDfds(this.checked)" />
+            Permitir vários DFDs em tramitação ao mesmo tempo
+          </label>
+        </div>
+        <div class="admin-section" style="margin-top:24px;">
           <div class="admin-section-title">PAC — Senha mestra (reabrir DFD)</div>
           <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
             Exigida em Gestão &gt; DFDs sempre que alguém tentar "Reabrir" um DFD que já
@@ -1384,6 +1397,7 @@ async function carregarParametros() {
     document.getElementById('cfg-lixeira-dias').value  = cfg.lixeira_dias         || 60;
     document.getElementById('cfg-edicao-livre').checked = cfg.secop_edicao_livre === '1';
     document.getElementById('cfg-pac-especificacao-min').value = cfg.pac_especificacao_min_caracteres || 50;
+    document.getElementById('cfg-pac-multiplos-dfds').checked = cfg.pac_permitir_multiplos_dfds === '1';
     const lixeiraTxt = document.getElementById('lixeira-dias-txt');
     if (lixeiraTxt) lixeiraTxt.textContent = cfg.lixeira_dias || 60;
   } catch {}
@@ -1441,6 +1455,20 @@ async function salvarEspecificacaoMin() {
     if (!res.ok) throw new Error();
     toast('Mínimo de caracteres salvo!', 'success');
   } catch { toast('Erro ao salvar', 'error'); }
+}
+
+async function salvarPermitirMultiplosDfds(ligado) {
+  try {
+    const res = await fetch('/api/admin/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pac_permitir_multiplos_dfds: ligado ? '1' : '0' })
+    });
+    if (!res.ok) throw new Error();
+    toast(ligado ? 'Vários DFDs em tramitação liberados' : 'Voltou a permitir só 1 DFD em tramitação por vez', 'success');
+  } catch {
+    toast('Erro ao salvar', 'error');
+    carregarParametros();
+  }
 }
 
 async function salvarSenhaMestraPac() {
