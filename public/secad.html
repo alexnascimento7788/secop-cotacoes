@@ -447,6 +447,19 @@
     <input type="text" id="dpc-param-url" class="filter-input" style="width:100%;" placeholder="www.ceasaminas.com/..." />
     <label style="display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin:14px 0 6px;">Número do comunicado</label>
     <input type="text" id="dpc-param-num" class="filter-input" style="width:100%;" placeholder="01/2026" />
+
+    <hr class="admin-divider" style="margin:16px 0;">
+    <label style="display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;">Nota Técnica de Avaliação de Área (PDF)</label>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px;line-height:1.5;">
+      Documento com assinatura digital — anexado aqui, nunca gerado pelo sistema. Sem ele, nenhum comunicado pode ser gerado.
+      Trocar o PDF aqui atualiza o fluxo na hora, sem precisar mexer em código.
+    </p>
+    <div id="dpc-nota-tecnica-status" style="font-size:12.5px;margin-bottom:8px;">Carregando...</div>
+    <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
+      Escolher PDF
+      <input type="file" id="dpc-nota-tecnica-input" accept="application/pdf" style="display:none" onchange="enviarNotaTecnica(this)">
+    </label>
+
     <div id="dpc-param-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin-top:8px;"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
       <button class="btn btn-secondary btn-sm" onclick="fecharModal('dpc-modal-param')">Cancelar</button>

@@ -807,7 +807,7 @@ function renderComunicados() {
       const total = g.contratos.length;
       const prontos = g.contratos.filter(c => c.elegivel).length;
       const aguard = g.contratos.filter(c => c.no_intervalo && c.tem_credencial && !c.validado).length;
-      const fora = g.contratos.filter(c => !c.no_intervalo || !c.tem_credencial).length;
+      const fora = g.contratos.filter(c => !c.no_intervalo || !c.tem_credencial || c.motivo === 'sem_nota_tecnica').length;
       const ger = g.contratos.reduce((s, c) => s + (c.geracoes || 0), 0);
       const entregues = g.contratos.filter(c => c.enviado).length;
       const checked = comEstado.sel.has(g.codigo) ? 'checked' : '';
@@ -854,20 +854,49 @@ async function gerarComunicados(qs, rotulo, alvo) {
       `Gerar novamente conta como 2ª via (fica registrado no histórico).\n\nDeseja gerar mesmo assim?`);
     if (!ok) return;
   }
+  // Abre a aba JÁ aqui (ainda dentro do clique síncrono) — se esperar os fetches
+  // pra só então abrir, o navegador trata como pop-up não solicitado e bloqueia.
+  // Só navega ela pro PDF de verdade lá na frente, quando ele estiver pronto.
+  const janela = window.open('', '_blank');
   try {
     const data = await (await fetch('/api/secad/comunicados/gerar?' + qs, { method: 'POST' })).json();
-    if (data.error) { toast(data.error, 'error'); return; }
+    if (data.error) { toast(data.error, 'error'); if (janela) janela.close(); return; }
     const coms = data.comunicados || [], pulados = data.pulados || [];
     if (!coms.length) {
       toast(`Nada elegível em ${rotulo}${pulados.length ? ` (${pulados.length} pulado(s))` : ''}.`, 'error');
+      if (janela) janela.close();
       mostrarAvisos(pulados, 0); await carregarComunicados(); return;
     }
-    imprimirComunicados(coms);
+    await abrirPdfGerado(coms.map(c => c.id), janela);
     const reMsg = data.regerados ? ` (${data.regerados} em 2ª via)` : '';
     toast(`${coms.length} comunicado(s) gerado(s)${reMsg}${pulados.length ? ` — ${pulados.length} pulado(s)` : ''}.`, 'success');
     await carregarComunicados();
     mostrarAvisos(pulados, coms.length);
-  } catch { toast('Falha ao gerar.', 'error'); }
+  } catch { toast('Falha ao gerar.', 'error'); if (janela) janela.close(); }
+}
+
+// PDF único por lote: Comunicado + Nota Técnica (PDF original, assinado — não é
+// redesenhado) + Protocolo, nessa ordem, repetido por contrato. `janela` (já
+// aberta em branco pelo chamador, síncrono, pra não ser barrada como pop-up) é
+// navegada pro PDF assim que ele fica pronto; o navegador mostra o próprio
+// visualizador de PDF, dali dá pra imprimir ou salvar. Ver routes/secad.js
+// POST /comunicados/pdf e secad-pdf.js.
+async function abrirPdfGerado(ids, janela) {
+  try {
+    const res = await fetch('/api/secad/comunicados/pdf', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids })
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      toast(e.error || 'Falha ao montar o PDF.', 'error');
+      if (janela) janela.close();
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    if (janela && !janela.closed) janela.location.href = url;
+    else window.open(url, '_blank');
+  } catch { toast('Falha ao montar o PDF.', 'error'); if (janela) janela.close(); }
 }
 function alvoCidade(cidade) { return comEstado.contratos.filter(c => c.cidade === cidade); }
 function alvoConcess(codigo) { return comEstado.contratos.filter(c => c.codigo === codigo); }
@@ -896,16 +925,6 @@ function mostrarAvisos(pulados, gerados) {
   document.getElementById('dpc-avisos').innerHTML = html;
 }
 
-// Cada comunicado sai já seguido do seu protocolo de entrega (2 páginas por
-// contrato): a carta pro concessionário + o documento que ele assina no ato.
-function imprimirComunicados(coms) {
-  const paginas = coms.flatMap(c => [comunicadoPaper(c), protocoloPaper(c)]);
-  document.getElementById('dp-print').innerHTML = paginas.join('');
-  const limpar = () => { document.getElementById('dp-print').innerHTML = ''; window.removeEventListener('afterprint', limpar); };
-  window.addEventListener('afterprint', limpar);
-  window.print();
-}
-
 // Carta redesenhada: cabeçalho institucional + itens numerados sem negrito
 // indiscriminado + bloco de login/senha destacado (a ação do concessionário).
 function comunicadoPaper(c) {
@@ -929,7 +948,7 @@ function comunicadoPaper(c) {
     <p class="cmn-p">Prezado(a) Concessionário(a),</p>
     <p class="cmn-p">A CENTRAIS DE ABASTECIMENTO DE MINAS GERAIS S/A — CEASAMINAS informa que a empresa acima qualificada se encontra <strong>elegível</strong> para requerer a prorrogação antecipada do Contrato de Concessão de Uso (CCU) citado acima, nos termos e condições do Edital de Chamamento de Interessados nº 001/2026.</p>
     <ol class="cmn-itens">
-      <li>O prazo para adesão e envio da documentação será de <strong>${esc(c.data_inicio)}</strong> a <strong>${esc(c.prazo_final)}</strong>.</li>
+      <li>O prazo para adesão e envio da documentação é até <strong>${esc(c.prazo_final)}</strong>.</li>
       <li>Para acessar a plataforma para envio da documentação, utilize as credenciais individuais abaixo:
         <div class="cmn-cred">
           <div><span class="cmn-cred-lbl">Endereço de acesso:</span> ${esc(c.url_acesso)}</div>
@@ -965,8 +984,8 @@ function protocoloPaper(c) {
       <div><span class="lbl">Contrato de concessão de uso nº:</span> ${esc(c.numero_ccu)}</div>
       <div><span class="lbl">Área/espaço concedido:</span> ${esc(c.area)}</div>
     </div>
-    <p class="cmn-p">Declaro ter recebido da CEASAMINAS o <strong>Comunicado Oficial nº ${esc(c.numero_comunicado)}</strong>, referente à notificação de elegibilidade e instruções para a prorrogação antecipada do contrato de concessão de uso acima identificado, incluindo as credenciais individuais de acesso à plataforma de adesão.</p>
-    <p class="cmn-p">Declaro estar ciente de que o prazo para adesão vai de <strong>${esc(c.data_inicio)}</strong> a <strong>${esc(c.prazo_final)}</strong>, e que a não adesão no prazo implica renúncia ao direito de renovação nos termos do Edital de Chamamento de Interessados nº 001/2026.</p>
+    <p class="cmn-p">Declaro ter recebido da CEASAMINAS o <strong>Comunicado Oficial nº ${esc(c.numero_comunicado)}</strong> e a <strong>Nota Técnica de Avaliação de Área</strong>, referente à notificação de elegibilidade e instruções para a prorrogação antecipada do contrato de concessão de uso acima identificado, incluindo as credenciais individuais de acesso à plataforma de adesão.</p>
+    <p class="cmn-p">Declaro estar ciente de que o prazo para adesão é até <strong>${esc(c.prazo_final)}</strong>, e que a não adesão no prazo implica renúncia ao direito de renovação nos termos do Edital de Chamamento de Interessados nº 001/2026.</p>
     <div class="cmn-cred" style="margin-top:18px;">
       <div><span class="cmn-cred-lbl">Recebido por (nome legível):</span> _______________________________________________</div>
       <div style="margin-top:14px;"><span class="cmn-cred-lbl">CPF / RG:</span> ________________________________</div>
@@ -1128,6 +1147,7 @@ function drillLinhaComunicado(c) {
   else if (c.motivo === 'entregue') statusPill = `<span class="cmn-tag entregue">✓ Entrega finalizada</span>`;
   else if (c.motivo === 'nao_validado') statusPill = `<span class="cmn-tag aguard">Aguardando validação</span>`;
   else if (c.motivo === 'sem_credencial') statusPill = `<span class="cmn-tag fora">Sem credencial</span>`;
+  else if (c.motivo === 'sem_nota_tecnica') statusPill = `<span class="cmn-tag fora">Falta anexar a Nota Técnica</span>`;
   else statusPill = `<span class="cmn-tag fora">Fora do intervalo (${esc(c.ano_vencimento || '?')})</span>`;
   const ger = c.geracoes
     ? `<span class="cmn-tag gerado">✓ ${c.geracoes}× · ${fmtData(c.ultima_geracao)}</span>`
@@ -1219,6 +1239,37 @@ async function abrirParametros() {
   } catch {}
   document.getElementById('dpc-param-msg').textContent = '';
   document.getElementById('dpc-modal-param').classList.add('open');
+  carregarStatusNotaTecnica();
+}
+
+async function carregarStatusNotaTecnica() {
+  const el = document.getElementById('dpc-nota-tecnica-status');
+  el.textContent = 'Carregando...';
+  try {
+    const d = await (await fetch('/api/secad/nota-tecnica')).json();
+    if (!d.tem_arquivo) { el.innerHTML = '<span style="color:var(--vermelho);font-weight:600;">⚠ Nenhum PDF cadastrado — a geração de comunicados fica bloqueada até anexar.</span>'; return; }
+    const dt = d.atualizado_em ? fmtData(d.atualizado_em) : '—';
+    el.innerHTML = `📄 <strong>${esc(d.nome_arquivo || 'nota-tecnica.pdf')}</strong> — atualizado em ${dt}${d.atualizado_por_nome ? ` por ${esc(d.atualizado_por_nome)}` : ''}
+      · <a href="/api/secad/nota-tecnica/arquivo" target="_blank" rel="noopener">ver PDF</a>`;
+  } catch { el.textContent = 'Erro ao carregar.'; }
+}
+
+async function enviarNotaTecnica(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const el = document.getElementById('dpc-nota-tecnica-status');
+  el.textContent = 'Enviando...';
+  try {
+    const buffer = await file.arrayBuffer();
+    const res = await fetch(`/api/secad/nota-tecnica?nome=${encodeURIComponent(file.name)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: buffer
+    });
+    const data = await res.json();
+    if (!res.ok) { toast(data.error || 'Erro ao enviar.', 'error'); carregarStatusNotaTecnica(); return; }
+    toast('Nota Técnica atualizada.', 'success');
+    carregarStatusNotaTecnica();
+  } catch { toast('Falha de conexão.', 'error'); carregarStatusNotaTecnica(); }
+  finally { input.value = ''; }
 }
 async function salvarParametros() {
   const url = document.getElementById('dpc-param-url').value.trim();
