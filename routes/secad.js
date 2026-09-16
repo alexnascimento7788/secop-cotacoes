@@ -19,6 +19,7 @@ const express = require('express');
 const { db, depopDb, anexosDb } = require('../database');
 const crypto = require('crypto');
 const { registrarLog, requireModulo, requireRotina, getCpfHubKey } = require('../middleware');
+const { gerarPdfComunicados } = require('../secad-pdf');
 
 const router = express.Router();
 const secad = requireModulo('secad');
@@ -603,11 +604,23 @@ function prazoFinalAdesao(ano) {
   if (ano >= 2028 && ano <= 2032) return '18/12/2026';
   return null;
 }
-const DATA_INICIO_ADESAO = '17/08/2026'; // fixa pra todos (consta no próprio modelo)
+// Data corrigida em 2026-09-17 (Termo Aditivo nº 01, item que altera o item
+// 10.2 do Edital) — era 17/08/2026. Hoje não aparece mais no texto dos
+// documentos (a frase virou "prazo... é até X", sem mencionar o início), mas o
+// valor segue correto aqui pra não ficar uma constante errada no código.
+const DATA_INICIO_ADESAO = '14/09/2026';
 
 function paramSistema(chave, padrao) {
   const r = db.prepare(`SELECT valor FROM parametro_sistema WHERE chave = ?`).get(chave);
   return r && r.valor != null ? r.valor : padrao;
+}
+
+// Nota Técnica de Avaliação de Área — 1 PDF só, vigente pra todo mundo, anexado
+// pelo master em Parâmetros (nunca gerado pelo sistema — tem assinatura digital
+// própria). Sem ela, nenhum comunicado pode ser gerado (ver motivo
+// 'sem_nota_tecnica' abaixo) — o pacote entregue tem que ter os 3 documentos.
+function notaTecnicaAtual() {
+  return anexosDb.prepare(`SELECT nome_arquivo, mime, tamanho, conteudo, atualizado_em, atualizado_por_nome FROM nota_tecnica WHERE id = 1`).get();
 }
 
 // Monta os dados de UM comunicado (um contrato). {ok:false, motivo} quando não
@@ -636,6 +649,8 @@ function montarComunicado(idAvaliacao) {
   const v = db.prepare(`SELECT status FROM validacao_contrato WHERE id_avaliacao = ?`).get(idAvaliacao);
   if (!v || v.status !== 'validado') return { ...base, ok: false, motivo: 'nao_validado',
                        label: 'Contrato ainda não foi validado — valide antes de gerar o comunicado' };
+  if (!notaTecnicaAtual()) return { ...base, ok: false, motivo: 'sem_nota_tecnica',
+                       label: 'Nota Técnica de Avaliação de Área não cadastrada — anexe o PDF em Parâmetros antes de gerar' };
   return { ok: true, comunicado: {
     id: a.id, codigo: a.codigo,
     numero_comunicado: paramSistema('numero_comunicado', '01/2026'),
@@ -685,21 +700,24 @@ router.get('/api/secad/comunicados/lista', secad, requireRotina('comunicados', '
     .all().map(r => [r.id_avaliacao, r.status]));
   const cmap = new Map(anexosDb.prepare(`SELECT id_avaliacao, COUNT(*) n FROM comprovante_entrega GROUP BY id_avaliacao`)
     .all().map(r => [r.id_avaliacao, r.n]));
+  const temNotaTecnica = !!notaTecnicaAtual();
   const contratos = avals.map(a => {
     const ano = parseInt(String(a.data_vencimento || '').slice(0, 4), 10);
     const prazo = prazoFinalAdesao(ano);
     const g = gmap.get(a.id) || {};
     const validado = vmap.get(a.id) === 'validado';
     const entregue = !!g.enviado;
-    // Gerável só quando: ano no intervalo E tem credencial E já validado E ainda
-    // NÃO entregue. Motivo por prioridade: dado errado > falta credencial > falta
-    // validar > já entregue (entrega finaliza; só o master reabre).
+    // Gerável só quando: ano no intervalo E tem credencial E já validado E tem
+    // Nota Técnica cadastrada E ainda NÃO entregue. Motivo por prioridade: dado
+    // errado > falta credencial > falta validar > falta Nota Técnica > já
+    // entregue (entrega finaliza; só o master reabre).
     // `viewable` = é um comunicado válido (dá pra ver na tela), mesmo se entregue.
-    const viewable = !!prazo && !!a.tem_credencial && validado;
+    const viewable = !!prazo && !!a.tem_credencial && validado && temNotaTecnica;
     let elegivel = true, motivo = null;
     if (!prazo) { elegivel = false; motivo = 'ano_fora'; }
     else if (!a.tem_credencial) { elegivel = false; motivo = 'sem_credencial'; }
     else if (!validado) { elegivel = false; motivo = 'nao_validado'; }
+    else if (!temNotaTecnica) { elegivel = false; motivo = 'sem_nota_tecnica'; }
     else if (entregue) { elegivel = false; motivo = 'entregue'; }
     return {
       id: a.id, codigo: a.codigo, concessionario: a.cliente || '—', cidade: a.cidade || '—',
@@ -786,6 +804,35 @@ router.post('/api/secad/comunicados/gerar', secad, requireRotina('comunicados', 
       `Regerou ${regerados.length} comunicado(s) (2ª via+): CCU ${regerados.map(c => c.numero_ccu).filter(Boolean).join(', ').slice(0, 200)}`);
   }
   res.json({ comunicados, pulados, novos: novos.length, regerados: regerados.length });
+});
+
+// PDF final do lote (Comunicado + Nota Técnica + Protocolo, por contrato, tudo
+// num arquivo só) — chamado pelo front logo depois de POST .../gerar, passando
+// os `ids` que já vieram elegíveis/contados na resposta acima. Não refaz a
+// contagem de gerações (isso já aconteceu ali); aqui é só a montagem do PDF.
+router.post('/api/secad/comunicados/pdf', secad, requireRotina('comunicados', 'incluir'), async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(n => parseInt(n, 10)).filter(Number.isFinite) : [];
+  if (!ids.length) return res.status(400).json({ error: 'Nenhum contrato informado.' });
+
+  const nota = notaTecnicaAtual();
+  if (!nota) return res.status(409).json({ error: 'Nota Técnica de Avaliação de Área não cadastrada — anexe o PDF em Parâmetros.' });
+
+  const comunicados = [];
+  for (const id of ids) {
+    const m = montarComunicado(id);
+    if (m.ok) comunicados.push(m.comunicado);
+  }
+  if (!comunicados.length) return res.status(409).json({ error: 'Nenhum dos contratos informados está gerável agora.' });
+
+  try {
+    const pdfBuffer = await gerarPdfComunicados(comunicados, Buffer.from(nota.conteudo));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="comunicados.pdf"');
+    res.send(pdfBuffer);
+  } catch (e) {
+    console.error('[secad] erro ao gerar PDF de comunicados:', e);
+    res.status(500).json({ error: 'Falha ao montar o PDF. Verifique se a Nota Técnica é um PDF válido.' });
+  }
 });
 
 // Controle de entrega (manual, separado da geração). Só marca quem já foi gerado.
@@ -909,6 +956,56 @@ router.delete('/api/secad/comprovante/:cid', secad, requireRotina('comunicados',
   if (restantes === 0) db.prepare(`UPDATE comunicado_gerado SET enviado = 0, dt_envio = NULL WHERE id_avaliacao = ?`).run(row.id_avaliacao);
   registrarLog(req, 'SECAD', 'COMPROVANTE_REMOVEU', `Removeu comprovante do contrato ${row.id_avaliacao} (${row.nome_arquivo || ''})`);
   res.json({ ok: true, entregue: restantes > 0 });
+});
+
+// ── Nota Técnica de Avaliação de Área (anexos.db, linha única id=1) ──────────
+// PDF assinado digitalmente, anexado pelo master — nunca gerado pelo sistema.
+// Trocar o PDF aqui não pede deploy: o fluxo de geração (gerarPdfComunicados)
+// sempre lê a linha vigente na hora de montar o pacote.
+const NOTA_TECNICA_MAX = 15 * 1024 * 1024; // 15 MB
+
+router.get('/api/secad/nota-tecnica', secad, (req, res) => {
+  if (req.user.username !== 'master') return res.status(403).json({ error: 'Restrito ao master.' });
+  const row = notaTecnicaAtual();
+  if (!row) return res.json({ tem_arquivo: false });
+  res.json({ tem_arquivo: true, nome_arquivo: row.nome_arquivo, tamanho: row.tamanho,
+             atualizado_em: row.atualizado_em, atualizado_por_nome: row.atualizado_por_nome });
+});
+
+router.post('/api/secad/nota-tecnica', secad,
+  express.raw({ type: '*/*', limit: '16mb' }),
+  (req, res) => {
+    if (req.user.username !== 'master') return res.status(403).json({ error: 'Restrito ao master.' });
+    const mime = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    const nome = String(req.query.nome || req.headers['x-file-name'] || 'nota-tecnica.pdf').slice(0, 180);
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0)
+      return res.status(400).json({ error: 'Arquivo vazio.' });
+    if (mime !== 'application/pdf')
+      return res.status(415).json({ error: 'Envie um arquivo PDF.' });
+    if (req.body.length > NOTA_TECNICA_MAX)
+      return res.status(413).json({ error: 'Arquivo muito grande (máx. 15 MB).' });
+
+    anexosDb.prepare(`
+      INSERT INTO nota_tecnica (id, nome_arquivo, mime, tamanho, conteudo, atualizado_por, atualizado_por_nome, atualizado_em)
+      VALUES (1, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(id) DO UPDATE SET
+        nome_arquivo = excluded.nome_arquivo, mime = excluded.mime, tamanho = excluded.tamanho,
+        conteudo = excluded.conteudo, atualizado_por = excluded.atualizado_por,
+        atualizado_por_nome = excluded.atualizado_por_nome, atualizado_em = excluded.atualizado_em`)
+      .run(nome, mime, req.body.length, req.body, req.user.user_id, req.user.username);
+
+    registrarLog(req, 'SECAD', 'NOTA_TECNICA_ATUALIZOU', `Atualizou a Nota Técnica de Avaliação de Área (${nome})`);
+    res.json({ ok: true });
+  }
+);
+
+router.get('/api/secad/nota-tecnica/arquivo', secad, (req, res) => {
+  if (req.user.username !== 'master') return res.status(403).json({ error: 'Restrito ao master.' });
+  const row = notaTecnicaAtual();
+  if (!row) return res.status(404).json({ error: 'Nenhuma Nota Técnica cadastrada.' });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(row.nome_arquivo || 'nota-tecnica.pdf')}"`);
+  res.send(Buffer.from(row.conteudo));
 });
 
 // Parâmetros do sistema (parametro_sistema) — leitura/edição só do master.

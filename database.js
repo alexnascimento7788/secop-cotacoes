@@ -1530,6 +1530,23 @@ function setupAnexos() {
       atualizado_em DATETIME DEFAULT (datetime('now'))
     );
   `);
+  // Nota Técnica de Avaliação de Área (Comunicados) — 1 único PDF vigente pra
+  // todo mundo (não é por contrato), com assinatura digital própria — por isso
+  // nunca é gerado pelo sistema, só anexado/substituído pelo master em
+  // Parâmetros. Linha única (id=1, upsert) em vez de histórico: o pedido foi
+  // "trocar o PDF sem depender de código", não manter versões antigas.
+  _anexos.exec(`
+    CREATE TABLE IF NOT EXISTS nota_tecnica (
+      id                  INTEGER PRIMARY KEY CHECK (id = 1),
+      nome_arquivo        TEXT,
+      mime                TEXT,
+      tamanho             INTEGER,
+      conteudo            BLOB,
+      atualizado_por      INTEGER,
+      atualizado_por_nome TEXT,
+      atualizado_em       DATETIME
+    );
+  `);
 }
 
 setupAnexos();
