@@ -62,6 +62,7 @@ let itens             = [];
 let precos            = {}; // { `${item_id}_${forn_id}`: { preco_unitario_mes, preco_total_ano } }
 let vencedorId        = null;
 let mostrarMenorPreco = true;
+let calculoAnual      = false; // 3ª coluna "Total/Anual" = Total × 12 (parâmetro por processo)
 let totaisForn        = {}; // { fornId: totalValue } — soma de tudo (R$ + percentual), usada pra ranking/menor-preço
 let totaisFornMoeda   = {}; // { fornId: totalValue } — só a parte em R$ (itens normais + extras fixos), usada só pra decidir o formato de exibição
 let podeEditarCotacao = true;
@@ -107,10 +108,14 @@ function aplicarPermissaoUI() {
   document.getElementById('obs-portal').readOnly = !podeEditarCotacao;
 }
 
-// ── Labels de coluna (lidas do localStorage — editadas em fornecedor.html) ────
+// ── Labels de coluna (salvas no processo — editadas em fornecedor.html, valem
+//    pra todo mundo que abrir a cotação, não só quem editou) ──────────────────
+
+const COL_DEFAULTS = { unit: 'R$ UNIT/MÊS', total: 'R$ TOTAL/ANO', anual: 'Total/Anual' };
+const COL_CAMPO     = { unit: 'label_col_unit', total: 'label_col_total', anual: 'label_col_anual' };
 
 function getColLabel(key) {
-  return localStorage.getItem(`secop_col_${key}_${processoId}`) || (key === 'unit' ? 'R$ UNIT/MÊS' : 'R$ TOTAL/ANO');
+  return (processo && processo[COL_CAMPO[key]]) || COL_DEFAULTS[key];
 }
 
 // ── Labels das observações (editáveis aqui mesmo, salvos por processo) ────────
@@ -254,6 +259,7 @@ async function carregar() {
     itens             = data.itens || [];
     vencedorId        = data.proposta_vencedora_id;
     mostrarMenorPreco = data.mostrar_menor_preco !== 0;
+    calculoAnual      = data.calculo_anual === 1;
     precos            = {};
 
     const user = await getCurrentUser();
@@ -267,6 +273,7 @@ async function carregar() {
     aplicarPermissaoUI();
 
     document.getElementById('chk-menor-preco').checked = mostrarMenorPreco;
+    document.getElementById('chk-calculo-anual').checked = calculoAnual;
     aplicarLabelsObs();
 
     data.precos.forEach(p => {
@@ -413,6 +420,7 @@ function renderTabelaPrecos() {
 
   const ordinals = ['1º','2º','3º','4º','5º','6º','7º','8º'];
   const fOrds    = fornecedoresOrdenados();
+  const vw       = calculoAnual ? 3 : 2; // largura do bloco de cada fornecedor (Unit/Total[/Anual])
 
   // ── Linha 1: nomes dos fornecedores (ordenados por valor)
   let thRow = `<tr>
@@ -425,7 +433,7 @@ function renderTabelaPrecos() {
     const badge = f.declinio
       ? ' <span style="color:#E65100;font-size:10px;font-weight:400;">⚠ Declínio</span>'
       : (incompleto ? ' <span style="color:#e53e3e;font-size:10px;font-weight:400;">⚠ Incompleta</span>' : '');
-    thRow += `<th class="${fornCls(f.id)}" colspan="2">${ordinals[i] || (i+1)+'º'} — ${f.nome || 'Fornecedor'}${badge}</th>`;
+    thRow += `<th class="${fornCls(f.id)}" colspan="${vw}">${ordinals[i] || (i+1)+'º'} — ${f.nome || 'Fornecedor'}${badge}</th>`;
   });
   thRow += '</tr>';
 
@@ -434,6 +442,7 @@ function renderTabelaPrecos() {
   fOrds.forEach(f => {
     const cls = fornCls(f.id);
     thSubRow += `<th class="${cls}">${getColLabel('unit')}</th><th class="${cls}">${getColLabel('total')}</th>`;
+    if (calculoAnual) thSubRow += `<th class="${cls}">${getColLabel('anual')}</th>`;
   });
   thSubRow += '</tr>';
   thead.innerHTML = thRow + thSubRow;
@@ -467,6 +476,11 @@ function renderTabelaPrecos() {
       row += `
         <td class="${cls}${isMin ? ' col-min' : ''}">${unitTxt}</td>
         <td class="${cls}${isMin ? ' col-min' : ''}">${totalTxt}</td>`;
+      if (calculoAnual) {
+        // Anual = Total × 12 — não se aplica a linha extra (não é um valor anualizável)
+        const anual = (!item.extra && total != null) ? total * 12 : null;
+        row += `<td class="${cls}${isMin ? ' col-min' : ''}">${anual != null ? fmtMoeda(anual) : '—'}</td>`;
+      }
     });
     row += '</tr>';
     rows += row;
@@ -478,13 +492,18 @@ function renderTabelaPrecos() {
     const cls   = fornCls(f.id);
     const isMin = f.id === minFornId;
     footer += `<td></td><td class="${cls}${isMin ? ' col-min' : ''}">${fmtTotalFornecedor(f.id)}</td>`;
+    if (calculoAnual) {
+      const tv = totalCalculado(f.id);
+      const anualTxt = (tv && !totalEhPercentual(f.id)) ? fmtMoeda(tv * 12) : '—';
+      footer += `<td class="${cls}${isMin ? ' col-min' : ''}">${anualTxt}</td>`;
+    }
   });
   footer += '</tr>';
 
   // ── Footer: CONDIÇÕES GERAIS
   const secHdrScreen = t => {
     let r = `<tr class="row-section-header"><td colspan="4">${t}</td>`;
-    for (let i = 0; i < nForn; i++) r += `<td colspan="2"></td>`;
+    for (let i = 0; i < nForn; i++) r += `<td colspan="${vw}"></td>`;
     return r + '</tr>';
   };
   footer += secHdrScreen('CONDIÇÕES GERAIS');
@@ -493,7 +512,7 @@ function renderTabelaPrecos() {
     let r = `<tr class="row-rodape"><td class="col-fixed" colspan="4">${label}</td>`;
     fOrds.forEach(f => {
       const isMin = f.id === minFornId && !!f[key];
-      r += `<td class="${fornCls(f.id)}${isMin ? ' col-min' : ''}" colspan="2">${f[key] || '—'}</td>`;
+      r += `<td class="${fornCls(f.id)}${isMin ? ' col-min' : ''}" colspan="${vw}">${f[key] || '—'}</td>`;
     });
     return r + '</tr>';
   };
@@ -514,7 +533,13 @@ function renderTabelaPrecos() {
       // "-23,7%" não é um valor monetário de proposta.
       const v = f[key] ?? (totaisForn[f.id] !== 0 && !totalEhPercentual(f.id) ? totalCalculado(f.id) : null);
       const isMin = f.id === minFornId && v != null;
-      r += `<td class="${fornCls(f.id)}${isMin ? ' col-min' : ''}" colspan="2">${v != null ? fmtMoeda(v) : '—'}</td>`;
+      const cls = fornCls(f.id);
+      if (calculoAnual) {
+        const va = v != null ? v * 12 : null;
+        r += `<td></td><td class="${cls}${isMin ? ' col-min' : ''}">${v != null ? fmtMoeda(v) : '—'}</td><td class="${cls}${isMin ? ' col-min' : ''}">${va != null ? fmtMoeda(va) : '—'}</td>`;
+      } else {
+        r += `<td class="${cls}${isMin ? ' col-min' : ''}" colspan="2">${v != null ? fmtMoeda(v) : '—'}</td>`;
+      }
     });
     return r + '</tr>';
   };
@@ -526,7 +551,7 @@ function renderTabelaPrecos() {
   fOrds.forEach(f => {
     const isV = isVenc(f.id);
     const cls = fornCls(f.id);
-    vencRow += `<td class="${cls}" colspan="2" style="text-align:center;">`;
+    vencRow += `<td class="${cls}" colspan="${vw}" style="text-align:center;">`;
     if (isV) {
       vencRow += `<span style="font-weight:700;color:var(--verde);">✓ Vencedor</span>`;
     } else if (podeEditarCotacao) {
@@ -563,7 +588,8 @@ function atualizarPrintBlock() {
   const nForn = fornecedores.length;
   if (!nForn) { document.getElementById('print-block').innerHTML = ''; return; }
 
-  const totalCols = 4 + nForn * 2;
+  const vw        = calculoAnual ? 3 : 2; // largura do bloco de cada fornecedor (Unit/Total[/Anual])
+  const totalCols = 4 + nForn * vw;
   const ordinals  = ['1º','2º','3º','4º','5º','6º','7º','8º'];
   const fOrds     = fornecedoresOrdenados();
 
@@ -611,7 +637,7 @@ function atualizarPrintBlock() {
       fOrds.forEach((f, i) => {
         const incompleto = !fornecedorCompleto(f.id);
         const badge = f.declinio ? ' ⚠ Declínio' : (incompleto ? ' ⚠ Incompleta' : '');
-        h += `<td class="prt-forn-hdr${vc(f.id) ? ' prt-venc-hdr' : ''}" colspan="2">${ordinals[i] || (i+1)+'º'} FORNECEDOR${badge}</td>`;
+        h += `<td class="prt-forn-hdr${vc(f.id) ? ' prt-venc-hdr' : ''}" colspan="${vw}">${ordinals[i] || (i+1)+'º'} FORNECEDOR${badge}</td>`;
       });
     } else if (rf) {
       fOrds.forEach(f => {
@@ -619,14 +645,14 @@ function atualizarPrintBlock() {
         if (f.declinio) {
           if (rf.key === 'nome') {
             const totalInfoRows = rightFields.filter(r => r != null).length;
-            h += `<td class="${cls} prt-declinio" colspan="2" rowspan="${totalInfoRows}" style="text-align:center;vertical-align:middle;"><strong style="display:block;text-transform:uppercase;font-size:8px;letter-spacing:.4px;">Declínio</strong><strong style="display:block;margin-top:2px;">${f.nome || '—'}</strong></td>`;
+            h += `<td class="${cls} prt-declinio" colspan="${vw}" rowspan="${totalInfoRows}" style="text-align:center;vertical-align:middle;"><strong style="display:block;text-transform:uppercase;font-size:8px;letter-spacing:.4px;">Declínio</strong><strong style="display:block;margin-top:2px;">${f.nome || '—'}</strong></td>`;
           }
           // demais linhas cobertas pelo rowspan — sem <td>
         } else if (f.pesquisa_internet || f.pesquisa_compra_publica) {
           if (rf.key === 'nome') {
             const totalInfoRows = rightFields.filter(r => r != null).length;
             const rotulo = f.pesquisa_internet ? 'Pesquisa na Internet' : 'Pesquisa Compra Pública';
-            h += `<td class="${cls}" colspan="2" rowspan="${totalInfoRows}" style="text-align:center;vertical-align:middle;"><strong style="display:block;text-transform:uppercase;font-size:8px;letter-spacing:.4px;">${rotulo}</strong><strong style="display:block;margin-top:2px;">${f.nome || '—'}</strong></td>`;
+            h += `<td class="${cls}" colspan="${vw}" rowspan="${totalInfoRows}" style="text-align:center;vertical-align:middle;"><strong style="display:block;text-transform:uppercase;font-size:8px;letter-spacing:.4px;">${rotulo}</strong><strong style="display:block;margin-top:2px;">${f.nome || '—'}</strong></td>`;
           }
           // demais linhas cobertas pelo rowspan — sem <td>
         } else {
@@ -634,12 +660,12 @@ function atualizarPrintBlock() {
             : (rf.key === 'telefone' || rf.key === 'celular') ? (fmtTelefoneDdd(f, rf.key) || '—')
             : (f[rf.key] || '—');
           if (rf.fmt) fv = rf.fmt(fv) || '—';
-          h += `<td class="${cls}" colspan="2">${rf.label}: ${fv}</td>`;
+          h += `<td class="${cls}" colspan="${vw}">${rf.label}: ${fv}</td>`;
         }
       });
     } else {
       fOrds.forEach(f => {
-        h += `<td class="prt-forn-info${vc(f.id) ? ' prt-venc' : ''}" colspan="2"></td>`;
+        h += `<td class="prt-forn-info${vc(f.id) ? ' prt-venc' : ''}" colspan="${vw}"></td>`;
       });
     }
     h += `</tr>`;
@@ -649,6 +675,7 @@ function atualizarPrintBlock() {
   h += `<tr class="prt-item-hdr"><th>Item</th><th>Qtde</th><th>Unid.</th><th>DESCRIÇÃO</th>`;
   fOrds.forEach(f => {
     h += `<th${cellCls(f.id, false)}>${getColLabel('unit')}</th><th${cellCls(f.id, false)}>${getColLabel('total')}</th>`;
+    if (calculoAnual) h += `<th${cellCls(f.id, false)}>${getColLabel('anual')}</th>`;
   });
   h += `</tr>`;
 
@@ -667,6 +694,11 @@ function atualizarPrintBlock() {
       const totTxt = tot != null ? (item.extra ? fmtExtraPrt(tot, sinalItem) : fmtMoeda(tot)) : (item.extra ? 'Não lançado' : '—');
       h += `<td${cellCls(f.id, isMin)}>${uTxt}</td>`;
       h += `<td${cellCls(f.id, isMin)}>${totTxt}</td>`;
+      if (calculoAnual) {
+        // Anual = Total × 12 — não se aplica a linha extra (não é um valor anualizável)
+        const anual = (!item.extra && tot != null) ? tot * 12 : null;
+        h += `<td${cellCls(f.id, isMin)}>${anual != null ? fmtMoeda(anual) : '—'}</td>`;
+      }
     });
     h += `</tr>`;
   });
@@ -677,7 +709,13 @@ function atualizarPrintBlock() {
     const incompleto = !fornecedorCompleto(f.id);
     const totalTxtFmt = fmtTotalFornecedor(f.id);
     const display = totalTxtFmt !== '—' ? totalTxtFmt + (incompleto ? ' *' : '') : '—';
-    h += `<td${cellCls(f.id, f.id === minFornId)} colspan="2" style="font-weight:700">${display}</td>`;
+    if (calculoAnual) {
+      const tv = totalCalculado(f.id);
+      const anualTxt = (tv && !totalEhPercentual(f.id)) ? fmtMoeda(tv * 12) + (incompleto ? ' *' : '') : '—';
+      h += `<td></td><td${cellCls(f.id, f.id === minFornId)} style="font-weight:700">${display}</td><td${cellCls(f.id, f.id === minFornId)} style="font-weight:700">${anualTxt}</td>`;
+    } else {
+      h += `<td${cellCls(f.id, f.id === minFornId)} colspan="2" style="font-weight:700">${display}</td>`;
+    }
   });
   h += `</tr>`;
 
@@ -687,14 +725,20 @@ function atualizarPrintBlock() {
     const incompleto = !fornecedorCompleto(f.id);
     const totalTxtFmt = fmtTotalFornecedor(f.id);
     const display = totalTxtFmt !== '—' ? totalTxtFmt + (incompleto ? ' *' : '') : '—';
-    h += `<td${cellCls(f.id, f.id === minFornId)} colspan="2" style="font-weight:700">${display}</td>`;
+    if (calculoAnual) {
+      const tv = totalCalculado(f.id);
+      const anualTxt = (tv && !totalEhPercentual(f.id)) ? fmtMoeda(tv * 12) + (incompleto ? ' *' : '') : '—';
+      h += `<td></td><td${cellCls(f.id, f.id === minFornId)} style="font-weight:700">${display}</td><td${cellCls(f.id, f.id === minFornId)} style="font-weight:700">${anualTxt}</td>`;
+    } else {
+      h += `<td${cellCls(f.id, f.id === minFornId)} colspan="2" style="font-weight:700">${display}</td>`;
+    }
   });
   h += `</tr>`;
 
   // ── CONDIÇÕES GERAIS
   const secHdrPrint = t => {
     let r = `<tr class="prt-sec"><td colspan="4">${t}</td>`;
-    for (let i = 0; i < nForn; i++) r += `<td colspan="2">—</td>`;
+    for (let i = 0; i < nForn; i++) r += `<td colspan="${vw}">—</td>`;
     return r + '</tr>';
   };
   h += secHdrPrint('CONDIÇÕES GERAIS');
@@ -703,7 +747,7 @@ function atualizarPrintBlock() {
     let r = `<tr><td class="prt-lbl" colspan="4">${label}</td>`;
     fOrds.forEach(f => {
       const isMin = destacarMin && f.id === minFornId && !!f[key];
-      r += `<td${cellCls(f.id, isMin)} colspan="2">${f[key] || '—'}</td>`;
+      r += `<td${cellCls(f.id, isMin)} colspan="${vw}">${f[key] || '—'}</td>`;
     });
     return r + '</tr>';
   };
@@ -717,7 +761,7 @@ function atualizarPrintBlock() {
   fOrds.forEach(f => {
     const { frete: v, termo: t } = normalizarFrete(f);
     const mark = (val, opt) => val === opt ? 'X' : ' ';
-    h += `<td${cellCls(f.id, false)} colspan="2">Sim (${mark(v,'Sim')}) — Não (${mark(v,'Não')}) — CIF (${mark(t,'CIF')}) — FOB (${mark(t,'FOB')})</td>`;
+    h += `<td${cellCls(f.id, false)} colspan="${vw}">Sim (${mark(v,'Sim')}) — Não (${mark(v,'Não')}) — CIF (${mark(t,'CIF')}) — FOB (${mark(t,'FOB')})</td>`;
   });
   h += `</tr>`;
 
@@ -732,14 +776,19 @@ function atualizarPrintBlock() {
       // "-23,7%" não é um valor monetário de proposta.
       const v = f[key] ?? (totaisForn[f.id] !== 0 && !totalEhPercentual(f.id) ? totalCalculado(f.id) : null);
       const isMin = f.id === minFornId && v != null;
-      r += `<td${cellCls(f.id, isMin)} colspan="2">${v != null ? fmtMoeda(v) : '—'}</td>`;
+      if (calculoAnual) {
+        const va = v != null ? v * 12 : null;
+        r += `<td></td><td${cellCls(f.id, isMin)}>${v != null ? fmtMoeda(v) : '—'}</td><td${cellCls(f.id, isMin)}>${va != null ? fmtMoeda(va) : '—'}</td>`;
+      } else {
+        r += `<td${cellCls(f.id, isMin)} colspan="2">${v != null ? fmtMoeda(v) : '—'}</td>`;
+      }
     });
     return r + '</tr>';
   };
 
   const spacerRow = () => {
     let r = `<tr style="height:10px;"><td class="prt-lbl" colspan="4"></td>`;
-    fOrds.forEach(f => { r += `<td${cellCls(f.id, false)} colspan="2"></td>`; });
+    fOrds.forEach(f => { r += `<td${cellCls(f.id, false)} colspan="${vw}"></td>`; });
     return r + '</tr>';
   };
 
@@ -751,7 +800,7 @@ function atualizarPrintBlock() {
   // ── Proposta Vencedora
   h += `<tr><td class="prt-lbl" colspan="4">Proposta Vencedora</td>`;
   fOrds.forEach(f => {
-    h += `<td${cellCls(f.id, false)} colspan="2" style="text-align:center;font-weight:700">${vc(f.id) ? 'x' : ''}</td>`;
+    h += `<td${cellCls(f.id, false)} colspan="${vw}" style="text-align:center;font-weight:700">${vc(f.id) ? 'x' : ''}</td>`;
   });
   h += `</tr></table>`;
 
@@ -831,6 +880,21 @@ document.getElementById('chk-menor-preco').addEventListener('change', async func
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mostrar: mostrarMenorPreco })
+    });
+  } catch { toast('Erro ao salvar preferência.', 'error'); }
+});
+
+// ── Cálculo anual (3ª coluna "Total/Anual") ────────────────────────────────────
+
+document.getElementById('chk-calculo-anual').addEventListener('change', async function () {
+  calculoAnual = this.checked;
+  renderTabelaPrecos();
+  atualizarPrintBlock();
+  try {
+    await fetch(`/api/processos/${processoId}/calculo-anual`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ativo: calculoAnual })
     });
   } catch { toast('Erro ao salvar preferência.', 'error'); }
 });
