@@ -915,7 +915,12 @@ textarea:focus::placeholder { color: transparent; }
   margin-bottom: 20px;
 }
 
-.preco-table { min-width: 600px; }
+/* width:auto sobrescreve o `table{width:100%}` global — com width:100% e várias
+   colunas de fornecedor (ainda mais agora com a 3ª coluna Anual), o auto-layout
+   espremia a única coluna elástica (Descrição) pra caber tudo, quebrando o texto
+   letra a letra. Com width:auto, a tabela cresce pelo conteúdo e a div em volta
+   (overflow-x:auto) rola na horizontal em vez de espremer. */
+.preco-table { width: auto; min-width: 600px; }
 
 .preco-table thead th { background: var(--surface-2); }
 .preco-table tbody td { border-bottom: 1px solid var(--cinza-b); }
