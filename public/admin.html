@@ -553,6 +553,16 @@
           </div>
           <div id="import-status-anexos"></div>
         </div>
+        <hr class="admin-divider">
+        <div class="admin-section">
+          <div class="admin-section-title">Backups automáticos</div>
+          <p style="font-size:13px;color:#666;margin-bottom:14px;line-height:1.5;">
+            Toda vez que um banco (secop.db, depop.db ou anexos.db) é importado ou restaurado,
+            o estado atual é guardado aqui antes de ser substituído. Retenção de até 5 por banco —
+            o mais antigo é apagado quando chega no 6º.
+          </p>
+          <div id="backups-lista" style="font-size:13px;color:#aaa;">Carregando...</div>
+        </div>
       </div>
     </div>
 
@@ -1261,6 +1271,7 @@ function mudarAba(aba) {
   if (aba === 'tipos') carregarTipos();
   if (aba === 'extras') carregarExtras();
   if (aba === 'parametros') carregarParametros();
+  if (aba === 'banco') carregarBackups();
   if (aba === 'lixeira') carregarLixeira();
   if (aba === 'concessionarios-removidos') carregarConcessionariosRemovidos();
   if (aba === 'logs') { carregarUsuariosLog(); carregarLogs(); }
@@ -2231,6 +2242,51 @@ dropAreaAnexos.addEventListener('drop', e => {
     document.getElementById('btn-importar-anexos').disabled = false;
   }
 });
+
+// ── Backups automáticos (ver backupBanco() em routes/admin.js) ─────────────────
+
+const NOMES_BANCO = { secop: 'secop.db', depop: 'depop.db', anexos: 'anexos.db' };
+
+function fmtDataHoraBackup(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function fmtTamanho(bytes) {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+async function carregarBackups() {
+  const el = document.getElementById('backups-lista');
+  el.textContent = 'Carregando...';
+  try {
+    const lista = await (await fetch('/api/admin/backups')).json();
+    if (!lista.length) { el.innerHTML = '<span style="color:#aaa;">Nenhum backup ainda — o primeiro é gerado na próxima importação.</span>'; return; }
+    el.innerHTML = `<table class="users-table"><thead><tr><th>Banco</th><th>Data</th><th>Tamanho</th><th></th></tr></thead><tbody>
+      ${lista.map(b => `
+        <tr>
+          <td>${NOMES_BANCO[b.tipo] || b.tipo}</td>
+          <td>${fmtDataHoraBackup(b.criado_em)}</td>
+          <td>${fmtTamanho(b.tamanho)}</td>
+          <td style="display:flex;gap:8px;">
+            <a class="btn btn-outline btn-sm" href="/api/admin/backups/${b.arquivo}/download">Baixar</a>
+            <button class="btn btn-outline btn-sm" onclick="restaurarBackup('${b.arquivo}', '${NOMES_BANCO[b.tipo] || b.tipo}')">Restaurar</button>
+          </td>
+        </tr>`).join('')}
+    </tbody></table>`;
+  } catch { el.innerHTML = '<span style="color:#c0392b;">Erro ao carregar backups.</span>'; }
+}
+
+async function restaurarBackup(arquivo, nomeBanco) {
+  if (!confirm(`Restaurar este backup de ${nomeBanco}? O estado atual será salvo como um novo backup antes, mas os dados de ${nomeBanco} serão substituídos pelos deste backup.`)) return;
+  try {
+    const res = await fetch(`/api/admin/backups/${arquivo}/restaurar`, { method: 'POST' });
+    if (!res.ok) throw new Error((await res.json()).error || 'Erro');
+    toast(`${nomeBanco} restaurado! Recarregando...`, 'success');
+    setTimeout(() => { window.location.href = '/'; }, 1500);
+  } catch (e) { toast('Erro: ' + e.message, 'error'); }
+}
 
 // ── Usuários ───────────────────────────────────────────────────────────────────
 

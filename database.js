@@ -130,6 +130,14 @@ function setupDb() {
   try { _db.exec(`ALTER TABLE processos    ADD COLUMN data_abertura DATE`);    } catch {}
   try { _db.exec(`ALTER TABLE processos    ADD COLUMN observacoes2 TEXT`);     } catch {}
   try { _db.exec(`ALTER TABLE processos    ADD COLUMN mostrar_menor_preco INTEGER DEFAULT 1`); } catch {}
+  // Cálculo anual (v4.23.0): 3ª coluna opcional "Total/Anual" = Total × 12,
+  // ligada por processo (editável a qualquer momento, não só na criação).
+  // Nomenclaturas de coluna (unit/total/anual) migraram do localStorage (só o
+  // navegador de quem editou via) pra cá, pra aparecer igual pra todo mundo.
+  try { _db.exec(`ALTER TABLE processos    ADD COLUMN calculo_anual INTEGER DEFAULT 0`); } catch {}
+  try { _db.exec(`ALTER TABLE processos    ADD COLUMN label_col_unit  TEXT`); } catch {}
+  try { _db.exec(`ALTER TABLE processos    ADD COLUMN label_col_total TEXT`); } catch {}
+  try { _db.exec(`ALTER TABLE processos    ADD COLUMN label_col_anual TEXT`); } catch {}
   try { _db.exec(`ALTER TABLE fornecedores ADD COLUMN frete TEXT`);            } catch {}
   try { _db.exec(`ALTER TABLE fornecedores ADD COLUMN pesquisa_internet INTEGER DEFAULT 0`); } catch {}
   try { _db.exec(`ALTER TABLE fornecedores ADD COLUMN declinio INTEGER DEFAULT 0`); } catch {}

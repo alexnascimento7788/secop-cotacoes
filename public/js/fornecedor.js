@@ -51,29 +51,41 @@ function toast(msg, type = '') {
   setTimeout(() => { el.className = ''; }, 3500);
 }
 
-// ── Labels de coluna (editáveis, salvas por processo no localStorage) ─────────
+// ── Labels de coluna (editáveis, salvas no processo — valem pra todo mundo,
+//    não só quem editou, ao contrário do antigo localStorage) ────────────────
 
-const COL_DEFAULTS  = { unit: 'R$ UNIT/MÊS', total: 'R$ TOTAL/ANO' };
+const COL_DEFAULTS  = { unit: 'R$ UNIT/MÊS', total: 'R$ TOTAL/ANO', anual: 'Total/Anual' };
+const COL_CAMPO     = { unit: 'label_col_unit', total: 'label_col_total', anual: 'label_col_anual' };
 const MODE_LABELS   = { '*': '×', '=': '=', 'digitar': '✎' };
 const MODE_TITLES   = { '*': 'Total = Qtde × Unit', '=': 'Total = Unit', 'digitar': 'Digitar total' };;
 
 function getColLabel(key) {
-  return localStorage.getItem(`secop_col_${key}_${processoId}`) || COL_DEFAULTS[key];
+  return (processo && processo[COL_CAMPO[key]]) || COL_DEFAULTS[key];
 }
 
 function aplicarCabecalhosColuna() {
   const u = document.getElementById('lbl-col-unit');
   const t = document.getElementById('lbl-col-total');
+  const a = document.getElementById('lbl-col-anual');
   if (u) u.textContent = getColLabel('unit');
   if (t) t.textContent = getColLabel('total');
+  if (a) a.textContent = getColLabel('anual');
+  const thAnual = document.getElementById('th-col-anual');
+  if (thAnual) thAnual.style.display = calculoAnual ? '' : 'none';
 }
 
-function editarCabecalhoColuna(key) {
+async function editarCabecalhoColuna(key) {
   const novo = prompt('Nome da coluna:', getColLabel(key));
-  if (novo !== null && novo.trim()) {
-    localStorage.setItem(`secop_col_${key}_${processoId}`, novo.trim());
-    aplicarCabecalhosColuna();
-  }
+  if (novo === null || !novo.trim()) return;
+  processo[COL_CAMPO[key]] = novo.trim();
+  aplicarCabecalhosColuna();
+  try {
+    await fetch(`/api/processos/${processoId}/labels-coluna`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [key]: novo.trim() })
+    });
+  } catch { toast('Erro ao salvar nome da coluna.', 'error'); }
 }
 
 // ── Estado global ─────────────────────────────────────────────────────────────
@@ -81,6 +93,7 @@ function editarCabecalhoColuna(key) {
 let processo      = null;
 let fornecedores  = [];
 let itens         = [];
+let calculoAnual  = false; // 3ª coluna "Total/Anual" = Total × 12 (parâmetro por processo, ligado em cotacao.html)
 let tiposExtra    = []; // catálogo Unidade+Descrição (Configurações → Itens Extras)
 let currentFornId = null;
 let podeEditarForn = true;
@@ -165,6 +178,7 @@ async function carregar() {
     processo    = data;
     fornecedores = data.fornecedores || [];
     itens        = data.itens || [];
+    calculoAnual = data.calculo_anual === 1;
 
     try {
       const resExtra = await fetch('/api/tipos-extra');
@@ -371,7 +385,7 @@ function renderTabelaPrecos(precosMap) {
   const tbody = document.getElementById('precos-tbody');
 
   if (!itens.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:#aaa;">Nenhum item cadastrado no processo.</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="${calculoAnual ? 7 : 6}" style="text-align:center;padding:20px;color:#aaa;">Nenhum item cadastrado no processo.</td></tr>`;
     return;
   }
 
@@ -462,10 +476,17 @@ function renderTabelaPrecos(precosMap) {
           ${initialMode !== 'digitar' || !habilitado ? 'readonly' : ''}
           value="${tot !== '' ? fmtMoeda(tot) : ''}" placeholder="R$ 0,00" /></td>`;
 
+    // Anual = Total × 12 — só exibição (não digitável); não se aplica a linha
+    // extra (não é um valor anualizável, ex: "TAXA" pontual).
+    const colsAnual = !calculoAnual ? '' : (item.extra
+      ? `<td class="anual-col" style="text-align:center;color:var(--text-subtle);background:var(--surface-2);">—</td>`
+      : `<td class="anual-col" style="text-align:right;background:var(--surface-2);"><span class="anual-valor" data-item="${item.id}">${tot !== '' ? fmtMoeda(parseFloat(tot) * 12) : ''}</span></td>`);
+
     rows += `
       <tr class="${item.extra ? 'row-extra ' + (sinalItem === 'negativo' ? 'row-extra-neg' : 'row-extra-pos') : ''}">
         ${colsEsquerda}
         ${colsPreco}
+        ${colsAnual}
       </tr>`;
   });
 
@@ -478,6 +499,7 @@ function renderTabelaPrecos(precosMap) {
     <tr class="row-section-header">
       <td colspan="6">VALOR TOTAL</td>
       <td id="total-geral">${totalCalc === 0 ? '—' : (totalEhPercentual ? fmtPercentualTotal(totalCalc) : fmtMoeda(totalCalc))}</td>
+      ${calculoAnual ? '<td></td>' : ''}
     </tr>`;
 
   tbody.innerHTML = rows;
@@ -567,6 +589,10 @@ function recalcTotal() {
     const item   = itens.find(i => String(i.id) === String(itemId));
     const ehPercentual = inp.classList.contains('extra-pct');
     let v = (ehPercentual ? parsePercentual(inp.value) : parseMoeda(inp.value)) || 0;
+    if (calculoAnual && !item?.extra) {
+      const anualEl = document.querySelector(`.anual-valor[data-item="${itemId}"]`);
+      if (anualEl) anualEl.textContent = v ? fmtMoeda(v * 12) : '';
+    }
     if (item?.extra) {
       const uniSel = document.querySelector(`.extra-unidade[data-item="${itemId}"]`);
       // Linha marcada "não conta no total" é apenas informativa — não entra na soma.

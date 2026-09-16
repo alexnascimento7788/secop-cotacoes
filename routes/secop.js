@@ -364,6 +364,32 @@ router.patch('/api/processos/:id/mostrar-menor-preco', secop, requireEditProcess
   res.json({ ok: true });
 });
 
+// ── Cálculo anual (3ª coluna "Total/Anual" = Total × 12) ───────────────────────
+
+router.patch('/api/processos/:id/calculo-anual', secop, requireEditProcesso(req => req.params.id), (req, res) => {
+  const { ativo } = req.body;
+  db.prepare(`UPDATE processos SET calculo_anual=?, atualizado_em=CURRENT_TIMESTAMP WHERE id=?`)
+    .run(ativo ? 1 : 0, req.params.id);
+  res.json({ ok: true });
+});
+
+// Nomenclatura das colunas de valor (Unit/Total/Anual) — era salva no
+// localStorage (só quem editou via), agora fica no processo e aparece pra
+// qualquer um que abrir a cotação. Só atualiza as chaves enviadas.
+router.patch('/api/processos/:id/labels-coluna', secop, requireEditProcesso(req => req.params.id), (req, res) => {
+  const proc = db.prepare(`SELECT label_col_unit, label_col_total, label_col_anual FROM processos WHERE id = ?`).get(req.params.id);
+  if (!proc) return res.status(404).json({ error: 'Não encontrado' });
+  const { unit, total, anual } = req.body;
+  db.prepare(`UPDATE processos SET label_col_unit=?, label_col_total=?, label_col_anual=?, atualizado_em=CURRENT_TIMESTAMP WHERE id=?`)
+    .run(
+      unit  !== undefined ? n(unit)  : proc.label_col_unit,
+      total !== undefined ? n(total) : proc.label_col_total,
+      anual !== undefined ? n(anual) : proc.label_col_anual,
+      req.params.id
+    );
+  res.json({ ok: true });
+});
+
 // ── Status rápido ─────────────────────────────────────────────────────────────
 
 router.patch('/api/processos/:id/status', secop, requireEditProcesso(req => req.params.id), (req, res) => {

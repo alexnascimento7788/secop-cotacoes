@@ -41,6 +41,31 @@ const router = express.Router();
 const IS_HOMOLOG = fs.existsSync(path.join(__dirname, '..', '.homolog'));
 const MIGRACOES_FILE = path.join(__dirname, '..', 'migracoes-homolog.json');
 
+// ── Backup automático antes de importar um banco (retenção de 5 por tipo) ─────
+// Pedido do Alex 2026-09-16: poder reverter uma importação errada sem precisar
+// ter feito export manual antes. Guarda uma cópia do arquivo ATUAL sempre que
+// for importar OU restaurar um dos 3 bancos (secop/depop/anexos) — apaga o
+// mais antigo quando já tem 5. Nome do arquivo carrega tipo+timestamp, então
+// dá pra listar/filtrar por tipo sem precisar de subpasta nem de banco próprio.
+const BACKUPS_DIR = path.join(__dirname, '..', 'data', 'backups');
+if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+const NOME_BACKUP_RE = /^(secop|depop|anexos)_\d{8}_\d{6}\.db$/;
+
+function timestampArquivo() {
+  const d = new Date();
+  const p2 = v => String(v).padStart(2, '0');
+  return `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+}
+
+function backupBanco(tipo, arquivoAtual) {
+  if (!fs.existsSync(arquivoAtual)) return;
+  fs.copyFileSync(arquivoAtual, path.join(BACKUPS_DIR, `${tipo}_${timestampArquivo()}.db`));
+  const existentes = fs.readdirSync(BACKUPS_DIR)
+    .filter(f => f.startsWith(`${tipo}_`) && NOME_BACKUP_RE.test(f))
+    .sort(); // timestamp no nome já ordena cronologicamente
+  while (existentes.length > 5) fs.unlinkSync(path.join(BACKUPS_DIR, existentes.shift()));
+}
+
 // ── Lixeira (Configurações → Lixeira, restrito por requireAdminAny) ───────────
 
 router.get('/api/admin/lixeira', requireAdminAny, (req, res) => {
@@ -661,6 +686,7 @@ router.post('/api/admin/import-db',
     registrarLog(req, 'BANCO', 'IMPORTOU', 'Importou banco de dados');
 
     const dbPath = path.join(__dirname, '..', 'data', 'secop.db');
+    backupBanco('secop', dbPath);
     try { db.close(); } catch {}
     fs.writeFileSync(dbPath, req.body);
     try { fs.unlinkSync(dbPath + '-shm'); } catch {}
@@ -693,6 +719,7 @@ router.post('/api/admin/import-depop-db',
 
     registrarLog(req, 'DEPOP', 'IMPORTOU', 'Importou a base de dados do Depop');
 
+    backupBanco('depop', depopFilePath);
     try { depopDb.close(); } catch {}
     fs.writeFileSync(depopFilePath, req.body);
     try { fs.unlinkSync(depopFilePath + '-shm'); } catch {}
@@ -723,6 +750,7 @@ router.post('/api/admin/import-anexos-db',
 
     registrarLog(req, 'DEPOP', 'IMPORTOU', 'Importou os anexos (comprovantes)');
 
+    backupBanco('anexos', anexosFilePath);
     try { anexosDb.close(); } catch {}
     fs.writeFileSync(anexosFilePath, req.body);
     try { fs.unlinkSync(anexosFilePath + '-shm'); } catch {}
@@ -732,6 +760,50 @@ router.post('/api/admin/import-anexos-db',
     res.json({ ok: true });
   }
 );
+
+// ── Admin: backups automáticos (ver backupBanco() acima) ──────────────────────
+
+router.get('/api/admin/backups', requireAdminAny, (req, res) => {
+  const arquivos = fs.readdirSync(BACKUPS_DIR).filter(f => NOME_BACKUP_RE.test(f));
+  const lista = arquivos.map(f => {
+    const st = fs.statSync(path.join(BACKUPS_DIR, f));
+    return { arquivo: f, tipo: f.split('_')[0], tamanho: st.size, criado_em: st.mtime };
+  }).sort((a, b) => b.criado_em - a.criado_em);
+  res.json(lista);
+});
+
+router.get('/api/admin/backups/:arquivo/download', requireAdminAny, (req, res) => {
+  if (!NOME_BACKUP_RE.test(req.params.arquivo)) return res.status(400).end();
+  const p = path.join(BACKUPS_DIR, req.params.arquivo);
+  if (!fs.existsSync(p)) return res.status(404).end();
+  res.download(p, req.params.arquivo);
+});
+
+router.post('/api/admin/backups/:arquivo/restaurar', requireAdminAny, (req, res) => {
+  if (!NOME_BACKUP_RE.test(req.params.arquivo)) return res.status(400).json({ error: 'Arquivo inválido' });
+  const origem = path.join(BACKUPS_DIR, req.params.arquivo);
+  if (!fs.existsSync(origem)) return res.status(404).json({ error: 'Backup não encontrado' });
+
+  const tipo = req.params.arquivo.split('_')[0];
+  const alvos = {
+    secop:  { caminho: path.join(__dirname, '..', 'data', 'secop.db'), fechar: () => { try { db.close(); } catch {} },       setup: setupDb },
+    depop:  { caminho: depopFilePath,                                  fechar: () => { try { depopDb.close(); } catch {} }, setup: setupDepop },
+    anexos: { caminho: anexosFilePath,                                 fechar: () => { try { anexosDb.close(); } catch {} },setup: setupAnexos },
+  };
+  const alvo = alvos[tipo];
+
+  // Restaurar TAMBÉM conta como "importar" pra fins de segurança — guarda o
+  // estado atual antes de sobrescrever, senão o "voltar" não teria volta.
+  backupBanco(tipo, alvo.caminho);
+  registrarLog(req, 'BANCO', 'RESTAUROU', `Restaurou backup ${req.params.arquivo}`);
+  alvo.fechar();
+  fs.copyFileSync(origem, alvo.caminho);
+  try { fs.unlinkSync(alvo.caminho + '-shm'); } catch {}
+  try { fs.unlinkSync(alvo.caminho + '-wal'); } catch {}
+  alvo.setup();
+
+  res.json({ ok: true });
+});
 
 // ── Admin: logs ───────────────────────────────────────────────────────────────
 
