@@ -915,12 +915,14 @@ textarea:focus::placeholder { color: transparent; }
   margin-bottom: 20px;
 }
 
-/* width:auto sobrescreve o `table{width:100%}` global — com width:100% e várias
-   colunas de fornecedor (ainda mais agora com a 3ª coluna Anual), o auto-layout
-   espremia a única coluna elástica (Descrição) pra caber tudo, quebrando o texto
-   letra a letra. Com width:auto, a tabela cresce pelo conteúdo e a div em volta
-   (overflow-x:auto) rola na horizontal em vez de espremer. */
-.preco-table { width: auto; min-width: 600px; }
+/* width:max-content sobrescreve o `table{width:100%}` global. width:auto NÃO
+   resolvia — pela spec, `auto` ainda usa a largura do container quando ela é
+   maior que o mínimo, então continuava espremendo a única coluna elástica
+   (Descrição) com várias colunas de fornecedor (a 3ª coluna Anual piorou).
+   max-content força a tabela a assumir a largura real do conteúdo, ignorando
+   o container — a div em volta (overflow-x:auto) rola na horizontal em vez
+   de espremer. */
+.preco-table { width: max-content; min-width: 600px; }
 
 .preco-table thead th { background: var(--surface-2); }
 .preco-table tbody td { border-bottom: 1px solid var(--cinza-b); }
