@@ -248,10 +248,10 @@ async function carregarDetalheDfd() {
   const map = { aberto: 'Aberto', analise: 'Em análise', em_consolidacao: 'Em consolidação', consolidado: 'Consolidado', fechado: 'Fechado' };
   badge.className = `badge badge-${dfd.status}`;
   badge.textContent = map[dfd.status] || dfd.status;
-  // Data de vencimento (entrega) do DFD — pedido do Alex, 2026-09-07. DFD
-  // criado antes desta versão pode não ter (fica "não informado").
-  document.getElementById('dfd-det-vencimento').textContent = dfd.data_entrega
-    ? `Vencimento: ${fmtBrData(dfd.data_entrega)}` : 'Vencimento: não informado';
+  // Data de vencimento (entrega) do DFD — pedido do Alex, 2026-09-07, com
+  // "destaque inteligente" (cor de farol) desde 2026-09-17, mesmo padrão de
+  // badgeVencimento() em pac-lancamento.js.
+  document.getElementById('dfd-det-vencimento').innerHTML = badgeVencimento(dfd.data_entrega);
 
   fecharAcaoDfd();
   // Botão de atalho pro próximo passo do fluxo — pedido do Alex, 2026-09-15:
@@ -299,6 +299,14 @@ function diasRestantesPac(dataIso) {
   const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
   const alvo = new Date(String(dataIso).split(/[T ]/)[0] + 'T00:00:00');
   return Math.round((alvo - hoje) / 86400000);
+}
+// "Destaque inteligente" no Vencimento (cor de farol) — pedido do Alex,
+// 2026-09-17, mesmo padrão de badgeVencimento() em pac-lancamento.js.
+function badgeVencimento(dataIso) {
+  if (!dataIso) return `<span class="badge badge-fechado">Vencimento: não informado</span>`;
+  const dias = diasRestantesPac(dataIso);
+  const classe = dias < 0 ? 'badge-parado' : dias <= 5 ? 'badge-aprovacao' : 'badge-concluido';
+  return `<span class="badge ${classe}">Vencimento: ${fmtBrData(dataIso)}</span>`;
 }
 function mensagemStatusDfd({ status, temItens, todosFinalizados, dias }) {
   const prazoTxto = dias == null ? '' : dias > 0 ? ` Restam ${dias} dia(s) para o prazo.` : dias === 0 ? ' O prazo termina hoje!' : ` O prazo já venceu há ${-dias} dia(s).`;
