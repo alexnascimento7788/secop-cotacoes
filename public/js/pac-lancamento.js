@@ -802,14 +802,18 @@ function renderInputCelula(itemId, coluna, valor, comBotaoSalvar, pendente) {
     // quando já existe um rateio salvo (edição de rateio só pelo modal,
     // senão o select sobrescreveria o JSON com um valor único sem querer).
     if (coluna.slug === 'fonte_pagadora') {
+      // Envolve select+botão num flex pra nunca quebrar linha (o <select> +
+      // botão juntos passavam da largura da célula e o botão caía embaixo,
+      // desalinhado dos outros campos da linha — achado pelo Alex testando,
+      // 2026-09-17).
       const rateio = parseRateioFonte(valor);
-      const btnRateio = ` <button type="button" class="btn btn-secondary btn-xs" style="vertical-align:middle;" onclick="abrirModalRateioFonte(${itemId},${coluna.id})" title="Ratear entre mais de uma fonte pagadora">⚖</button>`;
+      const btnRateio = `<button type="button" class="btn btn-secondary btn-xs" style="padding:2px 7px;flex-shrink:0;" onclick="abrirModalRateioFonte(${itemId},${coluna.id})" title="Ratear entre mais de uma fonte pagadora">⚖</button>`;
       if (rateio) {
-        return `<span class="${classePendente.trim()}" style="font-size:12.5px;white-space:nowrap;" title="${textoRateioFonte(valor)}">${textoRateioFonte(valor)}</span>${btnRateio}`;
+        return `<div style="display:flex;align-items:center;gap:6px;"><span class="${classePendente.trim()}" style="font-size:12.5px;white-space:nowrap;" title="${textoRateioFonte(valor)}">${textoRateioFonte(valor)}</span>${btnRateio}</div>`;
       }
       const opcoesFonte = (_listasCache[coluna.lista] || []).map(o =>
         `<option value="${o.valor}" ${o.valor === valor ? 'selected' : ''}>${o.valor}</option>`).join('');
-      return `<select ${base} class="${classePendente.trim()}" style="width:110px;"><option value="">${pendente ? 'Item não preenchido' : '—'}</option>${opcoesFonte}</select>${btnRateio}`;
+      return `<div style="display:flex;align-items:center;gap:6px;"><select ${base} class="${classePendente.trim()}" style="width:85px;flex-shrink:0;"><option value="">${pendente ? 'Item não preenchido' : '—'}</option>${opcoesFonte}</select>${btnRateio}</div>`;
     }
     const opcoes = (_listasCache[coluna.lista] || []).map(o =>
       `<option value="${o.valor}" ${o.valor === valor ? 'selected' : ''}>${o.valor}</option>`).join('');
