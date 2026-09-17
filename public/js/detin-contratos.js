@@ -145,6 +145,7 @@ async function abrirModalContratoNovo() {
   limparFormContrato();
   document.getElementById('mcont-titulo').textContent = 'Novo Contrato';
   document.getElementById('mc-aditivos-sec').style.display = 'none';
+  document.getElementById('mc-btn-ficha').style.display = 'none';
   mudarAbaModalContrato('identificacao');
   document.getElementById('modal-contrato').classList.add('open');
 }
@@ -189,6 +190,9 @@ async function abrirModalContratoEditar(id) {
     : 'Nenhum PDF anexado.';
 
   document.getElementById('mc-aditivos-sec').style.display = '';
+  document.getElementById('mc-btn-ficha').style.display = '';
+  document.getElementById('mc-btn-ficha').textContent = 'Gerar Ficha (PDF)';
+  document.getElementById('mc-btn-ficha').onclick = gerarFichaContrato;
   await carregarAditivos(c.id);
   mudarAbaModalContrato('identificacao');
   document.getElementById('modal-contrato').classList.add('open');
@@ -326,6 +330,117 @@ async function excluirAditivo(id, contratoId) {
     toast('Aditivo excluído.');
   } catch {
     toast('Erro ao excluir', 'error');
+  }
+}
+
+/* ── Relatórios prontos (PDF) ───────────────────────────────────────────────
+   Mesmo padrão popup-safe da Análise: fetch guarda o blob, um clique
+   SEPARADO no botão que aparece é que abre/baixa — nunca automático depois
+   de um await (navegador pode bloquear). */
+
+function abrirDownloadBlob(blobUrl, nome) {
+  const a = document.createElement('a');
+  a.href = blobUrl; a.download = nome;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+async function gerarRelatorio(tipo) {
+  const spanId = `dtr-resultado-${tipo}`;
+  const span = document.getElementById(spanId);
+  span.innerHTML = ' <span class="text-muted" style="font-size:12px;">Gerando...</span>';
+  let url, nomeArquivo;
+  if (tipo === 'lista') {
+    const params = new URLSearchParams();
+    const status = document.getElementById('f-status').value; if (status) params.set('status', status);
+    const fornecedor = document.getElementById('f-fornecedor').value; if (fornecedor) params.set('fornecedor', fornecedor);
+    const tipoContrato = document.getElementById('f-tipo').value; if (tipoContrato) params.set('tipo', tipoContrato);
+    const vencAte = document.getElementById('f-vencimento').value; if (vencAte) params.set('vencimento_ate', vencAte);
+    url = `/api/detin/relatorios/contratos?${params}`;
+    nomeArquivo = 'detin-lista-contratos.pdf';
+  } else if (tipo === 'vencimentos') {
+    const dias = document.getElementById('dtr-venc-dias').value;
+    url = `/api/detin/relatorios/vencimentos?dias=${dias}`;
+    nomeArquivo = 'detin-vencimentos.pdf';
+  } else {
+    url = '/api/detin/relatorios/financeiro';
+    nomeArquivo = 'detin-financeiro.pdf';
+  }
+  try {
+    const res = await fetch(url);
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao gerar'); }
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    span.innerHTML = ` <button class="btn btn-primary btn-sm" onclick="abrirDownloadBlob('${blobUrl}','${nomeArquivo}')">📄 Abrir/Baixar</button>`;
+  } catch (e) {
+    span.innerHTML = '';
+    toast('Erro: ' + e.message, 'error');
+  }
+}
+
+function abrirModalRelatorios() {
+  ['lista', 'vencimentos', 'financeiro'].forEach(t => { document.getElementById(`dtr-resultado-${t}`).innerHTML = ''; });
+  document.getElementById('modal-relatorios').classList.add('open');
+}
+
+async function gerarFichaContrato() {
+  if (!_contratoEditandoId) return;
+  const btn = document.getElementById('mc-btn-ficha');
+  const original = btn.textContent;
+  btn.textContent = 'Gerando...'; btn.disabled = true;
+  try {
+    const res = await fetch(`/api/detin/contratos/${_contratoEditandoId}/ficha`);
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao gerar'); }
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    btn.textContent = original; btn.disabled = false;
+    btn.onclick = () => { abrirDownloadBlob(blobUrl, `detin-ficha-${_contratoEditandoId}.pdf`); btn.onclick = gerarFichaContrato; btn.textContent = original; };
+    btn.textContent = '📄 Abrir/Baixar Ficha';
+  } catch (e) {
+    btn.textContent = original; btn.disabled = false;
+    toast('Erro: ' + e.message, 'error');
+  }
+}
+
+/* ── Acesso por Setor ────────────────────────────────────────────────────── */
+
+async function abrirModalSetorAcesso() {
+  await garantirListasCarregadas();
+  const sel = document.getElementById('msa-setor');
+  sel.innerHTML = _setores.map(s => `<option value="${s.id}">${s.nome}</option>`).join('');
+  document.getElementById('modal-setor-acesso').classList.add('open');
+  if (_setores.length) carregarUsuariosDoSetor();
+}
+
+async function carregarUsuariosDoSetor() {
+  const setorId = document.getElementById('msa-setor').value;
+  const cont = document.getElementById('msa-usuarios');
+  if (!setorId) { cont.innerHTML = ''; return; }
+  cont.innerHTML = '<span class="text-muted" style="font-size:12px;">Carregando...</span>';
+  try {
+    const res = await fetch(`/api/detin/setores/${setorId}/usuarios`);
+    if (!res.ok) throw new Error();
+    const usuarios = await res.json();
+    cont.innerHTML = usuarios.map(u => `
+      <label style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12.5px;">
+        <input type="checkbox" ${u.vinculado ? 'checked' : ''} onchange="alterarVinculoSetor(${setorId},${u.id},this.checked)" />
+        ${u.nome_completo || u.username}
+      </label>
+    `).join('') || '<span class="text-muted" style="font-size:12px;">Nenhum usuário.</span>';
+  } catch {
+    cont.innerHTML = '<span class="text-muted" style="font-size:12px;">Erro ao carregar.</span>';
+  }
+}
+
+async function alterarVinculoSetor(setorId, userId, vinculado) {
+  try {
+    const res = await fetch(`/api/detin/setores/${setorId}/usuarios`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: userId, vinculado }),
+    });
+    if (!res.ok) throw new Error();
+    toast('Salvo.');
+  } catch {
+    toast('Erro ao salvar', 'error');
+    carregarUsuariosDoSetor();
   }
 }
 

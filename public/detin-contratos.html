@@ -76,7 +76,11 @@
         <div class="page-title">DETIN — Gestão de Contratos</div>
         <div class="page-subtitle">Contratos</div>
       </div>
-      <button class="btn btn-primary" id="btn-novo-contrato" onclick="abrirModalContratoNovo()">+ Novo Contrato</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" onclick="abrirModalSetorAcesso()">Acesso por Setor</button>
+        <button class="btn btn-secondary" onclick="abrirModalRelatorios()">Relatórios</button>
+        <button class="btn btn-primary" id="btn-novo-contrato" onclick="abrirModalContratoNovo()">+ Novo Contrato</button>
+      </div>
     </div>
 
     <div class="card">
@@ -231,6 +235,7 @@
 
     <div id="mcont-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin:10px 0 4px;"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button type="button" class="btn btn-secondary" id="mc-btn-ficha" style="display:none;" onclick="gerarFichaContrato()">Gerar Ficha (PDF)</button>
       <button type="button" class="btn btn-secondary" onclick="fecharModalContrato()">Fechar</button>
       <button type="button" class="btn btn-primary" onclick="salvarContrato()">Salvar</button>
     </div>
@@ -258,6 +263,67 @@
     <div style="display:flex;gap:8px;justify-content:flex-end;">
       <button type="button" class="btn btn-secondary" onclick="fecharModalAditivo()">Cancelar</button>
       <button type="button" class="btn btn-primary" onclick="salvarAditivo()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Relatórios prontos -->
+<div class="modal-overlay" id="modal-relatorios">
+  <div class="modal-box" style="max-width:480px;">
+    <h3>Relatórios</h3>
+    <p class="text-muted" style="font-size:12px;margin-bottom:14px;">Todos em PDF. Clique em gerar e depois no botão que aparece pra abrir/baixar (o navegador pode bloquear a abertura automática).</p>
+
+    <div style="margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--cinza-b);">
+      <strong style="font-size:13px;">Lista de Contratos</strong>
+      <p class="text-muted" style="font-size:11.5px;margin:2px 0 8px;">Usa os mesmos filtros aplicados na tela agora.</p>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="gerarRelatorio('lista')">Gerar</button>
+      <span id="dtr-resultado-lista"></span>
+    </div>
+
+    <div style="margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--cinza-b);">
+      <strong style="font-size:13px;">Relatório de Vencimentos</strong>
+      <div style="display:flex;align-items:center;gap:8px;margin:6px 0 8px;">
+        <label style="font-size:12px;">Janela:</label>
+        <select id="dtr-venc-dias" style="width:auto;">
+          <option value="30">30 dias</option>
+          <option value="60">60 dias</option>
+          <option value="90" selected>90 dias</option>
+          <option value="180">180 dias</option>
+        </select>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="gerarRelatorio('vencimentos')">Gerar</button>
+      </div>
+      <span id="dtr-resultado-vencimentos"></span>
+    </div>
+
+    <div>
+      <strong style="font-size:13px;">Financeiro por Fornecedor</strong>
+      <p class="text-muted" style="font-size:11.5px;margin:2px 0 8px;">Termômetro, top fornecedores e distribuição por tipo — mesmo dado do Painel.</p>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="gerarRelatorio('financeiro')">Gerar</button>
+      <span id="dtr-resultado-financeiro"></span>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+      <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-relatorios').classList.remove('open')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Acesso por Setor -->
+<div class="modal-overlay" id="modal-setor-acesso">
+  <div class="modal-box" style="max-width:460px;">
+    <h3>Acesso por Setor</h3>
+    <p class="text-muted" style="font-size:12px;margin-bottom:12px;">
+      Usuário sem nenhum setor marcado continua vendo todos os contratos. Marcando um usuário aqui, ele passa a ver
+      só os contratos cujo campo "Setor" (aba Identificação) for este.
+    </p>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>Setor</label>
+      <select id="msa-setor" onchange="carregarUsuariosDoSetor()"></select>
+    </div>
+    <div id="msa-usuarios" style="max-height:280px;overflow-y:auto;"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px;">
+      <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-setor-acesso').classList.remove('open')">Fechar</button>
     </div>
   </div>
 </div>
