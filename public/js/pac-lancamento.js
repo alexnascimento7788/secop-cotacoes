@@ -565,9 +565,9 @@ async function renderItens() {
       ${colunasPrincipais.map(c => renderCelula(item, c, -1, liberado)).join('')}
       ${temColContrato ? renderCelulaContrato(item, colunasContrato) : ''}
       <td style="text-align:right;white-space:nowrap;">
-        ${(itemEditavel(item, liberado) && itemTemPendencia(item))
+        ${!itemEditavel(item, liberado) ? '' : itemTemPendencia(item)
           ? `<button class="btn btn-primary btn-xs" onclick="concluirItem(${item.id})" title="Confere se falta algo e confirma">✅ Concluir</button>`
-          : ''}
+          : `<span class="pac-item-completo" style="color:var(--verde,#2E7D32);font-size:12px;font-weight:600;white-space:nowrap;">✅ Completo</span>`}
         ${podeExcluir
           ? `<button class="btn btn-danger btn-xs" onclick="excluirItem(${item.id})">Excluir</button>`
           : (podeSolicitar ? `<button class="btn btn-secondary btn-xs" onclick="abrirPedido(${item.id}, 'excluir')">Solicitar exclusão</button>` : '')}
@@ -661,7 +661,98 @@ function formatarValorExibicao(coluna, valor) {
   if (valor === null || valor === undefined || valor === '') return '—';
   if (coluna.tipo_input === 'data') return fmtBr(valor);
   if (coluna.tipo_input === 'moeda') return 'R$ ' + fmtMoeda(valor);
+  if (coluna.slug === 'fonte_pagadora') return textoRateioFonte(valor) || valor;
   return valor;
+}
+
+/* ── Rateio de fonte pagadora (item pode ratear entre 2+ fontes por %) ──────
+   Coluna "fonte_pagadora" continua um <select> simples pro caso comum (1
+   fonte só = 100% automático, sem precisar abrir nada); o botão "⚖" ao lado
+   abre este modal pra marcar 2+ fontes com percentual — o valor salvo na
+   MESMA coluna (dfd_itens_valores, sem tabela nova) passa a ser um JSON tipo
+   {"TU":60,"RDC":40} em vez do texto simples quando há 2+ fontes. Pedido do
+   Alex, 2026-09-16 — ficou de fora de Parâmetros de propósito (lá só cadastra
+   os TIPOS possíveis; o rateio é por item, na hora de lançar). */
+function parseRateioFonte(valor) {
+  if (!valor) return null;
+  const s = String(valor).trim();
+  if (!s.startsWith('{')) return null;
+  try {
+    const obj = JSON.parse(s);
+    return (obj && typeof obj === 'object') ? obj : null;
+  } catch { return null; }
+}
+function textoRateioFonte(valor) {
+  const rateio = parseRateioFonte(valor);
+  if (!rateio) return null;
+  return Object.entries(rateio).map(([f, p]) => `${f} ${p}%`).join(' / ');
+}
+
+let _rfItemId = null, _rfColunaId = null;
+
+function abrirModalRateioFonte(itemId, colunaId) {
+  const item = _itensAtuais.find(i => i.id === itemId);
+  if (!item) return;
+  _rfItemId = itemId; _rfColunaId = colunaId;
+  const valorAtual = item.valores[colunaId];
+  const rateioAtual = parseRateioFonte(valorAtual) || (valorAtual ? { [valorAtual]: 100 } : {});
+  const opcoes = (_listasCache.fonte_pagadora || []).map(o => o.valor);
+  document.getElementById('rateio-fonte-linhas').innerHTML = opcoes.map(op => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+      <label style="display:flex;align-items:center;gap:6px;flex:1;cursor:pointer;">
+        <input type="checkbox" id="rf-chk-${op}" ${rateioAtual[op] != null ? 'checked' : ''} onchange="atualizarTotalRateioFonte()"> ${op}
+      </label>
+      <input type="number" id="rf-pct-${op}" min="0" max="100" step="0.01" value="${rateioAtual[op] ?? ''}"
+        style="width:80px;text-align:right;" placeholder="%" oninput="atualizarTotalRateioFonte()">
+    </div>`).join('');
+  document.getElementById('rateio-fonte-msg').textContent = '';
+  atualizarTotalRateioFonte();
+  document.getElementById('modal-rateio-fonte').classList.add('open');
+}
+function fecharModalRateioFonte() {
+  document.getElementById('modal-rateio-fonte').classList.remove('open');
+  _rfItemId = null; _rfColunaId = null;
+}
+function lerRateioFonteForm() {
+  const opcoes = (_listasCache.fonte_pagadora || []).map(o => o.valor);
+  const rateio = {};
+  opcoes.forEach(op => {
+    const chk = document.getElementById(`rf-chk-${op}`);
+    if (chk && chk.checked) rateio[op] = Number(document.getElementById(`rf-pct-${op}`).value) || 0;
+  });
+  return rateio;
+}
+function atualizarTotalRateioFonte() {
+  const rateio = lerRateioFonteForm();
+  const total = Object.values(rateio).reduce((s, v) => s + v, 0);
+  const el = document.getElementById('rateio-fonte-total');
+  if (!el) return;
+  el.textContent = `Total: ${total}%`;
+  el.style.color = Math.abs(total - 100) < 0.01 ? 'var(--verde,#2E7D32)' : '#c0392b';
+}
+async function salvarRateioFonte() {
+  const rateio = lerRateioFonteForm();
+  const fontes = Object.keys(rateio);
+  const msg = document.getElementById('rateio-fonte-msg');
+  if (!fontes.length) { msg.textContent = 'Marque ao menos uma fonte pagadora.'; return; }
+  const total = fontes.reduce((s, f) => s + rateio[f], 0);
+  if (Math.abs(total - 100) > 0.01) { msg.textContent = `A soma dos percentuais precisa ser 100% (está em ${total}%).`; return; }
+  // 1 fonte só = mesmo formato simples de sempre (texto puro) — não vira
+  // JSON pra um caso que já era 100% implícito, sem mudar nada de quem nunca
+  // usar rateio.
+  const valor = fontes.length === 1 ? fontes[0] : JSON.stringify(rateio);
+  try {
+    const res = await fetch(`/api/pac/itens/${_rfItemId}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ valores: { [_rfColunaId]: valor } }),
+    });
+    if (res.status === 409) { const e = await res.json(); msg.textContent = e.error || 'Não foi possível salvar.'; return; }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); msg.textContent = e.error || 'Erro ao salvar.'; return; }
+    fecharModalRateioFonte();
+    await renderItens();
+    renderFinalizacao();
+    toast('Rateio da fonte pagadora salvo.');
+  } catch { msg.textContent = 'Erro ao salvar.'; }
 }
 
 function renderInputCelula(itemId, coluna, valor, comBotaoSalvar, pendente) {
@@ -672,6 +763,20 @@ function renderInputCelula(itemId, coluna, valor, comBotaoSalvar, pendente) {
     ? ` <button type="button" class="btn btn-primary btn-xs" style="vertical-align:middle;" onclick="salvarCampoItem(document.getElementById('${domId}'))" title="Salvar">💾</button>`
     : '';
   if (coluna.tipo_input === 'select') {
+    // Fonte Pagadora ganha um botão "⚖" ao lado pra ratear entre 2+ fontes
+    // por percentual (pedido do Alex, 2026-09-16) — o <select> comum some
+    // quando já existe um rateio salvo (edição de rateio só pelo modal,
+    // senão o select sobrescreveria o JSON com um valor único sem querer).
+    if (coluna.slug === 'fonte_pagadora') {
+      const rateio = parseRateioFonte(valor);
+      const btnRateio = ` <button type="button" class="btn btn-secondary btn-xs" style="vertical-align:middle;" onclick="abrirModalRateioFonte(${itemId},${coluna.id})" title="Ratear entre mais de uma fonte pagadora">⚖</button>`;
+      if (rateio) {
+        return `<span class="${classePendente.trim()}" style="font-size:12.5px;white-space:nowrap;" title="${textoRateioFonte(valor)}">${textoRateioFonte(valor)}</span>${btnRateio}`;
+      }
+      const opcoesFonte = (_listasCache[coluna.lista] || []).map(o =>
+        `<option value="${o.valor}" ${o.valor === valor ? 'selected' : ''}>${o.valor}</option>`).join('');
+      return `<select ${base} class="${classePendente.trim()}" style="width:110px;"><option value="">${pendente ? 'Item não preenchido' : '—'}</option>${opcoesFonte}</select>${btnRateio}`;
+    }
     const opcoes = (_listasCache[coluna.lista] || []).map(o =>
       `<option value="${o.valor}" ${o.valor === valor ? 'selected' : ''}>${o.valor}</option>`).join('');
     // Largura FIXA (não só min-width) — pedido do Alex, 2026-09-15: uma opção
@@ -913,13 +1018,22 @@ async function salvarCampoItem(el) {
     if (coluna && coluna.grupo === 'A') {
       el.classList.toggle('campo-pendente', valor === '' || valor == null);
     }
-    // Some com o botão "✅ Concluir" na hora, assim que o item deixa de ter
-    // pendência — sem isso ele ficava na linha mesmo depois de tudo
-    // preenchido, e clicar de novo só confirmava algo que já estava certo
-    // (pedido do Alex, 2026-09-15: "isto pode gerar confusão no usuário").
+    // Troca o botão "✅ Concluir" por um selo "✅ Completo" assim que o item
+    // deixa de ter pendência, e volta pro botão se um campo obrigatório for
+    // limpo de novo depois — nunca só REMOVE sem deixar rastro (era assim
+    // até v4.24.0: sumia sozinho sem clique nenhum, o Alex relatou como bug
+    // de confundir, 2026-09-16 — a v4.24.0 anterior tinha corrigido uma
+    // reclamação de "clicar de novo confirma algo que já tava certo", mas
+    // trocou por um problema pior). O campo continua editável do mesmo jeito
+    // depois disso — o selo é só indicativo, nunca trava nada.
+    const linha = document.querySelector(`[data-item-id="${itemId}"]`);
+    const celulaAcoes = linha?.querySelector('td:last-child');
+    const btnConcluir = celulaAcoes?.querySelector('button[onclick^="concluirItem("]');
+    const seloCompleto = celulaAcoes?.querySelector('.pac-item-completo');
     if (item && !itemTemPendencia(item)) {
-      const linha = document.querySelector(`[data-item-id="${itemId}"]`);
-      linha?.querySelector('button[onclick^="concluirItem("]')?.remove();
+      if (btnConcluir) btnConcluir.outerHTML = `<span class="pac-item-completo" style="color:var(--verde,#2E7D32);font-size:12px;font-weight:600;white-space:nowrap;">✅ Completo</span>`;
+    } else if (item && seloCompleto) {
+      seloCompleto.outerHTML = `<button class="btn btn-primary btn-xs" onclick="concluirItem(${itemId})" title="Confere se falta algo e confirma">✅ Concluir</button>`;
     }
     if (document.getElementById('lanc-filtro-pendencia')?.checked) await renderItens();
     renderFinalizacao();

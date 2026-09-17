@@ -363,6 +363,18 @@
           </label>
         </div>
         <div class="admin-section" style="margin-top:24px;">
+          <div class="admin-section-title">Admin &gt; Comunicação</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Por padrão, só master e admin do sistema veem a aba Comunicação
+            (e-mails/templates). Ligando isto, <strong>admin do departamento
+            (admin_operacional) também passa a ver e usar essa aba</strong>.
+          </p>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13.5px;">
+            <input type="checkbox" id="cfg-comunicacao-operacional" onchange="salvarComunicacaoOperacional(this.checked)" />
+            Liberar Comunicação também pro admin do departamento
+          </label>
+        </div>
+        <div class="admin-section" style="margin-top:24px;">
           <div class="admin-section-title">Timeout por inatividade</div>
           <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
             Depois de ficar parado (sem clicar, digitar ou rolar a tela) por mais
@@ -1407,6 +1419,7 @@ async function carregarParametros() {
     document.getElementById('cfg-inatividade').value   = cfg.inatividade_minutos  || 30;
     document.getElementById('cfg-lixeira-dias').value  = cfg.lixeira_dias         || 60;
     document.getElementById('cfg-edicao-livre').checked = cfg.secop_edicao_livre === '1';
+    document.getElementById('cfg-comunicacao-operacional').checked = cfg.comunicacao_libera_admin_operacional === '1';
     document.getElementById('cfg-pac-especificacao-min').value = cfg.pac_especificacao_min_caracteres || 50;
     document.getElementById('cfg-pac-multiplos-dfds').checked = cfg.pac_permitir_multiplos_dfds === '1';
     const lixeiraTxt = document.getElementById('lixeira-dias-txt');
@@ -1449,6 +1462,20 @@ async function salvarEdicaoLivre(ligado) {
     });
     if (!res.ok) throw new Error();
     toast(ligado ? 'Qualquer usuário já pode editar qualquer processo' : 'Edição voltou a ser restrita a admin/dono', 'success');
+  } catch {
+    toast('Erro ao salvar', 'error');
+    carregarParametros();
+  }
+}
+
+async function salvarComunicacaoOperacional(ligado) {
+  try {
+    const res = await fetch('/api/admin/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ comunicacao_libera_admin_operacional: ligado ? '1' : '0' })
+    });
+    if (!res.ok) throw new Error();
+    toast(ligado ? 'Admin do departamento já vê Comunicação' : 'Comunicação voltou a ser só master/admin do sistema', 'success');
   } catch {
     toast('Erro ao salvar', 'error');
     carregarParametros();
@@ -1545,10 +1572,23 @@ async function salvarParametros() {
   // admin_operacional não vê Departamentos/Módulos/Rotinas/Perfis — o vínculo
   // módulo×perfil dele acontece dentro do modal "Perfil" da aba Usuários.
   if (!ehAdminSistema) {
-    ['tab-departamentos', 'tab-modulos-sistema', 'tab-rotinas', 'tab-perfis', 'tab-comunicacao'].forEach(id => {
+    ['tab-departamentos', 'tab-modulos-sistema', 'tab-rotinas', 'tab-perfis'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
+  }
+  // Comunicação: parâmetro novo (pedido do Alex, 2026-09-16) libera também pro
+  // admin_operacional, sem depender de virar admin_sistema — ver
+  // requireComunicacao em middleware.js/routes/email.js.
+  let podeComunicacao = ehAdminSistema;
+  if (!podeComunicacao && user.role === 'admin_operacional') {
+    try {
+      const cfg = await (await fetch('/api/config')).json();
+      podeComunicacao = cfg.comunicacao_libera_admin_operacional === '1';
+    } catch {}
+  }
+  if (!podeComunicacao) {
+    document.getElementById('tab-comunicacao')?.style.setProperty('display', 'none');
   } else {
     carregarBadgeComunicacao();
   }

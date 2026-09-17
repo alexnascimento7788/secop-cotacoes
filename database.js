@@ -120,6 +120,12 @@ function setupDb() {
     // Regra "só 1 DFD em tramitação por vez" (pedido do Alex, 2026-09-15) —
     // '1' libera vários simultâneos, uso pensado pra homologação/teste.
     { chave: 'pac_permitir_multiplos_dfds', valor: '0' },
+    // Admin > Comunicação hoje só é visível pra master/admin_sistema (pedido
+    // original, 2026-09-09) — pedido do Alex, 2026-09-16: '1' libera também
+    // pro admin_operacional (escopo de departamento), sem precisar promovê-lo
+    // a admin_sistema (que ganharia Departamentos/Módulos/Rotinas/Perfis
+    // junto, mais do que o pedido pede).
+    { chave: 'comunicacao_libera_admin_operacional', valor: '0' },
   ].forEach(c => {
     try {
       _db.prepare(`INSERT INTO config (chave, valor) VALUES (?, ?)`).run(c.chave, c.valor);
