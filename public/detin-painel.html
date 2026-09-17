@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DETIN — Painel — CEASA CONECTA</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#1A3F6B">
+  <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
+  <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');var _mc=localStorage.getItem('secop_modulo_cache');if(_mc)document.documentElement.setAttribute('data-modulo',_mc);</script>
+  <style>
+    /* ── DETIN: Painel executivo ──────────────────────────────────────────── */
+    .dt-termometro-card { background: var(--surface); border: 1px solid var(--cinza-b); border-radius: 10px; padding: 20px 22px; margin-bottom: 18px; }
+    .dt-termometro-barra { display: flex; height: 26px; border-radius: 6px; overflow: hidden; margin-bottom: 12px; background: var(--surface-2); }
+    .dt-termometro-seg { height: 100%; transition: filter .15s; cursor: default; }
+    .dt-termometro-seg:hover { filter: brightness(1.1); }
+    .dt-termometro-resumo { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+    .dt-termometro-valor { font-size: 26px; font-weight: 800; color: var(--text); }
+    .dt-termometro-valor small { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+    .dt-termometro-anual { font-size: 14px; color: var(--text-muted); }
+    .dt-badge-pendencia { display: inline-block; margin-left: auto; padding: 4px 10px; border-radius: 20px; background: #fef9c3; color: #854d0e; font-size: 12px; font-weight: 700; cursor: pointer; }
+    [data-theme="dark"] .dt-badge-pendencia { background: rgba(202,138,4,.22); color: #fde047; }
+
+    .dt-grid-central { display: grid; grid-template-columns: 1.3fr 1fr; gap: 18px; margin-bottom: 18px; }
+    @media (max-width: 980px) { .dt-grid-central { grid-template-columns: 1fr; } }
+
+    .dt-card { background: var(--surface); border: 1px solid var(--cinza-b); border-radius: 10px; padding: 18px 20px; }
+    .dt-card-title { font-size: 13.5px; font-weight: 700; margin-bottom: 14px; color: var(--text); }
+
+    /* Linha do tempo */
+    .dt-timeline { max-height: 480px; overflow-y: auto; }
+    .dt-tl-mes { display: flex; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--cinza-b); align-items: flex-start; }
+    .dt-tl-mes:last-child { border-bottom: none; }
+    .dt-tl-mes.atual { background: var(--surface-2); margin: 0 -8px; padding: 9px 8px; border-radius: 8px; border-bottom: 1px solid transparent; }
+    .dt-tl-mes-label { flex: 0 0 90px; font-size: 12.5px; font-weight: 700; color: var(--text-muted); padding-top: 3px; text-transform: capitalize; }
+    .dt-tl-pilulas { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+    .dt-pilula { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 20px; font-size: 11.5px; font-weight: 600; cursor: pointer; border: 1px solid var(--cinza-b); background: var(--surface); white-space: nowrap; }
+    .dt-tl-vazio { font-size: 12px; color: var(--text-subtle); padding-top: 3px; }
+
+    /* Situação atual */
+    .dt-metricas { display: flex; flex-direction: column; gap: 4px; margin-bottom: 18px; }
+    .dt-metrica-num { font-size: 30px; font-weight: 800; line-height: 1.1; color: var(--text); }
+    .dt-metrica-num.critico { color: #c0392b; }
+    .dt-metrica-label { font-size: 12px; color: var(--text-muted); margin-bottom: 10px; }
+    .dt-mini-bar-row { display: flex; align-items: center; gap: 8px; font-size: 11.5px; margin-bottom: 6px; }
+    .dt-mini-bar-label { flex: 0 0 108px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dt-mini-bar-track { flex: 1; height: 12px; background: var(--surface-2); border-radius: 6px; overflow: hidden; }
+    .dt-mini-bar-fill { height: 100%; border-radius: 6px; }
+    .dt-mini-bar-valor { flex: 0 0 auto; font-weight: 700; color: var(--text); font-size: 11px; }
+
+    /* Fila de ação */
+    .dt-acao-card { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--cinza-b); border-radius: 8px; margin-bottom: 8px; }
+    .dt-acao-farol { flex: 0 0 12px; width: 12px; height: 12px; border-radius: 50%; }
+    .dt-acao-fornecedor { font-weight: 700; flex: 0 0 140px; }
+    .dt-acao-objeto { flex: 1; color: var(--text-muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dt-acao-dias { flex: 0 0 auto; font-weight: 700; font-size: 13px; white-space: nowrap; }
+  </style>
+</head>
+<body data-modulo="detin" data-rotina="detin-painel">
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" class="sidebar-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+      <div class="sidebar-logo-fallback" style="display:none;align-items:center;gap:10px;margin-bottom:8px;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="32" height="32" style="flex-shrink:0"><polygon points="20,1 1,20 20,20" fill="#1565C0"/><polygon points="20,1 39,20 20,20" fill="#F9A800"/><polygon points="39,20 20,39 20,20" fill="#1565C0"/><polygon points="1,20 20,39 20,20" fill="#1565C0"/></svg>
+        <div><div class="logo-title">CEASA CONECTA</div><div class="logo-sub">CEASAMINAS</div></div>
+      </div>
+      <div class="logo-divider"></div>
+    </div>
+    <nav>
+      <a href="detin-painel.html" class="nav-item active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
+        Painel
+      </a>
+      <a href="detin-contratos.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+        Contratos
+      </a>
+      <a href="detin-analise.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Análise de Contratos
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <span id="sidebar-username" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;">—</span>
+      <div style="display:flex;gap:2px;flex-shrink:0;">
+        <a href="admin.html" class="sidebar-gear" title="Administração">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </a>
+        <button onclick="logout()" class="sidebar-gear" title="Sair" style="background:none;border:none;cursor:pointer;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">DETIN — Gestão de Contratos</div>
+        <div class="page-subtitle">Painel executivo</div>
+      </div>
+    </div>
+
+    <!-- Termômetro financeiro -->
+    <div class="dt-termometro-card">
+      <div class="dt-termometro-barra" id="dt-termometro-barra"></div>
+      <div class="dt-termometro-resumo">
+        <div class="dt-termometro-valor" id="dt-valor-mensal">R$ 0,00<small> /mês</small></div>
+        <div class="dt-termometro-anual" id="dt-valor-anual">Projeção anual: R$ 0,00</div>
+        <span class="dt-badge-pendencia" id="dt-badge-pendencia" style="display:none;" onclick="location.href='detin-contratos.html'"></span>
+      </div>
+    </div>
+
+    <div class="dt-grid-central">
+      <!-- Linha do tempo -->
+      <div class="dt-card">
+        <div class="dt-card-title">Linha do tempo de vencimentos (próximos 12 meses)</div>
+        <div class="dt-timeline" id="dt-timeline"></div>
+      </div>
+
+      <!-- Situação atual -->
+      <div class="dt-card">
+        <div class="dt-card-title">Situação atual</div>
+        <div class="dt-metricas" id="dt-metricas"></div>
+        <div class="dt-card-title" style="margin-top:4px;">Distribuição por tipo</div>
+        <div id="dt-bar-tipo" style="margin-bottom:16px;"></div>
+        <div class="dt-card-title">Top 5 fornecedores por valor mensal</div>
+        <div id="dt-bar-fornecedor"></div>
+      </div>
+    </div>
+
+    <!-- Fila de ação -->
+    <div class="dt-card">
+      <div class="dt-card-title">Fila de ação necessária (vencimento em até 60 dias)</div>
+      <div id="dt-fila-acao"></div>
+    </div>
+
+    <div id="app-footer"></div>
+  </main>
+</div>
+
+<div id="toast"></div>
+<script src="js/pwa.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/detin-painel.js"></script>
+</body>
+</html>

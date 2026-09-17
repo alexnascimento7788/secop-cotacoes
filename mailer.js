@@ -120,6 +120,14 @@ function resolverDestinatarios(tipo, contexto = {}) {
       const u = db.prepare(`SELECT email AS email, COALESCE(nome_completo, username) AS nome FROM users WHERE id = ? AND ativo = 1`).get(contexto.user_id);
       return (u && u.email && String(u.email).trim()) ? [u] : [];
     }
+    case 'admin_sistema':
+      // Genérico (não específico de módulo nenhum) — usado hoje pelos
+      // alertas de vencimento de contrato do DETIN nos 2 estágios mais
+      // urgentes (15 dias e contagem diária), além do responsável do contrato.
+      return db.prepare(`
+        SELECT email AS email, COALESCE(nome_completo, username) AS nome FROM users
+        WHERE role = 'admin_sistema' AND ativo = 1 AND email IS NOT NULL AND TRIM(email) != ''
+      `).all();
     default:
       return [];
   }
@@ -276,6 +284,47 @@ function verificarLembretesPrazo() {
   }
 }
 
+// ── Job diário de vencimento de contratos (DETIN) ────────────────────────
+// Mesma ideia de verificarLembretesPrazo() acima, adaptada pro DETIN: 4
+// estágios fixos (60/30/15 dias e contagem regressiva diária de 10 a 1),
+// não parametrizáveis (diferente do PAC) porque o pedido original já veio
+// com os 4 limiares definidos. Dedup por dia+contrato+template evita
+// reenviar se o job rodar mais de 1x no mesmo dia.
+function verificarVencimentosDetin() {
+  try {
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    const contratos = db.prepare(`
+      SELECT * FROM detin_contratos WHERE excluido = 0 AND status = 'ativo' AND data_vencimento IS NOT NULL
+    `).all();
+    contratos.forEach(c => {
+      const alvo = new Date(String(c.data_vencimento).slice(0, 10) + 'T00:00:00');
+      if (isNaN(alvo.getTime())) return;
+      const dias = Math.round((alvo - hoje) / 86400000);
+
+      let templateSlug = null;
+      if (dias === 60) templateSlug = 'detin.contrato.alerta.60';
+      else if (dias === 30) templateSlug = 'detin.contrato.alerta.30';
+      else if (dias === 15) templateSlug = 'detin.contrato.alerta.15';
+      else if (dias > 0 && dias <= 10) templateSlug = 'detin.contrato.alerta.diario';
+      if (!templateSlug) return;
+
+      const destinatarios = c.responsavel_id ? resolverDestinatarios('usuario', { user_id: c.responsavel_id }) : [];
+      if (templateSlug === 'detin.contrato.alerta.15' || templateSlug === 'detin.contrato.alerta.diario') {
+        destinatarios.push(...resolverDestinatarios('admin_sistema', {}));
+      }
+      if (!destinatarios.length) return; // ninguém responsável cadastrado e nenhum admin_sistema com e-mail — nada a fazer
+
+      enfileirar(templateSlug, {
+        numero_contrato: c.numero_contrato || 'sem número', fornecedor: c.fornecedor, objeto: c.objeto || '',
+        data_vencimento: fmtDataBr(c.data_vencimento), dias_restantes: dias,
+        nome_responsavel: destinatarios[0]?.nome || '',
+      }, destinatarios, { chaveDedup: `detin:${c.id}:${templateSlug}` });
+    });
+  } catch (e) {
+    console.error('[email] erro no job de vencimento de contratos (DETIN):', e.message);
+  }
+}
+
 // ── Startup ───────────────────────────────────────────────────────────────
 let _motorIniciado = false;
 function iniciarMotor() {
@@ -305,6 +354,9 @@ function iniciarMotor() {
   // rodando várias vezes no mesmo dia.
   verificarLembretesPrazo();
   setInterval(verificarLembretesPrazo, 60 * 60 * 1000);
+
+  verificarVencimentosDetin();
+  setInterval(verificarVencimentosDetin, 60 * 60 * 1000);
 }
 
 module.exports = {
