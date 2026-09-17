@@ -8,7 +8,7 @@
 const express = require('express');
 const { db, anexosDb } = require('../database');
 const { registrarLog, requireModulo, requireRotina } = require('../middleware');
-const { gerarPdfAnalise } = require('../detin-pdf');
+const { gerarPdfAnalise, gerarPdfListaContratos, gerarPdfVencimentos, gerarPdfFinanceiroFornecedor, gerarPdfFichaContrato } = require('../detin-pdf');
 
 const router = express.Router();
 const detin = requireModulo('detin');
@@ -23,8 +23,27 @@ function diasRestantes(dataIso) {
   return Math.round((alvo - hoje) / 86400000);
 }
 
-function contratoRow(id) {
-  return db.prepare(`SELECT * FROM detin_contratos WHERE id = ? AND excluido = 0`).get(id);
+// Trava por setor (pedido do Alex, 2026-09-17) — mesmo padrão do PAC
+// (routes/pac.js, setoresDoUsuario/setor_usuarios): usuário sem vínculo em
+// setor_usuarios continua vendo tudo (inclui master/consulta, sempre livres).
+// Hoje os 20 contratos seedados têm todos o mesmo setor_id (Detin) — a trava
+// só passa a ter efeito prático quando um contrato for atribuído a outro
+// setor da tabela compartilhada.
+function setoresDoUsuario(userId) {
+  return db.prepare(`SELECT setor_id FROM setor_usuarios WHERE user_id = ?`).all(userId).map(r => r.setor_id);
+}
+function restritoPorSetor(req) {
+  return (req.user.username !== 'master' && req.user.role !== 'consulta') ? setoresDoUsuario(req.user.user_id) : [];
+}
+
+function contratoRow(id, req) {
+  const c = db.prepare(`SELECT * FROM detin_contratos WHERE id = ? AND excluido = 0`).get(id);
+  if (!c) return null;
+  if (req) {
+    const restrito = restritoPorSetor(req);
+    if (restrito.length && !restrito.includes(c.setor_id)) return null;
+  }
+  return c;
 }
 
 // Setores/usuários pro formulário de contrato (Setor/Responsável) — rota
@@ -40,9 +59,31 @@ router.get('/api/detin/usuarios', detin, requireRotina('detin-contratos', 'ver')
   `).all());
 });
 
+// Vínculo usuário↔setor pra trava de visibilidade (mesma tabela setor_usuarios
+// do PAC — reusada aqui com gate próprio do DETIN, ver restritoPorSetor acima).
+router.get('/api/detin/setores/:id/usuarios', detin, requireRotina('detin-contratos', 'alterar'), (req, res) => {
+  res.json(db.prepare(`
+    SELECT u.id, u.username, u.nome_completo,
+           EXISTS(SELECT 1 FROM setor_usuarios su WHERE su.setor_id = ? AND su.user_id = u.id) AS vinculado
+    FROM users u WHERE u.username != 'master' AND u.ativo = 1 ORDER BY COALESCE(u.nome_completo, u.username)
+  `).all(req.params.id));
+});
+router.put('/api/detin/setores/:id/usuarios', detin, requireRotina('detin-contratos', 'alterar'), (req, res) => {
+  const { user_id, vinculado } = req.body || {};
+  if (vinculado) {
+    try { db.prepare(`INSERT INTO setor_usuarios (setor_id, user_id) VALUES (?, ?)`).run(req.params.id, user_id); } catch {}
+  } else {
+    db.prepare(`DELETE FROM setor_usuarios WHERE setor_id = ? AND user_id = ?`).run(req.params.id, user_id);
+  }
+  registrarLog(req, 'DETIN', 'SETOR_USUARIO', `${vinculado ? 'Vinculou' : 'Desvinculou'} usuário #${user_id} ao setor #${req.params.id}`);
+  res.json({ ok: true });
+});
+
 // ── Painel ──────────────────────────────────────────────────────────────────
-router.get('/api/detin/painel', detin, requireRotina('detin-painel', 'ver'), (req, res) => {
-  const contratos = db.prepare(`SELECT * FROM detin_contratos WHERE excluido = 0`).all();
+function montarPainelDados(req) {
+  let contratos = db.prepare(`SELECT * FROM detin_contratos WHERE excluido = 0`).all();
+  const restrito = restritoPorSetor(req);
+  if (restrito.length) contratos = contratos.filter(c => restrito.includes(c.setor_id));
   const ativos = contratos.filter(c => c.status === 'ativo');
   const encerrados = contratos.filter(c => c.status === 'encerrado');
 
@@ -80,7 +121,7 @@ router.get('/api/detin/painel', detin, requireRotina('detin-painel', 'ver'), (re
   const pendencias = contratos.filter(c => !c.numero_contrato || !c.data_vencimento)
     .map(c => ({ id: c.id, fornecedor: c.fornecedor, numero_contrato: c.numero_contrato, sem_numero: !c.numero_contrato, sem_vencimento: !c.data_vencimento }));
 
-  res.json({
+  return {
     total_contratos: contratos.length,
     total_ativos: ativos.length,
     total_encerrados: encerrados.length,
@@ -91,7 +132,11 @@ router.get('/api/detin/painel', detin, requireRotina('detin-painel', 'ver'), (re
     alertas: comAlerta,
     timeline,
     pendencias,
-  });
+  };
+}
+
+router.get('/api/detin/painel', detin, requireRotina('detin-painel', 'ver'), (req, res) => {
+  res.json(montarPainelDados(req));
 });
 
 // ── Contratos ───────────────────────────────────────────────────────────────
@@ -103,6 +148,8 @@ router.get('/api/detin/contratos', detin, requireRotina('detin-contratos', 'ver'
   if (tipo) { cond.push('tipo = ?'); params.push(tipo); }
   if (setor_id) { cond.push('setor_id = ?'); params.push(setor_id); }
   if (vencimento_ate) { cond.push('data_vencimento IS NOT NULL AND data_vencimento <= ?'); params.push(vencimento_ate); }
+  const restrito = restritoPorSetor(req);
+  if (restrito.length) { cond.push(`setor_id IN (${restrito.map(() => '?').join(',')})`); params.push(...restrito); }
   const rows = db.prepare(`
     SELECT * FROM detin_contratos WHERE ${cond.join(' AND ')}
     ORDER BY data_vencimento IS NULL, data_vencimento ASC
@@ -111,7 +158,7 @@ router.get('/api/detin/contratos', detin, requireRotina('detin-contratos', 'ver'
 });
 
 router.get('/api/detin/contratos/:id', detin, requireRotina('detin-contratos', 'ver'), (req, res) => {
-  const c = contratoRow(req.params.id);
+  const c = contratoRow(req.params.id, req);
   if (!c) return res.status(404).json({ error: 'Contrato não encontrado' });
   const temAnexo = !!anexosDb.prepare(`SELECT 1 FROM detin_contrato_anexo WHERE contrato_id = ?`).get(c.id);
   res.json({ ...c, dias_restantes: diasRestantes(c.data_vencimento), tem_anexo: temAnexo });
@@ -127,6 +174,10 @@ const CAMPOS_CONTRATO = [
 router.post('/api/detin/contratos', detin, requireRotina('detin-contratos', 'incluir'), (req, res) => {
   const body = req.body || {};
   if (!body.fornecedor || !String(body.fornecedor).trim()) return res.status(400).json({ error: 'Fornecedor é obrigatório.' });
+  const restrito = restritoPorSetor(req);
+  if (restrito.length && !restrito.includes(Number(body.setor_id))) {
+    return res.status(403).json({ error: 'Você só pode cadastrar contratos do seu setor.' });
+  }
   const campos = CAMPOS_CONTRATO.filter(c => c in body);
   const valores = campos.map(c => body[c] === '' ? null : body[c]);
   const info = db.prepare(`
@@ -138,7 +189,7 @@ router.post('/api/detin/contratos', detin, requireRotina('detin-contratos', 'inc
 });
 
 router.put('/api/detin/contratos/:id', detin, requireRotina('detin-contratos', 'alterar'), (req, res) => {
-  const c = contratoRow(req.params.id);
+  const c = contratoRow(req.params.id, req);
   if (!c) return res.status(404).json({ error: 'Contrato não encontrado' });
   const body = req.body || {};
   const campos = CAMPOS_CONTRATO.filter(k => k in body);
@@ -151,7 +202,7 @@ router.put('/api/detin/contratos/:id', detin, requireRotina('detin-contratos', '
 });
 
 router.delete('/api/detin/contratos/:id', detin, requireRotina('detin-contratos', 'excluir'), (req, res) => {
-  const c = contratoRow(req.params.id);
+  const c = contratoRow(req.params.id, req);
   if (!c) return res.status(404).json({ error: 'Contrato não encontrado' });
   db.prepare(`UPDATE detin_contratos SET excluido = 1, atualizado_em = datetime('now') WHERE id = ?`).run(c.id);
   registrarLog(req, 'DETIN', 'EXCLUIU_CONTRATO', `Excluiu o contrato "${c.numero_contrato || '(sem número)'}" — ${c.fornecedor}`);
@@ -163,7 +214,7 @@ router.delete('/api/detin/contratos/:id', detin, requireRotina('detin-contratos'
 router.post('/api/detin/contratos/:id/anexo', detin, requireRotina('detin-contratos', 'alterar'),
   express.raw({ type: '*/*', limit: '16mb' }),
   (req, res) => {
-    const c = contratoRow(req.params.id);
+    const c = contratoRow(req.params.id, req);
     if (!c) return res.status(404).json({ error: 'Contrato não encontrado' });
     const mime = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
     const nome = String(req.query.nome || req.headers['x-file-name'] || 'contrato.pdf').slice(0, 180);
@@ -186,6 +237,7 @@ router.post('/api/detin/contratos/:id/anexo', detin, requireRotina('detin-contra
 );
 
 router.get('/api/detin/contratos/:id/anexo', detin, requireRotina('detin-contratos', 'ver'), (req, res) => {
+  if (!contratoRow(req.params.id, req)) return res.status(404).json({ error: 'Contrato não encontrado' });
   const row = anexosDb.prepare(`SELECT nome_arquivo, mime, conteudo FROM detin_contrato_anexo WHERE contrato_id = ?`).get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Este contrato não tem PDF anexado.' });
   res.setHeader('Content-Type', row.mime || 'application/pdf');
@@ -195,11 +247,12 @@ router.get('/api/detin/contratos/:id/anexo', detin, requireRotina('detin-contrat
 
 // ── Aditivos ────────────────────────────────────────────────────────────────
 router.get('/api/detin/contratos/:id/aditivos', detin, requireRotina('detin-contratos', 'ver'), (req, res) => {
+  if (!contratoRow(req.params.id, req)) return res.status(404).json({ error: 'Contrato não encontrado' });
   res.json(db.prepare(`SELECT * FROM detin_aditivos WHERE contrato_id = ? ORDER BY data DESC, id DESC`).all(req.params.id));
 });
 
 router.post('/api/detin/contratos/:id/aditivos', detin, requireRotina('detin-contratos', 'alterar'), (req, res) => {
-  const c = contratoRow(req.params.id);
+  const c = contratoRow(req.params.id, req);
   if (!c) return res.status(404).json({ error: 'Contrato não encontrado' });
   const { numero_aditivo, data, tipo, descricao, novo_valor_mensal, nova_data_vencimento } = req.body || {};
   if (!tipo) return res.status(400).json({ error: 'Tipo do aditivo é obrigatório.' });
@@ -216,8 +269,11 @@ router.post('/api/detin/contratos/:id/aditivos', detin, requireRotina('detin-con
 });
 
 router.delete('/api/detin/aditivos/:id', detin, requireRotina('detin-contratos', 'excluir'), (req, res) => {
-  const info = db.prepare(`DELETE FROM detin_aditivos WHERE id = ?`).run(req.params.id);
-  if (!info.changes) return res.status(404).json({ error: 'Aditivo não encontrado' });
+  const aditivo = db.prepare(`SELECT a.id, c.setor_id FROM detin_aditivos a JOIN detin_contratos c ON c.id = a.contrato_id WHERE a.id = ?`).get(req.params.id);
+  if (!aditivo) return res.status(404).json({ error: 'Aditivo não encontrado' });
+  const restrito = restritoPorSetor(req);
+  if (restrito.length && !restrito.includes(aditivo.setor_id)) return res.status(404).json({ error: 'Aditivo não encontrado' });
+  db.prepare(`DELETE FROM detin_aditivos WHERE id = ?`).run(req.params.id);
   registrarLog(req, 'DETIN', 'EXCLUIU_ADITIVO', `Excluiu o aditivo #${req.params.id}`);
   res.json({ ok: true });
 });
@@ -310,6 +366,89 @@ router.get('/api/detin/analises/:id/pdf', detin, requireRotina('detin-analise', 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(row.nome_arquivo || 'analise.pdf')}"`);
   res.send(Buffer.from(row.conteudo));
+});
+
+// ── Relatórios prontos (fora do fluxo de Análise) ────────────────────────────
+// Pedido do Alex, 2026-09-17: relatórios em PDF direto da listagem/painel,
+// sem passar pelo wizard de análise. Mesmo padrão de streaming inline dos
+// PDFs de análise/nota técnica — nunca grava em disco.
+router.get('/api/detin/relatorios/contratos', detin, requireRotina('detin-contratos', 'ver'), async (req, res) => {
+  const { status, fornecedor, tipo, setor_id, vencimento_ate } = req.query;
+  const cond = ['excluido = 0']; const params = []; const filtrosTexto = [];
+  if (status) { cond.push('status = ?'); params.push(status); filtrosTexto.push(`status: ${status}`); }
+  if (fornecedor) { cond.push('fornecedor = ?'); params.push(fornecedor); filtrosTexto.push(`fornecedor: ${fornecedor}`); }
+  if (tipo) { cond.push('tipo = ?'); params.push(tipo); filtrosTexto.push(`tipo: ${tipo}`); }
+  if (setor_id) { cond.push('setor_id = ?'); params.push(setor_id); }
+  if (vencimento_ate) { cond.push('data_vencimento IS NOT NULL AND data_vencimento <= ?'); params.push(vencimento_ate); filtrosTexto.push(`vencimento até: ${vencimento_ate}`); }
+  const restrito = restritoPorSetor(req);
+  if (restrito.length) { cond.push(`setor_id IN (${restrito.map(() => '?').join(',')})`); params.push(...restrito); }
+  const rows = db.prepare(`
+    SELECT * FROM detin_contratos WHERE ${cond.join(' AND ')}
+    ORDER BY data_vencimento IS NULL, data_vencimento ASC
+  `).all(...params).map(c => ({ ...c, dias_restantes: diasRestantes(c.data_vencimento) }));
+  try {
+    const pdfBuffer = await gerarPdfListaContratos(rows, filtrosTexto.join(' · '), req.user.nome_completo || req.user.username);
+    registrarLog(req, 'DETIN', 'GEROU_RELATORIO', `Gerou o relatório "Lista de Contratos" (${rows.length} contrato(s))`);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="detin-lista-contratos.pdf"');
+    res.send(pdfBuffer);
+  } catch (e) {
+    console.error('[detin] erro gerando relatório de lista:', e);
+    res.status(500).json({ error: 'Erro ao gerar o relatório.' });
+  }
+});
+
+router.get('/api/detin/relatorios/vencimentos', detin, requireRotina('detin-contratos', 'ver'), async (req, res) => {
+  const dias = Number(req.query.dias) || 90;
+  let contratos = db.prepare(`SELECT * FROM detin_contratos WHERE excluido = 0 AND status = 'ativo'`).all();
+  const restrito = restritoPorSetor(req);
+  if (restrito.length) contratos = contratos.filter(c => restrito.includes(c.setor_id));
+  const alertas = contratos
+    .map(c => ({ ...c, dias_restantes: diasRestantes(c.data_vencimento) }))
+    .filter(c => c.dias_restantes != null && c.dias_restantes <= dias)
+    .sort((a, b) => a.dias_restantes - b.dias_restantes);
+  try {
+    const pdfBuffer = await gerarPdfVencimentos(alertas, dias, req.user.nome_completo || req.user.username);
+    registrarLog(req, 'DETIN', 'GEROU_RELATORIO', `Gerou o relatório "Vencimentos" (${alertas.length} contrato(s), janela de ${dias} dias)`);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="detin-vencimentos.pdf"');
+    res.send(pdfBuffer);
+  } catch (e) {
+    console.error('[detin] erro gerando relatório de vencimentos:', e);
+    res.status(500).json({ error: 'Erro ao gerar o relatório.' });
+  }
+});
+
+router.get('/api/detin/relatorios/financeiro', detin, requireRotina('detin-contratos', 'ver'), async (req, res) => {
+  const dados = montarPainelDados(req);
+  try {
+    const pdfBuffer = await gerarPdfFinanceiroFornecedor(dados, req.user.nome_completo || req.user.username);
+    registrarLog(req, 'DETIN', 'GEROU_RELATORIO', `Gerou o relatório "Financeiro por Fornecedor"`);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="detin-financeiro.pdf"');
+    res.send(pdfBuffer);
+  } catch (e) {
+    console.error('[detin] erro gerando relatório financeiro:', e);
+    res.status(500).json({ error: 'Erro ao gerar o relatório.' });
+  }
+});
+
+router.get('/api/detin/contratos/:id/ficha', detin, requireRotina('detin-contratos', 'ver'), async (req, res) => {
+  const c = contratoRow(req.params.id, req);
+  if (!c) return res.status(404).json({ error: 'Contrato não encontrado' });
+  const setorNome = c.setor_id ? db.prepare(`SELECT nome FROM setores WHERE id = ?`).get(c.setor_id)?.nome : null;
+  const responsavelNome = c.responsavel_id ? db.prepare(`SELECT COALESCE(nome_completo, username) AS nome FROM users WHERE id = ?`).get(c.responsavel_id)?.nome : null;
+  const aditivos = db.prepare(`SELECT * FROM detin_aditivos WHERE contrato_id = ? ORDER BY data DESC, id DESC`).all(c.id);
+  try {
+    const pdfBuffer = await gerarPdfFichaContrato({ ...c, dias_restantes: diasRestantes(c.data_vencimento), setor_nome: setorNome, responsavel_nome: responsavelNome }, aditivos, req.user.nome_completo || req.user.username);
+    registrarLog(req, 'DETIN', 'GEROU_RELATORIO', `Gerou a ficha do contrato "${c.numero_contrato || '(sem número)'}" — ${c.fornecedor}`);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="detin-ficha-${c.id}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (e) {
+    console.error('[detin] erro gerando ficha do contrato:', e);
+    res.status(500).json({ error: 'Erro ao gerar a ficha.' });
+  }
 });
 
 module.exports = router;
