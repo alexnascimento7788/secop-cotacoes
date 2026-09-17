@@ -13,8 +13,8 @@ function fmtMoeda(v) {
   return (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// Farol de urgência por dias restantes — mesmos 5 níveis em todo o módulo
-// (painel, timeline e fila de ação usam a mesma função).
+// Farol de urgência por dias restantes — usado na fila de ação e no
+// contador "crítico" das métricas (5 níveis, granularidade fina pra ação).
 function farolInfo(dias) {
   if (dias == null) return { cor: '#9ca3af', label: 'Normal' };
   if (dias <= 10) return { cor: '#c0392b', label: 'Crítico' };
@@ -22,6 +22,16 @@ function farolInfo(dias) {
   if (dias <= 30) return { cor: '#eab308', label: 'Atenção' };
   if (dias <= 60) return { cor: '#16a34a', label: 'Monitorar' };
   return { cor: '#9ca3af', label: 'Normal' };
+}
+
+// Farol da linha do tempo — 3 níveis só (pedido do Alex): vencido = vermelho,
+// até 90 dias = amarelo, resto = verde. Mês sem nenhum vencimento usa azul
+// (não cinza) pra marcar visualmente "sem pendência" em vez de "sem dado".
+function farolTimeline(dias) {
+  if (dias == null) return { cor: '#2563eb', label: 'Sem vencimento' };
+  if (dias < 0) return { cor: '#c0392b', label: 'Vencido' };
+  if (dias <= 90) return { cor: '#eab308', label: 'Atenção' };
+  return { cor: '#16a34a', label: 'Normal' };
 }
 
 // Paleta cíclica pra segmentar termômetro/gráficos por fornecedor — sem
@@ -83,14 +93,15 @@ function renderTimeline(timeline) {
   document.getElementById('dt-timeline').innerHTML = (timeline || []).map((m, i) => {
     const atual = i === 0 ? ' atual' : '';
     const pilulas = (m.contratos || []).map(c => {
-      const f = farolInfo(c.dias_restantes);
+      const f = farolTimeline(c.dias_restantes);
       return `<span class="dt-pilula" style="border-color:${f.cor};color:${f.cor};" title="${f.label} — ${c.dias_restantes} dia(s)" onclick="location.href='detin-contratos.html?id=${c.id}'">
         <span style="width:7px;height:7px;border-radius:50%;background:${f.cor};display:inline-block;"></span>
         ${c.numero_contrato || 'S/N'} — ${c.fornecedor}
       </span>`;
     }).join('');
-    return `<div class="dt-tl-mes${atual}">
-      <div class="dt-tl-mes-label">${MESES_PT[m.mes - 1]}/${m.ano}</div>
+    const vazio = !pilulas;
+    return `<div class="dt-tl-mes${atual}${vazio ? ' vazio' : ''}">
+      <div class="dt-tl-mes-label${vazio ? ' vazio' : ''}">${MESES_PT[m.mes - 1]}/${m.ano}</div>
       <div class="dt-tl-pilulas">${pilulas || '<span class="dt-tl-vazio">Nenhum vencimento</span>'}</div>
     </div>`;
   }).join('');
