@@ -144,7 +144,27 @@ async function atualizarCabecalhoUsuario() {
 // Saudação + análise preditiva sobre o DFD que acabou de ser aberto — só
 // aparece dentro do DFD (pedido do Alex, 2026-09-15: "a mensagem deve ocorrer
 // somente com o dfd aberto e não na tela que lista os dfds"). Precisa de
-// _itensAtuais já carregado (chamar depois de renderItens() em abrirDfd).
+// _itensAtuais/_finalizacaoPorSetor já carregados (chamar depois de
+// renderItens()/carregarStatusFinalizacao() em abrirDfd).
+//
+// Mensagem de status (linha4) passou a cobrir TODOS os status do DFD, não só
+// "aberto" — pedido do Alex, 2026-09-16: "precisa caminhar conforme o que
+// está ocorrendo de verdade" (aberto sem item / em andamento + prazo / em
+// análise podendo solicitar edição / em consolidação / fechado-cancelado).
+// Mesma lógica de mensagemStatusDfd() em pac-gestao.js, duplicada aqui com
+// texto na 1ª pessoa (convenção do projeto, sem módulo compartilhado novo).
+function mensagemStatusLancamento({ status, temItens, todosFinalizados, dias, anoBase }) {
+  const prazoTxto = dias == null ? '' : dias > 0 ? ` Você tem ${dias} dia(s) para lançar.` : dias === 0 ? ' O prazo termina hoje!' : ` O prazo já venceu há ${-dias} dia(s).`;
+  if (status === 'cancelado') return { texto: 'Este DFD foi cancelado.', tom: 'muted' };
+  if (status === 'fechado') return { texto: 'Este DFD está fechado — processo concluído.', tom: 'success' };
+  if (status === 'consolidado') return { texto: 'Consolidação finalizada — aguardando o fechamento do DFD pelo DEPLA.', tom: 'info' };
+  if (status === 'em_consolidacao') return { texto: 'Em consolidação — o DEPLA está trabalhando os itens.', tom: 'info' };
+  if (status === 'analise') return { texto: 'Este DFD está em análise do DEPLA. Precisa alterar algo? Você pode solicitar um pedido de edição.', tom: 'warning' };
+  // status === 'aberto'
+  if (!temItens) return { texto: `Notei que você ainda não iniciou o PAC ${anoBase}.${prazoTxto}`, tom: 'warning' };
+  if (!todosFinalizados) return { texto: `Vi que você já começou o PAC ${anoBase}. Continue lançando os itens.${prazoTxto}`, tom: 'info' };
+  return { texto: `Você já finalizou o lançamento — pronto pra seguir ao próximo passo.`, tom: 'success' };
+}
 function renderMensagemLancamento() {
   const linha3 = document.getElementById('pac-lanc-linha3');
   const linha4 = document.getElementById('pac-lanc-linha4');
@@ -155,14 +175,12 @@ function renderMensagemLancamento() {
   linha3.style.display = '';
 
   const dias = diasRestantes(_dfdAtual.data_entrega);
-  const prazoTxto = dias == null ? '' : dias > 0 ? ` Você tem ${dias} dia(s) para lançar.` : dias === 0 ? ' O prazo termina hoje!' : ` O prazo já venceu há ${-dias} dia(s).`;
-  if (!_itensAtuais.length) {
-    linha4.textContent = `Notei que você ainda não iniciou o PAC ${_dfdAtual.ano_base}.${prazoTxto}`;
-  } else {
-    linha4.textContent = dias == null
-      ? `Vi que você já começou o PAC ${_dfdAtual.ano_base}. Continue lançando os itens.`
-      : `Vi que você já começou o PAC ${_dfdAtual.ano_base}. Falta pouco? Termina em ${fmtBr(_dfdAtual.data_entrega)}${prazoTxto}`;
-  }
+  const todosFinalizados = _meusSetores.length > 0 && _meusSetores.every(s => !!_finalizacaoPorSetor[s.id]);
+  const { texto, tom } = mensagemStatusLancamento({
+    status: _dfdAtual.status, temItens: _itensAtuais.length > 0, todosFinalizados, dias, anoBase: _dfdAtual.ano_base,
+  });
+  linha4.textContent = texto;
+  linha4.className = `pac-status-msg tom-${tom}`;
   linha4.style.display = '';
 }
 
@@ -213,7 +231,15 @@ async function abrirDfd(id) {
   ]);
   if (!dfdRes.ok) { toast('Erro ao abrir DFD', 'error'); fecharDfd(); return; }
   _dfdAtual = await dfdRes.json();
-  _meusSetores = setoresRes.ok ? await setoresRes.json() : [];
+  const todosMeusSetores = setoresRes.ok ? await setoresRes.json() : [];
+  // Só os setores do usuário que TAMBÉM participam DESTE DFD — sem isso, um
+  // gestor de 2+ setores via o outro setor "fantasma" aqui mesmo quando o
+  // DFD só foi liberado pra 1 (mensagem de saudação, filtro "Setor", contador
+  // de "Finalizar meu DFD" e o próprio multiSetor/tabela usam _meusSetores
+  // pra tudo). Achado testando de verdade, 2026-09-17 (Alex: "o DFD foi
+  // liberado somente para um, então não faz sentido termos os 2 destacados").
+  const idsParticipantes = new Set((_dfdAtual.setores || []).map(s => s.id));
+  _meusSetores = todosMeusSetores.filter(s => idsParticipantes.has(s.id));
 
   document.getElementById('pac-lanc-titulo').textContent = `${codigoDfd(_dfdAtual)} — ${_dfdAtual.titulo}`;
   const linha2 = document.getElementById('pac-lanc-linha2');
