@@ -59,6 +59,11 @@
   --verde-l: #E08E00;
   --azul:    #C97A00;
 }
+:root[data-modulo="detin"] {
+  --verde:   #1A3F6B;
+  --verde-l: #2A5A94;
+  --azul:    #1A3F6B;
+}
 
 body {
   font-family: system-ui, -apple-system, Arial, sans-serif;

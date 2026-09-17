@@ -91,6 +91,9 @@ const ROTINA_PAGINAS = {
   'pac-lancamento': '/pac-lancamento.html',
   'pac-gestao': '/pac-gestao.html',
   'pac-acompanhamento': '/pac-acompanhamento.html',
+  'detin-painel': '/detin-painel.html',
+  'detin-contratos': '/detin-contratos.html',
+  'detin-analise': '/detin-analise.html',
 };
 
 async function _aplicarRotina(user) {

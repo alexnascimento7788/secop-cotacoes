@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DETIN — Contratos — CEASA CONECTA</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#1A3F6B">
+  <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
+  <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');var _mc=localStorage.getItem('secop_modulo_cache');if(_mc)document.documentElement.setAttribute('data-modulo',_mc);</script>
+  <style>
+    .dt-filtros { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin-bottom: 16px; }
+    .dt-filtros .form-group { margin: 0; min-width: 150px; }
+    .dt-divergencia { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 12px; background: #fef9c3; color: #854d0e; font-size: 10.5px; font-weight: 700; }
+    [data-theme="dark"] .dt-divergencia { background: rgba(202,138,4,.22); color: #fde047; }
+
+    .dt-modal-tabs { display: flex; gap: 4px; border-bottom: 1.5px solid var(--cinza-b); margin-bottom: 16px; }
+    .dt-modal-tab { padding: 8px 14px; font-size: 12.5px; font-weight: 600; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1.5px; }
+    .dt-modal-tab.active { color: var(--verde); border-bottom-color: var(--verde); }
+    .dt-modal-pane { display: none; }
+    .dt-modal-pane.active { display: block; }
+    .dt-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+    @media (max-width: 640px) { .dt-form-grid { grid-template-columns: 1fr; } }
+    .dt-form-grid .form-group { margin: 0; }
+    .dt-form-grid .span2 { grid-column: 1 / -1; }
+
+    .dt-aditivos-sec { margin-top: 18px; padding-top: 16px; border-top: 1.5px solid var(--cinza-b); }
+    .dt-aditivo-item { display: flex; gap: 10px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--cinza-b); font-size: 12.5px; }
+    .dt-aditivo-item:last-child { border-bottom: none; }
+  </style>
+</head>
+<body data-modulo="detin" data-rotina="detin-contratos">
+<div class="layout">
+
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" class="sidebar-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+      <div class="sidebar-logo-fallback" style="display:none;align-items:center;gap:10px;margin-bottom:8px;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="32" height="32" style="flex-shrink:0"><polygon points="20,1 1,20 20,20" fill="#1565C0"/><polygon points="20,1 39,20 20,20" fill="#F9A800"/><polygon points="39,20 20,39 20,20" fill="#1565C0"/><polygon points="1,20 20,39 20,20" fill="#1565C0"/></svg>
+        <div><div class="logo-title">CEASA CONECTA</div><div class="logo-sub">CEASAMINAS</div></div>
+      </div>
+      <div class="logo-divider"></div>
+    </div>
+    <nav>
+      <a href="detin-painel.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
+        Painel
+      </a>
+      <a href="detin-contratos.html" class="nav-item active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+        Contratos
+      </a>
+      <a href="detin-analise.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Análise de Contratos
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <span id="sidebar-username" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;">—</span>
+      <div style="display:flex;gap:2px;flex-shrink:0;">
+        <a href="admin.html" class="sidebar-gear" title="Administração">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </a>
+        <button onclick="logout()" class="sidebar-gear" title="Sair" style="background:none;border:none;cursor:pointer;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">DETIN — Gestão de Contratos</div>
+        <div class="page-subtitle">Contratos</div>
+      </div>
+      <button class="btn btn-primary" id="btn-novo-contrato" onclick="abrirModalContratoNovo()">+ Novo Contrato</button>
+    </div>
+
+    <div class="card">
+      <div class="dt-filtros">
+        <div class="form-group">
+          <label>Status</label>
+          <select id="f-status" onchange="carregarContratos()">
+            <option value="">Todos</option>
+            <option value="ativo">Ativo</option>
+            <option value="em_renovacao">Em renovação</option>
+            <option value="encerrado">Encerrado</option>
+            <option value="cancelado">Cancelado</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Fornecedor</label>
+          <select id="f-fornecedor" onchange="carregarContratos()"><option value="">Todos</option></select>
+        </div>
+        <div class="form-group">
+          <label>Tipo</label>
+          <select id="f-tipo" onchange="carregarContratos()">
+            <option value="">Todos</option>
+            <option value="servico_continuado">Serviço contínuo</option>
+            <option value="licenca">Licença</option>
+            <option value="locacao">Locação</option>
+            <option value="pagamento_unico">Pagamento único</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Vencimento até</label>
+          <input type="date" id="f-vencimento" onchange="carregarContratos()" />
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="limparFiltros()">Limpar filtros</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Nº Contrato</th><th>Fornecedor</th><th>Objeto</th><th>Tipo</th>
+            <th>Vencimento</th><th>Valor Mensal</th><th>Status</th><th></th>
+          </tr></thead>
+          <tbody id="contratos-tbody"><tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="app-footer"></div>
+  </main>
+</div>
+
+<!-- Modal de cadastro/edição de contrato -->
+<div class="modal-overlay" id="modal-contrato">
+  <div class="modal-box modal-box-lg">
+    <h3 id="mcont-titulo">Novo Contrato</h3>
+    <div class="dt-modal-tabs">
+      <div class="dt-modal-tab active" data-tab="identificacao" onclick="mudarAbaModalContrato('identificacao')">Identificação</div>
+      <div class="dt-modal-tab" data-tab="vigencia" onclick="mudarAbaModalContrato('vigencia')">Vigência</div>
+      <div class="dt-modal-tab" data-tab="financeiro" onclick="mudarAbaModalContrato('financeiro')">Financeiro</div>
+      <div class="dt-modal-tab" data-tab="objeto" onclick="mudarAbaModalContrato('objeto')">Objeto e Anexo</div>
+    </div>
+
+    <div class="dt-modal-pane active" data-pane="identificacao">
+      <div class="dt-form-grid">
+        <div class="form-group"><label>Número do Contrato</label><input type="text" id="mc-numero" placeholder="Ex: 43/2024 (deixe vazio se não houver)"/></div>
+        <div class="form-group"><label>Fornecedor *</label><input type="text" id="mc-fornecedor" /></div>
+        <div class="form-group"><label>Setor</label><select id="mc-setor"></select></div>
+        <div class="form-group"><label>Responsável</label><select id="mc-responsavel"><option value="">—</option></select></div>
+        <div class="form-group"><label>Tipo</label>
+          <select id="mc-tipo">
+            <option value="servico_continuado">Serviço contínuo</option>
+            <option value="licenca">Licença</option>
+            <option value="locacao">Locação</option>
+            <option value="pagamento_unico">Pagamento único</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Modalidade</label>
+          <select id="mc-modalidade">
+            <option value="">—</option>
+            <option value="dispensa">Dispensa</option>
+            <option value="pregao">Pregão</option>
+            <option value="inexigibilidade">Inexigibilidade</option>
+            <option value="sem_licitacao">Sem licitação</option>
+            <option value="outro">Outro</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Número SEI</label><input type="text" id="mc-sei" /></div>
+        <div class="form-group"><label>Status</label>
+          <select id="mc-status">
+            <option value="ativo">Ativo</option>
+            <option value="em_renovacao">Em renovação</option>
+            <option value="encerrado">Encerrado</option>
+            <option value="cancelado">Cancelado</option>
+          </select>
+        </div>
+        <div class="form-group span2"><label>Permite renovação?</label>
+          <select id="mc-permite-renovacao">
+            <option value="">—</option>
+            <option value="sim">Sim</option>
+            <option value="nao">Não</option>
+            <option value="depende_licitacao">Depende de nova licitação</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="dt-modal-pane" data-pane="vigencia">
+      <div class="dt-form-grid">
+        <div class="form-group"><label>Data de assinatura</label><input type="date" id="mc-data-assinatura" /></div>
+        <div class="form-group"><label>Data de início</label><input type="date" id="mc-data-inicio" /></div>
+        <div class="form-group"><label>Data de vencimento</label><input type="date" id="mc-data-vencimento" /></div>
+      </div>
+      <p class="text-muted" style="font-size:11.5px;margin-top:8px;">Deixe a data de vencimento em branco quando o contrato não tiver vigência estipulada (ex.: alguns contratos de suporte/licenciamento).</p>
+    </div>
+
+    <div class="dt-modal-pane" data-pane="financeiro">
+      <div id="mc-divergencia-aviso" style="display:none;margin-bottom:12px;" class="dt-divergencia">⚠️ Divergência de valor</div>
+      <div class="dt-form-grid">
+        <div class="form-group"><label>Valor Global</label><input type="text" id="mc-valor-global" placeholder="0,00" /></div>
+        <div class="form-group"><label>Valor Anual</label><input type="text" id="mc-valor-anual" placeholder="0,00" /></div>
+        <div class="form-group"><label>Valor Mensal (contratual)</label><input type="text" id="mc-valor-mensal" placeholder="0,00" /></div>
+        <div class="form-group"><label>Valor Mensal Efetivo (o que é pago de fato)</label><input type="text" id="mc-valor-mensal-efetivo" placeholder="0,00" /></div>
+        <div class="form-group"><label>Frequência de pagamento</label>
+          <select id="mc-frequencia">
+            <option value="mensal">Mensal</option>
+            <option value="anual">Anual</option>
+            <option value="unico">Único</option>
+          </select>
+        </div>
+        <div class="form-group span2"><label>Observação financeira</label><textarea id="mc-obs-financeira" rows="2"></textarea></div>
+      </div>
+    </div>
+
+    <div class="dt-modal-pane" data-pane="objeto">
+      <div class="form-group" style="margin-bottom:12px;"><label>Objeto</label><textarea id="mc-objeto" rows="3"></textarea></div>
+      <div class="form-group" style="margin-bottom:12px;"><label>Itens</label><textarea id="mc-itens" rows="2"></textarea></div>
+      <div class="form-group" style="margin-bottom:12px;">
+        <label>Anexo (PDF do contrato)</label>
+        <div id="mc-anexo-status" style="font-size:12.5px;margin-bottom:6px;color:var(--text-muted);">—</div>
+        <button type="button" class="btn btn-secondary btn-sm" id="mc-anexo-btn" onclick="document.getElementById('mc-anexo-input').click()">Escolher PDF</button>
+        <input type="file" id="mc-anexo-input" accept="application/pdf" style="display:none;" onchange="enviarAnexoContrato(this)" />
+      </div>
+      <div class="form-group"><label>Observações</label><textarea id="mc-observacoes" rows="2"></textarea></div>
+    </div>
+
+    <div class="dt-aditivos-sec" id="mc-aditivos-sec" style="display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <strong style="font-size:13px;">Aditivos</strong>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="abrirModalAditivo()">Registrar aditivo</button>
+      </div>
+      <div id="mc-aditivos-lista"><span class="text-muted" style="font-size:12px;">Nenhum aditivo registrado.</span></div>
+    </div>
+
+    <div id="mcont-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin:10px 0 4px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button type="button" class="btn btn-secondary" onclick="fecharModalContrato()">Fechar</button>
+      <button type="button" class="btn btn-primary" onclick="salvarContrato()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sub-modal de aditivo -->
+<div class="modal-overlay" id="modal-aditivo">
+  <div class="modal-box" style="max-width:420px;">
+    <h3>Registrar aditivo</h3>
+    <div class="form-group" style="margin-bottom:12px;"><label>Número do aditivo</label><input type="text" id="ad-numero" /></div>
+    <div class="form-group" style="margin-bottom:12px;"><label>Data</label><input type="date" id="ad-data" /></div>
+    <div class="form-group" style="margin-bottom:12px;"><label>Tipo</label>
+      <select id="ad-tipo">
+        <option value="prazo">Prazo</option>
+        <option value="valor">Valor</option>
+        <option value="objeto">Objeto</option>
+        <option value="rescisao">Rescisão</option>
+      </select>
+    </div>
+    <div class="form-group" style="margin-bottom:12px;"><label>Descrição</label><textarea id="ad-descricao" rows="2"></textarea></div>
+    <div class="form-group" style="margin-bottom:12px;"><label>Novo valor mensal (opcional)</label><input type="text" id="ad-novo-valor" placeholder="0,00" /></div>
+    <div class="form-group" style="margin-bottom:12px;"><label>Nova data de vencimento (opcional)</label><input type="date" id="ad-nova-data-venc" /></div>
+    <div id="ad-msg" style="font-size:12.5px;font-weight:600;min-height:16px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button type="button" class="btn btn-secondary" onclick="fecharModalAditivo()">Cancelar</button>
+      <button type="button" class="btn btn-primary" onclick="salvarAditivo()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="js/pwa.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/detin-contratos.js"></script>
+</body>
+</html>

@@ -405,6 +405,7 @@ function setupDb() {
     { slug: 'depad', nome: 'DEPAD', ordem: 1 },
     { slug: 'depop', nome: 'DEPOP', ordem: 2 },
     { slug: 'depla', nome: 'DEPLA', ordem: 3 },
+    { slug: 'detin', nome: 'DETIN', ordem: 4 },
   ].forEach(d => {
     try { _db.prepare(`INSERT INTO departamentos (slug, nome, ordem) VALUES (?, ?, ?)`).run(d.slug, d.nome, d.ordem); } catch {}
   });
@@ -417,12 +418,18 @@ function setupDb() {
       .run('pac', 'PAC', '#F9A800', '/pac-lancamento.html', 3);
   } catch {}
 
+  // Módulo DETIN — Gestão de Contratos (pedido do Alex, 2026-09-17).
+  try {
+    _db.prepare(`INSERT INTO modulos (slug, nome, cor, home, ordem) VALUES (?, ?, ?, ?, ?)`)
+      .run('detin', 'Gestão de Contratos', '#1A3F6B', '/detin-painel.html', 4);
+  } catch {}
+
   // (rename depop→secad já rodou mais acima, antes do seed de módulos)
 
   // departamento_id por módulo (idempotente: só preenche quem ainda está NULL)
   try {
     const depIds = Object.fromEntries(_db.prepare(`SELECT slug, id FROM departamentos`).all().map(d => [d.slug, d.id]));
-    [['secop', 'depad'], ['secad', 'depop'], ['pac', 'depla']].forEach(([modSlug, depSlug]) => {
+    [['secop', 'depad'], ['secad', 'depop'], ['pac', 'depla'], ['detin', 'detin']].forEach(([modSlug, depSlug]) => {
       if (depIds[depSlug]) {
         _db.prepare(`UPDATE modulos SET departamento_id = ? WHERE slug = ? AND departamento_id IS NULL`).run(depIds[depSlug], modSlug);
       }
@@ -455,6 +462,9 @@ function setupDb() {
       ['pac',   'pac-gestao',         'Gestão',         2, 'ver,incluir,alterar,excluir'],
       ['pac',   'pac-solicitacoes',   'Solicitações',   3, 'ver,incluir,alterar,excluir'],
       ['pac',   'pac-acompanhamento', 'Acompanhamento', 4, 'ver'],
+      ['detin', 'detin-painel',    'Painel',                1, 'ver'],
+      ['detin', 'detin-contratos', 'Contratos',             2, 'ver,incluir,alterar,excluir'],
+      ['detin', 'detin-analise',   'Análise de Contratos',  3, 'ver,incluir'],
     ];
     seedRotinas.forEach(([modSlug, slug, nome, ordem, flags]) => {
       if (!modIds[modSlug]) return;
@@ -530,6 +540,11 @@ function setupDb() {
     [['pac-lancamento', RW], ['pac-acompanhamento', SOVER]]);
   seedPerfil('pac', 'Analista DEPLA', 'Gestão completa do PAC; acompanha lançamentos.',
     [['pac-gestao', TUDO], ['pac-lancamento', SOVER], ['pac-solicitacoes', TUDO]]);
+
+  seedPerfil('detin', 'Gestor DETIN', 'Gestão completa de contratos e análises do DETIN.',
+    [['detin-painel', SOVER], ['detin-contratos', TUDO], ['detin-analise', { ver: 1, incluir: 1, alterar: 0, excluir: 0 }]]);
+  seedPerfil('detin', 'Consultor', 'Consulta contratos e análises do DETIN, somente leitura.',
+    [['detin-painel', SOVER], ['detin-contratos', SOVER], ['detin-analise', SOVER]]);
 
   try { _db.exec(`ALTER TABLE user_modulos ADD COLUMN perfil_id INTEGER REFERENCES perfis(id)`); } catch {}
   try { _db.exec(`ALTER TABLE users ADD COLUMN nome_completo TEXT`); } catch {}
@@ -1447,6 +1462,222 @@ function setupDb() {
       try { _db.prepare(`INSERT INTO config (chave, valor) VALUES ('email_templates_v2_aplicado', '1')`).run(); } catch {}
     }
   }
+
+  // ── Módulo DETIN — Gestão de Contratos (pedido do Alex, 2026-09-17) ────────
+  // Seed de departamento/módulo/rotinas/perfis já rodou mais acima (mesmos
+  // arrays/seedPerfil que os outros 3 módulos usam). Aqui só as tabelas
+  // PRÓPRIAS do módulo + os 20 contratos reais do levantamento inicial +
+  // os 4 templates de alerta de vencimento.
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS detin_contratos (
+      id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+      numero_contrato        TEXT,
+      fornecedor             TEXT    NOT NULL,
+      setor_id               INTEGER REFERENCES setores(id),
+      responsavel_id         INTEGER REFERENCES users(id),
+      tipo                   TEXT    NOT NULL DEFAULT 'servico_continuado',
+      modalidade             TEXT,
+      numero_sei             TEXT,
+      status                 TEXT    NOT NULL DEFAULT 'ativo',
+      permite_renovacao      TEXT,
+      data_assinatura        TEXT,
+      data_inicio            TEXT,
+      data_vencimento        TEXT,
+      objeto                 TEXT,
+      itens                  TEXT,
+      valor_global           REAL,
+      valor_anual            REAL,
+      valor_mensal           REAL,
+      valor_mensal_efetivo   REAL,
+      frequencia_pagamento   TEXT    NOT NULL DEFAULT 'mensal',
+      observacao_financeira  TEXT,
+      anexo_nome             TEXT,
+      observacoes            TEXT,
+      excluido               INTEGER NOT NULL DEFAULT 0,
+      criado_por             INTEGER REFERENCES users(id),
+      criado_em              DATETIME DEFAULT CURRENT_TIMESTAMP,
+      atualizado_em          DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS detin_analises (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      titulo        TEXT    NOT NULL,
+      criado_por    INTEGER REFERENCES users(id),
+      criado_em     DATETIME DEFAULT CURRENT_TIMESTAMP,
+      finalizado    INTEGER NOT NULL DEFAULT 0,
+      pdf_gerado_em DATETIME
+    );
+
+    CREATE TABLE IF NOT EXISTS detin_analise_contratos (
+      id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+      analise_id             INTEGER NOT NULL REFERENCES detin_analises(id) ON DELETE CASCADE,
+      contrato_id            INTEGER NOT NULL REFERENCES detin_contratos(id),
+      resp_reducao_linear    TEXT,
+      resp_alteracao_objeto  TEXT,
+      resp_renovacao         TEXT,
+      resp_sugestao_reducao  TEXT,
+      resp_contrato_similar  TEXT,
+      observacoes            TEXT,
+      UNIQUE (analise_id, contrato_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS detin_aditivos (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      contrato_id          INTEGER NOT NULL REFERENCES detin_contratos(id) ON DELETE CASCADE,
+      numero_aditivo       TEXT,
+      data                 TEXT,
+      tipo                 TEXT,
+      descricao            TEXT,
+      novo_valor_mensal    REAL,
+      nova_data_vencimento TEXT,
+      criado_por           INTEGER REFERENCES users(id),
+      criado_em            DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_detin_contratos_venc ON detin_contratos(data_vencimento);
+    CREATE INDEX IF NOT EXISTS idx_detin_aditivos_contrato ON detin_aditivos(contrato_id);
+  `);
+
+  // 20 contratos reais do levantamento inicial do DETIN — roda 1 vez só
+  // (flag em config), nunca de novo depois disso, pra não recriar linhas
+  // que o Alex já editou/excluiu na tela. anexo_nome/anexo em si (BLOB) não
+  // fazem parte do seed — anexar o PDF de cada contrato é manual, depois.
+  if (!_db.prepare(`SELECT valor FROM config WHERE chave = 'detin_contratos_seed_aplicado'`).get()) {
+    const setorDetin = _db.prepare(`SELECT id FROM setores WHERE nome = 'Detin'`).get();
+    const master = _db.prepare(`SELECT id FROM users WHERE username = 'master'`).get();
+    const setorId = setorDetin ? setorDetin.id : null;
+    const masterId = master ? master.id : null;
+
+    const CONTRATOS_SEED = [
+      { numero: '43/2024', fornecedor: 'Consult', vencimento: '2026-08-01', mensal: 1194.80, anual: 14333.60, global: 43138.00, tipo: 'servico_continuado',
+        objeto: 'Desenvolvimento de soluções para operação diária e modelo de caixa para saída com pagamentos (itens MLP) e PDV' },
+      { numero: '29/2025', fornecedor: 'Consult', vencimento: '2026-09-03', mensal: 6490.00, anual: 77880.00, global: 163670.00, tipo: 'servico_continuado',
+        objeto: 'Desenvolvimento de soluções para operação diária e modelo de caixa para saída com pagamentos (itens MLP)' },
+      { numero: '17/2026', fornecedor: 'Consult', vencimento: '2027-02-24', mensal: 1100.00, anual: 13200.00, global: 21000.00, tipo: 'servico_continuado',
+        objeto: 'Solução especializada de controle, validação, armazenamento e gestão de arquivos XML de NF-e com integração TOTVS' },
+      { numero: '16/2024', fornecedor: 'EMC', vencimento: '2027-02-05', mensal: 33146.19, mensalEfetivo: 30780.60, global: 375999.96, anual: 397754.28, tipo: 'locacao',
+        objeto: 'Locação de equipamentos de informática — notebooks e microcomputadores',
+        obsFinanceira: 'Valor efetivo pago diverge do contratual' },
+      { numero: '30/2022', fornecedor: 'EMC', vencimento: '2027-07-20', mensal: 20211.13, anual: 242533.56, tipo: 'locacao',
+        objeto: 'Locação de servidores, unidade de backup LTO, rack com KVM, storage e microcomputador' },
+      { numero: '50/2021', fornecedor: 'Prodemge', vencimento: '2026-12-14', mensal: 176.40, anual: 32976.00, tipo: 'servico_continuado',
+        objeto: 'Integração à rede IP multisserviços e gerenciamento da rede IP multisserviços' },
+      { numero: '52/2026', fornecedor: 'Prodemge', vencimento: '2031-07-09', mensal: 449.60, global: 63188.40, tipo: 'servico_continuado',
+        objeto: 'Implantação, operação, manutenção e gerenciamento de rede IP multisserviços e portal de rede' },
+      { numero: '58/2026', fornecedor: 'Prodemge', vencimento: '2027-08-03', mensal: 3547.20, anual: 7476.00, global: 13476.00, tipo: 'servico_continuado',
+        objeto: 'Rede segura e eficiente para compartilhamento de informações, serviços e sistemas governamentais',
+        obsFinanceira: 'Divisão mensal inconsistente com valor anual declarado — verificar memória de cálculo do contrato' },
+      { numero: '66/2026', fornecedor: 'Prodemge', vencimento: '2027-09-08', mensal: 78.00, anual: 936.00, tipo: 'servico_continuado',
+        objeto: 'Firewall de aplicação web — proteção contra ataques e vulnerabilidades web' },
+      { numero: '10/2023', fornecedor: 'Simpress', vencimento: '2027-02-13', mensal: 8656.03, global: 127396.32, tipo: 'locacao',
+        objeto: 'Locação de impressoras e scanner para unidade de Contagem e unidades do interior da CEASAMINAS' },
+      { numero: '49/2024', fornecedor: 'TOTVS', vencimento: null, mensal: 2987.50, anual: 35850.00, tipo: 'licenca',
+        objeto: 'Suporte técnico ao sistema integrado de gestão (licenciamento do ERP)',
+        obsFinanceira: 'Vigência não estipulada no contrato — revisar documento original' },
+      { numero: '16/2026', fornecedor: 'TOTVS', vencimento: '2027-02-04', mensal: 4156.00, anual: 49872.00, tipo: 'servico_continuado',
+        objeto: 'Suporte técnico, manutenção e outros serviços tecnológicos de informática' },
+      { numero: '19/2026', fornecedor: 'TOTVS', vencimento: '2027-02-23', mensal: 12063.33, anual: 144760.00, tipo: 'servico_continuado',
+        objeto: 'Desenvolvimento de soluções customizadas, implantação, parametrização, módulos ERP, BI/Cubo — banco de horas presencial em Contagem/MG' },
+      { numero: '32/2021', fornecedor: 'Global Line', vencimento: '2027-09-14', mensal: 159.90, anual: 2068.80, tipo: 'servico_continuado',
+        objeto: 'Fornecimento de internet banda larga com WiFi' },
+      { numero: '55/2026', fornecedor: 'Global Line', vencimento: '2027-07-23', mensal: 669.69, anual: 8036.39, tipo: 'servico_continuado',
+        objeto: 'Link WiFi via fibra ótica, mínimo 3000bps e 150Mbps upload, instalação e manutenção de roteadores' },
+      { numero: null, fornecedor: 'Global Line', vencimento: null, mensal: 1200.00, tipo: 'servico_continuado',
+        objeto: 'Banda larga banco de alimentos', obsFinanceira: 'Sem contrato formal — serviço informal' },
+      { numero: '28/2025', fornecedor: 'Scriptcase/Netmake', vencimento: '2027-08-13', mensal: null, global: 14676.80, tipo: 'licenca', frequencia: 'unico',
+        objeto: 'Renovação de licença de ferramenta de desenvolvimento web ScriptCase — pagamento único' },
+      { numero: '02/2022', fornecedor: "Let'sCom Soluções em Comunicação", vencimento: '2027-01-24', mensal: 2019.69, global: 24759.00, tipo: 'servico_continuado',
+        objeto: 'Fornecimento de crachás para Cenpro, SECAD, DEREH e unidades do interior' },
+      { numero: '14/2026', fornecedor: 'Avant', vencimento: '2027-01-24', mensal: null, global: 54510.00, tipo: 'licenca', frequencia: 'unico',
+        objeto: '100 licenças Microsoft 365 versão Basic — pagamento único' },
+      { numero: '37/2025', fornecedor: 'Agis', vencimento: '2026-11-06', mensal: null, global: 54589.00, tipo: 'licenca', frequencia: 'unico',
+        objeto: '100 licenças Microsoft 365 versão Web — pagamento único' },
+    ];
+
+    const insContrato = _db.prepare(`
+      INSERT INTO detin_contratos (
+        numero_contrato, fornecedor, setor_id, tipo, status, data_vencimento,
+        objeto, valor_global, valor_anual, valor_mensal, valor_mensal_efetivo,
+        frequencia_pagamento, observacao_financeira, criado_por
+      ) VALUES (?, ?, ?, ?, 'ativo', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    CONTRATOS_SEED.forEach(c => {
+      insContrato.run(
+        c.numero ?? null, c.fornecedor, setorId, c.tipo, c.vencimento ?? null, c.objeto,
+        c.global ?? null, c.anual ?? null, c.mensal ?? null, c.mensalEfetivo ?? null,
+        c.frequencia || 'mensal', c.obsFinanceira ?? null, masterId
+      );
+    });
+    try { _db.prepare(`INSERT INTO config (chave, valor) VALUES ('detin_contratos_seed_aplicado', '1')`).run(); } catch {}
+  }
+
+  // Templates de alerta de vencimento (mesmo visual das outras rodadas, com o
+  // logo do TI em vez do genérico) — enfileirados pelo job diário em
+  // mailer.js (verificarVencimentosDetin). Igual ao bloco do PAC acima, roda
+  // via INSERT simples (silenciosamente ignorado se o slug já existe).
+  {
+    const logoTiBase64 = (() => {
+      try { return fs.readFileSync(path.join(__dirname, 'public', 'img', 'Logo Ceasa TI_transp.png')).toString('base64'); }
+      catch { return ''; }
+    })();
+    const cabecalhoTi = logoTiBase64
+      ? `<img src="data:image/png;base64,${logoTiBase64}" alt="CEASAMINAS - DETIN" height="38" style="display:block;" />`
+      : `<span style="color:#1A3F6B;font-size:16px;font-weight:700;">{{plataforma}}</span>`;
+    const envolverDetin = corpo => `<div style="font-family:Arial,Helvetica,sans-serif;max-width:580px;margin:0 auto;">
+  <div style="background:#ffffff;padding:20px 24px;border:1px solid #e2e2e2;border-bottom:3px solid #1A3F6B;border-radius:8px 8px 0 0;">
+    ${cabecalhoTi}
+  </div>
+  <div style="border:1px solid #e2e2e2;border-top:none;padding:28px 24px;color:#222;font-size:14px;line-height:1.65;">
+    ${corpo}
+  </div>
+  <div style="border:1px solid #e2e2e2;border-top:none;border-radius:0 0 8px 8px;background:#f7f7f7;padding:16px 24px;color:#888;font-size:11px;text-align:center;line-height:1.6;">
+    <div>DETIN — Departamento de Tecnologia da Informação</div>
+    <div>CEASAMINAS · Centrais de Abastecimento de Minas Gerais S.A.</div>
+    <div style="margin-top:6px;"><a href="{{url_sistema}}" style="color:#1A3F6B;text-decoration:none;font-weight:600;">Acessar o {{plataforma}}</a> · © {{ano}}</div>
+  </div>
+</div>`;
+    const botaoDetin = texto => `<p style="margin:24px 0 4px;"><a href="{{url_sistema}}" style="background:#1A3F6B;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700;font-size:13px;display:inline-block;">${texto}</a></p>`;
+    const paraTextoDetin = html => html
+      .replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n')
+      .replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ')
+      .replace(/\n{3,}/g, '\n\n').trim();
+    const VARS_GLOBAIS_DETIN = ['plataforma', 'ano', 'url_sistema'];
+
+    const varsAlerta = ['numero_contrato', 'fornecedor', 'objeto', 'data_vencimento', 'dias_restantes', 'nome_responsavel'];
+    const TEMPLATES_DETIN = [
+      ['detin.contrato.alerta.60', 'DETIN: contrato vence em 60 dias',
+        'Contrato {{numero_contrato}} — {{fornecedor}} vence em 60 dias',
+        `<p>O contrato <strong>{{numero_contrato}}</strong>, com o fornecedor <strong>{{fornecedor}}</strong>, vence em <strong>{{dias_restantes}} dia(s)</strong> ({{data_vencimento}}).</p>
+         <p>Objeto: {{objeto}}</p>
+         ${botaoDetin('Ver contrato')}`, varsAlerta],
+      ['detin.contrato.alerta.30', 'DETIN: contrato vence em 30 dias',
+        '⚠️ Contrato {{numero_contrato}} — {{fornecedor}} vence em 30 dias',
+        `<p>O contrato <strong>{{numero_contrato}}</strong>, com o fornecedor <strong>{{fornecedor}}</strong>, vence em <strong>{{dias_restantes}} dia(s)</strong> ({{data_vencimento}}).</p>
+         <p>Objeto: {{objeto}}</p>
+         <p>Avalie a necessidade de renovação ou nova licitação.</p>
+         ${botaoDetin('Ver contrato')}`, varsAlerta],
+      ['detin.contrato.alerta.15', 'DETIN: contrato vence em 15 dias (urgente)',
+        '🔴 Urgente: Contrato {{numero_contrato}} vence em 15 dias',
+        `<p>O contrato <strong>{{numero_contrato}}</strong>, com o fornecedor <strong>{{fornecedor}}</strong>, vence em <strong>{{dias_restantes}} dia(s)</strong> ({{data_vencimento}}).</p>
+         <p>Objeto: {{objeto}}</p>
+         <p><strong>Ação necessária:</strong> este contrato está próximo do vencimento e precisa de atenção imediata.</p>
+         ${botaoDetin('Ver contrato')}`, varsAlerta],
+      ['detin.contrato.alerta.diario', 'DETIN: contagem regressiva de vencimento',
+        '🔴 [DIA {{dias_restantes}}] Contrato {{numero_contrato}} — {{fornecedor}}',
+        `<p>Faltam <strong>{{dias_restantes}} dia(s)</strong> para o vencimento do contrato <strong>{{numero_contrato}}</strong> ({{fornecedor}}), em {{data_vencimento}}.</p>
+         <p>Objeto: {{objeto}}</p>
+         ${botaoDetin('Ver contrato')}`, varsAlerta],
+    ];
+    TEMPLATES_DETIN.forEach(([slug, nome, assunto, corpoBody, variaveis]) => {
+      const corpo_html = envolverDetin(corpoBody);
+      try {
+        _db.prepare(`
+          INSERT INTO email_templates (slug, nome, assunto, corpo_html, corpo_texto, variaveis_disponiveis)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(slug, nome, assunto, corpo_html, paraTextoDetin(corpo_html), JSON.stringify([...variaveis, ...VARS_GLOBAIS_DETIN]));
+      } catch {}
+    });
+  }
 }
 
 setupDb();
@@ -1551,6 +1782,32 @@ function setupAnexos() {
       atualizado_por      INTEGER,
       atualizado_por_nome TEXT,
       atualizado_em       DATETIME
+    );
+  `);
+  // DETIN — PDF do contrato (1 por contrato, substituível) e PDF gerado de
+  // cada análise — mesmo padrão BLOB de tudo mais neste arquivo ("não existe
+  // upload-pra-disco em lugar nenhum deste projeto"). Chave é o próprio
+  // id do registro em secop.db (contrato/análise), não um id próprio — só
+  // existe 1 arquivo "vigente" por linha, sem histórico de versões.
+  _anexos.exec(`
+    CREATE TABLE IF NOT EXISTS detin_contrato_anexo (
+      contrato_id         INTEGER PRIMARY KEY,
+      nome_arquivo        TEXT,
+      mime                TEXT,
+      tamanho             INTEGER,
+      conteudo            BLOB,
+      atualizado_por      INTEGER,
+      atualizado_por_nome TEXT,
+      atualizado_em       DATETIME
+    );
+    CREATE TABLE IF NOT EXISTS detin_analise_pdf (
+      analise_id   INTEGER PRIMARY KEY,
+      nome_arquivo TEXT,
+      mime         TEXT,
+      tamanho      INTEGER,
+      conteudo     BLOB,
+      gerado_por   INTEGER,
+      gerado_em    DATETIME
     );
   `);
 }

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DETIN — Análise de Contratos — CEASA CONECTA</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#1A3F6B">
+  <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
+  <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');var _mc=localStorage.getItem('secop_modulo_cache');if(_mc)document.documentElement.setAttribute('data-modulo',_mc);</script>
+  <style>
+    .dta-fase { display: none; }
+    .dta-fase.active { display: block; }
+
+    .dta-lista-selecao { max-height: 55vh; overflow-y: auto; border: 1px solid var(--cinza-b); border-radius: 8px; }
+    .dta-linha-selecao { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--cinza-b); cursor: pointer; }
+    .dta-linha-selecao:last-child { border-bottom: none; }
+    .dta-linha-selecao:hover { background: var(--surface-2); }
+    .dta-linha-fornecedor { font-weight: 700; flex: 0 0 160px; }
+    .dta-linha-objeto { flex: 1; color: var(--text-muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dta-linha-venc { flex: 0 0 auto; font-size: 12px; color: var(--text-muted); }
+
+    .dta-progress-track { height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; margin-bottom: 8px; }
+    .dta-progress-fill { height: 100%; background: var(--verde); border-radius: 4px; transition: width .2s; }
+    .dta-progress-label { font-size: 12px; color: var(--text-muted); margin-bottom: 18px; }
+
+    .dta-contrato-header { background: var(--surface-2); border-radius: 8px; padding: 14px 16px; margin-bottom: 18px; font-size: 12.5px; }
+    .dta-contrato-header strong { font-size: 14px; }
+    .dta-pergunta { margin-bottom: 18px; }
+    .dta-pergunta label { display: block; font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+    .dta-pergunta textarea, .dta-pergunta input[type="text"] { width: 100%; }
+    .dta-radio-group { display: flex; gap: 16px; flex-wrap: wrap; }
+    .dta-radio-group label { font-weight: 500; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    .dta-save-status { font-size: 11px; color: var(--text-subtle); margin-top: -8px; margin-bottom: 14px; min-height: 14px; }
+
+    .dta-nav-fases { display: flex; justify-content: space-between; margin-top: 20px; }
+  </style>
+</head>
+<body data-modulo="detin" data-rotina="detin-analise">
+<div class="layout">
+
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" class="sidebar-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+      <div class="sidebar-logo-fallback" style="display:none;align-items:center;gap:10px;margin-bottom:8px;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="32" height="32" style="flex-shrink:0"><polygon points="20,1 1,20 20,20" fill="#1565C0"/><polygon points="20,1 39,20 20,20" fill="#F9A800"/><polygon points="39,20 20,39 20,20" fill="#1565C0"/><polygon points="1,20 20,39 20,20" fill="#1565C0"/></svg>
+        <div><div class="logo-title">CEASA CONECTA</div><div class="logo-sub">CEASAMINAS</div></div>
+      </div>
+      <div class="logo-divider"></div>
+    </div>
+    <nav>
+      <a href="detin-painel.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
+        Painel
+      </a>
+      <a href="detin-contratos.html" class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+        Contratos
+      </a>
+      <a href="detin-analise.html" class="nav-item active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Análise de Contratos
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <span id="sidebar-username" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;">—</span>
+      <div style="display:flex;gap:2px;flex-shrink:0;">
+        <a href="admin.html" class="sidebar-gear" title="Administração">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </a>
+        <button onclick="logout()" class="sidebar-gear" title="Sair" style="background:none;border:none;cursor:pointer;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">DETIN — Gestão de Contratos</div>
+        <div class="page-subtitle">Análise de Contratos</div>
+      </div>
+      <div id="dta-lista-btn-wrap"><button class="btn btn-secondary" onclick="voltarParaLista()">← Análises anteriores</button></div>
+    </div>
+
+    <!-- Lista de análises já criadas -->
+    <div class="card" id="dta-lista-analises">
+      <div class="card-header"><span class="card-title">Análises</span></div>
+      <div style="margin-bottom:14px;"><button class="btn btn-primary" onclick="iniciarNovaAnalise()">+ Nova Análise</button></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Título</th><th>Contratos</th><th>Status</th><th>Criada em</th><th></th></tr></thead>
+          <tbody id="dta-analises-tbody"><tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Fase 1: seleção de contratos -->
+    <div class="card dta-fase" id="dta-fase-1">
+      <div class="card-header"><span class="card-title">Nova Análise — Seleção de contratos</span></div>
+      <div class="form-group" style="margin-bottom:14px;max-width:420px;">
+        <label>Título da análise</label>
+        <input type="text" id="dta-titulo" placeholder="Ex: Análise de Renovação — Set/2026" />
+      </div>
+      <div class="dta-lista-selecao" id="dta-lista-selecao"></div>
+      <div class="dta-nav-fases">
+        <span></span>
+        <button class="btn btn-primary" id="dta-btn-avancar-perguntas" onclick="avancarParaPerguntas()" disabled>Avançar para perguntas</button>
+      </div>
+    </div>
+
+    <!-- Fase 2: perguntas por contrato -->
+    <div class="card dta-fase" id="dta-fase-2">
+      <div class="card-header"><span class="card-title" id="dta-fase2-titulo">Perguntas</span></div>
+      <div class="dta-progress-track"><div class="dta-progress-fill" id="dta-progress-fill" style="width:0%;"></div></div>
+      <div class="dta-progress-label" id="dta-progress-label">Contrato 1 de 1</div>
+
+      <div class="dta-contrato-header" id="dta-contrato-header"></div>
+
+      <div class="dta-pergunta">
+        <label>1. É viável uma redução linear do contrato?</label>
+        <textarea id="dta-p1" rows="2" onblur="salvarRespostaAtual()"></textarea>
+      </div>
+      <div class="dta-pergunta">
+        <label>2. Existe necessidade de alteração no objeto/termos?</label>
+        <textarea id="dta-p2" rows="2" onblur="salvarRespostaAtual()"></textarea>
+      </div>
+      <div class="dta-pergunta">
+        <label>3. Pretende-se renovação, nova licitação ou extinção?</label>
+        <div class="dta-radio-group">
+          <label><input type="radio" name="dta-p3" value="renovacao" onchange="salvarRespostaAtual()"> Renovação</label>
+          <label><input type="radio" name="dta-p3" value="nova_licitacao" onchange="salvarRespostaAtual()"> Nova Licitação</label>
+          <label><input type="radio" name="dta-p3" value="extincao" onchange="salvarRespostaAtual()"> Extinção do Serviço</label>
+        </div>
+      </div>
+      <div class="dta-pergunta">
+        <label>4. Qual sugestão para manutenção com redução de custo?</label>
+        <textarea id="dta-p4" rows="2" onblur="salvarRespostaAtual()"></textarea>
+      </div>
+      <div class="dta-pergunta">
+        <label>5. Existe contrato com objeto similar?</label>
+        <div class="dta-radio-group" style="margin-bottom:8px;">
+          <label><input type="radio" name="dta-p5-toggle" value="nao" onchange="alternarContratoSimilar(false)"> Não</label>
+          <label><input type="radio" name="dta-p5-toggle" value="sim" onchange="alternarContratoSimilar(true)"> Sim</label>
+        </div>
+        <input type="text" id="dta-p5-texto" placeholder="Qual contrato?" style="display:none;" onblur="salvarRespostaAtual()" />
+      </div>
+      <div class="dta-pergunta">
+        <label>Observações adicionais</label>
+        <textarea id="dta-obs" rows="2" onblur="salvarRespostaAtual()"></textarea>
+      </div>
+      <div class="dta-save-status" id="dta-save-status"></div>
+
+      <div class="dta-nav-fases">
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-secondary" onclick="voltarParaSelecao()">← Voltar à seleção</button>
+          <button class="btn btn-secondary" id="dta-btn-anterior" onclick="navegarContrato(-1)">‹ Anterior</button>
+          <button class="btn btn-secondary" id="dta-btn-proximo" onclick="navegarContrato(1)">Próximo ›</button>
+        </div>
+        <button class="btn btn-primary" id="dta-btn-gerar" onclick="irParaGeracao()" style="display:none;">Gerar Relatório</button>
+      </div>
+    </div>
+
+    <!-- Fase 3: geração do PDF -->
+    <div class="card dta-fase" id="dta-fase-3">
+      <div class="card-header"><span class="card-title">Gerar Relatório</span></div>
+      <p id="dta-resumo-geracao" style="margin-bottom:18px;"></p>
+      <div id="dta-geracao-acoes">
+        <button class="btn btn-secondary" onclick="voltarParaPerguntas()">← Voltar às perguntas</button>
+        <button class="btn btn-primary" onclick="gerarPdfAnalise()">Gerar PDF</button>
+      </div>
+      <div id="dta-geracao-loading" style="display:none;color:var(--text-muted);">Gerando PDF, aguarde...</div>
+      <div id="dta-geracao-pronto" style="display:none;">
+        <p style="color:var(--verde,#1A6B35);font-weight:700;margin-bottom:12px;">✅ PDF gerado com sucesso.</p>
+        <button class="btn btn-primary" id="dta-btn-download" onclick="baixarPdfGerado()">Baixar PDF</button>
+        <button class="btn btn-secondary" onclick="iniciarNovaAnalise()">Nova análise</button>
+      </div>
+    </div>
+
+    <div id="app-footer"></div>
+  </main>
+</div>
+
+<div id="toast"></div>
+<script src="js/pwa.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/detin-analise.js"></script>
+</body>
+</html>
