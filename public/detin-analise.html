@@ -155,12 +155,16 @@
       <div class="dta-save-status" id="dta-save-status"></div>
 
       <div class="dta-nav-fases">
-        <div style="display:flex;gap:8px;">
+        <div style="display:flex;gap:8px;align-items:center;">
           <button class="btn btn-secondary" onclick="voltarParaSelecao()">← Voltar à seleção</button>
           <button class="btn btn-secondary" id="dta-btn-anterior" onclick="navegarContrato(-1)">‹ Anterior</button>
           <button class="btn btn-secondary" id="dta-btn-proximo" onclick="navegarContrato(1)">Próximo ›</button>
         </div>
-        <button class="btn btn-primary" id="dta-btn-gerar" onclick="irParaGeracao()" style="display:none;">Gerar Relatório</button>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn btn-secondary" onclick="preverPdfAnalise()">👁 Prévia do PDF</button>
+          <span id="dta-preview-resultado"></span>
+          <button class="btn btn-primary" id="dta-btn-gerar" onclick="irParaGeracao()" style="display:none;">Gerar Relatório</button>
+        </div>
       </div>
     </div>
 

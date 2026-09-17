@@ -283,7 +283,7 @@ function analiseCompleta(id) {
   const analise = db.prepare(`SELECT * FROM detin_analises WHERE id = ?`).get(id);
   if (!analise) return null;
   const contratos = db.prepare(`
-    SELECT dac.*, c.numero_contrato, c.fornecedor, c.objeto, c.data_vencimento, c.valor_mensal, c.valor_mensal_efetivo
+    SELECT dac.*, c.numero_contrato, c.fornecedor, c.tipo, c.objeto, c.data_vencimento, c.valor_mensal, c.valor_mensal_efetivo
     FROM detin_analise_contratos dac JOIN detin_contratos c ON c.id = dac.contrato_id
     WHERE dac.analise_id = ? ORDER BY dac.id
   `).all(id);
@@ -333,6 +333,26 @@ router.put('/api/detin/analises/:id/respostas', detin, requireRotina('detin-anal
   );
   if (!info.changes) return res.status(404).json({ error: 'Este contrato não faz parte desta análise.' });
   res.json({ ok: true });
+});
+
+// Prévia do PDF — pedido do Alex, 2026-09-17: ver o layout antes de finalizar.
+// Mesmo gerarPdfAnalise da versão definitiva (inclui a 1ª página financeira),
+// mas NUNCA grava em anexosDb nem marca finalizado — pode ser chamada quantas
+// vezes quiser, a qualquer momento da Fase 2, mesmo com perguntas em branco
+// ("(não respondido)" já é o fallback natural do gerador).
+router.get('/api/detin/analises/:id/preview-pdf', detin, requireRotina('detin-analise', 'incluir'), async (req, res) => {
+  const a = analiseCompleta(req.params.id);
+  if (!a) return res.status(404).json({ error: 'Análise não encontrada' });
+  if (!a.contratos.length) return res.status(409).json({ error: 'Esta análise não tem contratos.' });
+  try {
+    const pdfBuffer = await gerarPdfAnalise(a, req.user.nome_completo || req.user.username);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="previa-analise.pdf"');
+    res.send(pdfBuffer);
+  } catch (e) {
+    console.error('[detin] erro gerando prévia do PDF de análise:', e);
+    res.status(500).json({ error: 'Erro ao gerar a prévia. Tente novamente.' });
+  }
 });
 
 router.post('/api/detin/analises/:id/gerar-pdf', detin, requireRotina('detin-analise', 'incluir'), async (req, res) => {

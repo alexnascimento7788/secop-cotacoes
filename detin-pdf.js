@@ -199,6 +199,18 @@ async function gerarPdfAnalise(analise, nomeGerador) {
   const logoImg = await carregarLogo(pdfDoc);
   const w = new Escritor(pdfDoc, regular, negrito, logoImg);
 
+  // ── 1ª página: Financeiro por Fornecedor (pedido do Alex, 2026-09-17) —
+  // mesmo bloco do relatório "Financeiro por Fornecedor" da tela de
+  // Contratos, mas escopado só aos contratos DESTA análise (não o portfólio
+  // inteiro), pra dar contexto financeiro antes de entrar nas perguntas.
+  const dadosFinanceiros = agregarFinanceiro(analise.contratos);
+  w.novaPagina();
+  w.cabecalho('Financeiro por Fornecedor');
+  w.titulo('Financeiro por Fornecedor — Contratos desta Análise');
+  w.paragrafo(`Resumo financeiro dos ${analise.contratos.length} contrato(s) incluídos em "${analise.titulo}".`, 9.5);
+  w.espaco(6);
+  desenharConteudoFinanceiro(w, negrito, regular, dadosFinanceiros);
+
   // ── Capa ──
   w.novaPagina();
   if (logoImg) {
@@ -357,25 +369,13 @@ async function gerarPdfVencimentos(alertas, dias, nomeGerador) {
   return Buffer.from(bytes);
 }
 
-// ── Relatório: Financeiro por Fornecedor ─────────────────────────────────────
-// Visual (pedido do Alex: "parecido com a página inicial, com indicadores") —
-// espelha o termômetro + barras horizontais do painel, desenhados com
-// primitivas do pdf-lib em vez de SVG.
-async function gerarPdfFinanceiroFornecedor(dados, nomeGerador) {
-  const pdfDoc = await PDFDocument.create();
-  const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const negrito = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const logoImg = await carregarLogo(pdfDoc);
-  const w = new Escritor(pdfDoc, regular, negrito, logoImg);
-
-  w.novaPagina();
-  w.cabecalho('Relatório Financeiro');
-  w.titulo('Relatório Financeiro por Fornecedor');
-  w.paragrafo(`Gerado em ${dataHojeBr()} por ${nomeGerador}.`, 9.5);
-  w.espaco(6);
-
+// ── Financeiro por Fornecedor: conteúdo compartilhado ────────────────────────
+// Extraído pra ser reaproveitado como 1ª página do PDF de Análise (pedido do
+// Alex, 2026-09-17) — o mesmo bloco (KPIs + termômetro + top fornecedores +
+// distribuição por tipo), só muda quem monta a página/cabeçalho ao redor.
+function desenharConteudoFinanceiro(w, negrito, regular, dados) {
   const kpis = [
-    ['Contratos ativos', String(dados.total_ativos)],
+    ['Contratos', String(dados.total_ativos)],
     ['Comprometido por mês', fmtMoeda(dados.valor_mensal_total)],
     ['Projeção anual', fmtMoeda(dados.valor_anual_projetado)],
   ];
@@ -393,7 +393,7 @@ async function gerarPdfFinanceiroFornecedor(dados, nomeGerador) {
 
   w.titulo('Distribuição do valor mensal por fornecedor', 12);
   if (!fornecedores.length) {
-    w.paragrafo('Nenhum contrato ativo com valor mensal cadastrado.', 10.5);
+    w.paragrafo('Nenhum contrato com valor mensal cadastrado.', 10.5);
   } else {
     w.garantirEspaco(24);
     const barH = 20;
@@ -437,6 +437,49 @@ async function gerarPdfFinanceiroFornecedor(dados, nomeGerador) {
   const porTipo = dados.contratos_por_tipo || [];
   if (!porTipo.length) w.paragrafo('Sem dados.', 10.5);
   else porTipo.forEach(t => w.campo(`${LABEL_TIPO[t.tipo] || t.tipo}:`, `${t.total} contrato(s)`));
+}
+
+// Agrega fornecedor/tipo a partir de uma lista de contratos (usado tanto
+// pelo relatório financeiro do sistema todo quanto, com o subconjunto de
+// `analise.contratos`, como 1ª página do PDF de Análise).
+function agregarFinanceiro(contratos) {
+  const porFornecedor = {};
+  const porTipo = {};
+  let valorMensalTotal = 0;
+  contratos.forEach(c => {
+    const vm = (c.valor_mensal_efetivo != null ? c.valor_mensal_efetivo : c.valor_mensal) || 0;
+    valorMensalTotal += vm;
+    porFornecedor[c.fornecedor] ??= { fornecedor: c.fornecedor, total: 0, valor_mensal: 0 };
+    porFornecedor[c.fornecedor].total++;
+    porFornecedor[c.fornecedor].valor_mensal += vm;
+    if (c.tipo) porTipo[c.tipo] = (porTipo[c.tipo] || 0) + 1;
+  });
+  return {
+    total_ativos: contratos.length,
+    valor_mensal_total: valorMensalTotal,
+    valor_anual_projetado: valorMensalTotal * 12,
+    contratos_por_fornecedor: Object.values(porFornecedor).sort((a, b) => b.valor_mensal - a.valor_mensal),
+    contratos_por_tipo: Object.entries(porTipo).map(([tipo, total]) => ({ tipo, total })),
+  };
+}
+
+// ── Relatório: Financeiro por Fornecedor ─────────────────────────────────────
+// Visual (pedido do Alex: "parecido com a página inicial, com indicadores") —
+// espelha o termômetro + barras horizontais do painel, desenhados com
+// primitivas do pdf-lib em vez de SVG.
+async function gerarPdfFinanceiroFornecedor(dados, nomeGerador) {
+  const pdfDoc = await PDFDocument.create();
+  const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const negrito = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const logoImg = await carregarLogo(pdfDoc);
+  const w = new Escritor(pdfDoc, regular, negrito, logoImg);
+
+  w.novaPagina();
+  w.cabecalho('Relatório Financeiro');
+  w.titulo('Relatório Financeiro por Fornecedor');
+  w.paragrafo(`Gerado em ${dataHojeBr()} por ${nomeGerador}.`, 9.5);
+  w.espaco(6);
+  desenharConteudoFinanceiro(w, negrito, regular, dados);
 
   numerarPaginas(pdfDoc, regular);
   const bytes = await pdfDoc.save();

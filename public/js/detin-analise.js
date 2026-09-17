@@ -211,6 +211,25 @@ function navegarContrato(delta) {
   renderContratoAtual();
 }
 
+/* ── Prévia do PDF (Fase 2, a qualquer momento) ─────────────────────────────
+   Mesmo padrão popup-safe do resto do módulo: fetch guarda o blob, um clique
+   SEPARADO (o botão que aparece) é que abre — nunca window.open automático
+   logo depois de um await. Não finaliza a análise nem grava nada. */
+async function preverPdfAnalise() {
+  const span = document.getElementById('dta-preview-resultado');
+  span.innerHTML = ' <span class="text-muted" style="font-size:12px;">Gerando prévia...</span>';
+  try {
+    const res = await fetch(`/api/detin/analises/${_analiseId}/preview-pdf`);
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao gerar prévia'); }
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    span.innerHTML = ` <button type="button" class="btn btn-primary btn-sm" onclick="window.open('${blobUrl}','_blank')">📄 Abrir Prévia</button>`;
+  } catch (e) {
+    span.innerHTML = '';
+    toast('Erro: ' + e.message, 'error');
+  }
+}
+
 /* ── Fase 3: geração do PDF ──────────────────────────────────────────────── */
 
 function irParaGeracao() {
