@@ -618,6 +618,23 @@
   </div>
 </div>
 
+<!-- Rateio de fonte pagadora entre 2+ fontes (TU/MLP/RDC) durante a
+     consolidação — mesmo botão "⚖" e mesma ideia de Lançamento, pedido do
+     Alex, 2026-09-17: "não temos o informe do % aqui também". -->
+<div class="modal-overlay" id="modal-rateio-fonte">
+  <div class="modal-box" style="max-width:380px;">
+    <h3>Rateio da fonte pagadora</h3>
+    <p class="text-muted" style="margin:-8px 0 14px;font-size:12.5px;">Marque uma ou mais fontes e informe o percentual de cada uma (a soma precisa fechar em 100%).</p>
+    <div id="rateio-fonte-linhas"></div>
+    <div id="rateio-fonte-total" style="font-size:12.5px;font-weight:700;margin:10px 0 4px;"></div>
+    <div id="rateio-fonte-msg" style="font-size:12.5px;font-weight:600;color:#c0392b;min-height:16px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
+      <button type="button" class="btn btn-secondary" onclick="fecharModalRateioFonte()">Cancelar</button>
+      <button type="button" class="btn btn-primary" onclick="salvarRateioFonteConsol()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 <script src="js/pwa.js"></script>
 <script src="js/auth.js"></script>

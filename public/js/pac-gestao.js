@@ -537,6 +537,73 @@ function textoRateioFonte(valor) {
   return Object.entries(rateio).map(([f, p]) => `${f} ${p}%`).join(' / ');
 }
 
+// Modal de rateio (mesmo #modal-rateio-fonte de Lançamento, versão
+// Consolidação — pedido do Alex, 2026-09-17: "não temos o informe do %
+// aqui também"). Opções vêm de _listasCacheConsol (não _listasCache, que é
+// da tela de Lançamento) e salva via PUT /consolidacao/itens/:id/valores.
+let _rfConsolItemId = null, _rfConsolColunaId = null;
+function abrirModalRateioFonteConsol(itemId, colunaId) {
+  const item = (_consolDados?.itens || []).find(i => i.id === itemId);
+  if (!item) return;
+  _rfConsolItemId = itemId; _rfConsolColunaId = colunaId;
+  const valorAtual = (item.valores || {})[colunaId];
+  const rateioAtual = parseRateioFonte(valorAtual) || (valorAtual ? { [valorAtual]: 100 } : {});
+  const opcoes = (_listasCacheConsol.fonte_pagadora || []).map(o => o.valor);
+  document.getElementById('rateio-fonte-linhas').innerHTML = opcoes.map(op => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+      <label style="display:flex;align-items:center;gap:6px;flex:1;cursor:pointer;">
+        <input type="checkbox" id="rf-chk-${op}" ${rateioAtual[op] != null ? 'checked' : ''} onchange="atualizarTotalRateioFonte()"> ${op}
+      </label>
+      <input type="number" id="rf-pct-${op}" min="0" max="100" step="0.01" value="${rateioAtual[op] ?? ''}"
+        style="width:80px;text-align:right;" placeholder="%" oninput="atualizarTotalRateioFonte()">
+    </div>`).join('');
+  document.getElementById('rateio-fonte-msg').textContent = '';
+  atualizarTotalRateioFonte();
+  document.getElementById('modal-rateio-fonte').classList.add('open');
+}
+function fecharModalRateioFonte() {
+  document.getElementById('modal-rateio-fonte').classList.remove('open');
+  _rfConsolItemId = null; _rfConsolColunaId = null;
+}
+function lerRateioFonteFormConsol() {
+  const opcoes = (_listasCacheConsol.fonte_pagadora || []).map(o => o.valor);
+  const rateio = {};
+  opcoes.forEach(op => {
+    const chk = document.getElementById(`rf-chk-${op}`);
+    if (chk && chk.checked) rateio[op] = Number(document.getElementById(`rf-pct-${op}`).value) || 0;
+  });
+  return rateio;
+}
+function atualizarTotalRateioFonte() {
+  const rateio = lerRateioFonteFormConsol();
+  const total = Object.values(rateio).reduce((s, v) => s + v, 0);
+  const el = document.getElementById('rateio-fonte-total');
+  if (!el) return;
+  el.textContent = `Total: ${total}%`;
+  el.style.color = Math.abs(total - 100) < 0.01 ? 'var(--verde,#2E7D32)' : '#c0392b';
+}
+async function salvarRateioFonteConsol() {
+  const rateio = lerRateioFonteFormConsol();
+  const fontes = Object.keys(rateio);
+  const msg = document.getElementById('rateio-fonte-msg');
+  if (!fontes.length) { msg.textContent = 'Marque ao menos uma fonte pagadora.'; return; }
+  const total = fontes.reduce((s, f) => s + rateio[f], 0);
+  if (Math.abs(total - 100) > 0.01) { msg.textContent = `A soma dos percentuais precisa ser 100% (está em ${total}%).`; return; }
+  const valor = fontes.length === 1 ? fontes[0] : JSON.stringify(rateio);
+  try {
+    const res = await fetch(`/api/pac/consolidacao/itens/${_rfConsolItemId}/valores`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ valores: { [_rfConsolColunaId]: valor } }),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); msg.textContent = e.error || 'Erro ao salvar.'; return; }
+    const item = (_consolDados?.itens || []).find(i => i.id === _rfConsolItemId);
+    if (item) { item.valores = item.valores || {}; item.valores[_rfConsolColunaId] = valor; }
+    fecharModalRateioFonte();
+    await renderConsolidadoDetalhe();
+    toast('Rateio da fonte pagadora salvo.');
+  } catch { msg.textContent = 'Erro ao salvar.'; }
+}
+
 function formatarValorColuna(coluna, valor) {
   if (valor === null || valor === undefined || valor === '') return '—';
   if (coluna.tipo_input === 'data') return fmtBr(valor);
@@ -939,10 +1006,18 @@ async function carregarConsolidacaoLista() {
   })));
 
   const cancelados = _dfds.filter(d => d.status === 'cancelado');
-  const consolidados = consolidacoes.filter(c => c.info.consolidado);
-  // "Não consolidados" = já em análise (saiu de Acompanhamento) mas ainda
-  // sem consolidação gerada — é o que precisa de atenção do DEPLA aqui.
-  const pendentes = _dfds.filter(d => d.status === 'analise' && !consolidados.some(c => c.dfd.id === d.id));
+  // "Consolidados" (aba de verdade) = só quando a etapa TERMINOU
+  // (dfd.status já virou 'consolidado'/'fechado') — ter uma linha em
+  // pac_consolidacoes (info.consolidado) só significa que "Iniciar
+  // Consolidação" já foi clicado, não que terminou. Achado pelo Alex
+  // testando, 2026-09-17: um DFD recém-movido pra 'em_consolidacao'
+  // (trabalho ainda em andamento) estava pulando direto pra aba
+  // "Consolidados" só por já ter essa linha.
+  const consolidados = consolidacoes.filter(c => c.info.consolidado && (c.dfd.status === 'consolidado' || c.dfd.status === 'fechado'));
+  // "Não consolidados" = em análise (ainda não iniciou) OU em consolidação
+  // (iniciou, mas o trabalho não terminou) — nos dois casos precisa de
+  // atenção do DEPLA aqui, só muda o botão de ação.
+  const pendentes = _dfds.filter(d => (d.status === 'analise' || d.status === 'em_consolidacao') && !consolidados.some(c => c.dfd.id === d.id));
 
   const tbodyPend = document.getElementById('consol-tbody-pendentes');
   tbodyPend.innerHTML = pendentes.map(d => `
@@ -952,7 +1027,9 @@ async function carregarConsolidacaoLista() {
       <td>${d.ano_base}</td>
       <td>${badgeStatusDfd(d.status)}</td>
       <td style="text-align:right;white-space:nowrap;">
-        <button class="btn btn-primary btn-sm" onclick="irIniciarConsolidacao(${d.id})">Iniciar Consolidação</button>
+        ${d.status === 'em_consolidacao'
+          ? `<button class="btn btn-secondary btn-sm" onclick="abrirConsolidadoDetalhe(${d.id},'${(d.titulo || '').replace(/'/g, "\\'")}',${d.ano_base})">Continuar consolidação</button>`
+          : `<button class="btn btn-primary btn-sm" onclick="irIniciarConsolidacao(${d.id})">Iniciar Consolidação</button>`}
       </td>
     </tr>
   `).join('') || `<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum DFD aguardando consolidação.</td></tr>`;
@@ -1181,6 +1258,12 @@ function renderCelulaConsolEditavel(item, coluna) {
   if (coluna.tipo_input === 'select') {
     const opcoes = (_listasCacheConsol[coluna.lista] || []).map(o =>
       `<option value="${o.valor.replace(/"/g, '&quot;')}"${o.valor === valor ? ' selected' : ''}>${o.valor}</option>`).join('');
+    // Fonte Pagadora ganha o mesmo botão "⚖" de Lançamento pra ratear entre
+    // 2+ fontes por percentual — pedido do Alex, 2026-09-17.
+    if (coluna.slug === 'fonte_pagadora') {
+      const btnRateio = `<button type="button" class="btn btn-secondary btn-xs" style="padding:2px 7px;flex-shrink:0;" onclick="abrirModalRateioFonteConsol(${item.id},${coluna.id})" title="Ratear entre mais de uma fonte pagadora">⚖</button>`;
+      return `<td><div style="display:flex;align-items:center;gap:6px;"><select ${attrs} style="width:85px;flex-shrink:0;" onchange="salvarCampoConsolidacao(this)"><option value="">—</option>${opcoes}</select>${btnRateio}</div></td>`;
+    }
     return `<td><select ${attrs} style="min-width:110px;" onchange="salvarCampoConsolidacao(this)"><option value="">—</option>${opcoes}</select></td>`;
   }
   if (coluna.tipo_input === 'textarea') {
