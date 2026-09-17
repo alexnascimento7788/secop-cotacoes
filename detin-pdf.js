@@ -205,7 +205,7 @@ async function gerarPdfAnalise(analise, nomeGerador) {
   // inteiro), pra dar contexto financeiro antes de entrar nas perguntas.
   const dadosFinanceiros = agregarFinanceiro(analise.contratos);
   w.novaPagina();
-  w.cabecalho('Financeiro por Fornecedor');
+  w.cabecalho();
   w.titulo('Financeiro por Fornecedor — Contratos desta Análise');
   w.paragrafo(`Resumo financeiro dos ${analise.contratos.length} contrato(s) incluídos em "${analise.titulo}".`, 9.5);
   w.espaco(6);
@@ -233,6 +233,30 @@ async function gerarPdfAnalise(analise, nomeGerador) {
     w.page.drawText(l, { x: (PAGE_W - tw) / 2, y: w.y, size: 11, font: regular, color: rgb(0.35, 0.35, 0.35) });
     w.y -= 18;
   });
+
+  // ── Resumo dos contratos (pedido do Alex, 2026-09-17: "visão como foto") ──
+  // Mesma tabela do relatório "Lista de Contratos" (desenharTabela + farol),
+  // só que escopada aos contratos desta análise — antes de entrar no
+  // detalhado por contrato, que continua igual.
+  w.novaPagina();
+  w.cabecalho();
+  w.titulo('Resumo dos Contratos');
+  const COLS_RESUMO = [
+    { label: 'Nº', w: 60 }, { label: 'Fornecedor', w: 100 }, { label: 'Tipo', w: 85 },
+    { label: 'Vencimento', w: 62 }, { label: 'Valor Mensal', w: 85 }, { label: 'Status', w: 79 },
+  ];
+  const linhasResumo = analise.contratos.map(c => {
+    const valorMensal = c.valor_mensal_efetivo != null ? c.valor_mensal_efetivo : c.valor_mensal;
+    return {
+      cor: farolInfo(c.dias_restantes),
+      valores: [
+        c.numero_contrato || 'S/N', c.fornecedor, LABEL_TIPO[c.tipo] || c.tipo || '—',
+        c.data_vencimento ? fmtBrData(c.data_vencimento) : '—',
+        valorMensal != null ? fmtMoeda(valorMensal) : '—', LABEL_STATUS[c.status] || c.status || '—',
+      ],
+    };
+  });
+  desenharTabela(w, negrito, regular, 'Resumo dos Contratos (continuação)', COLS_RESUMO, linhasResumo);
 
   // ── 1 página por contrato ──
   analise.contratos.forEach(c => {

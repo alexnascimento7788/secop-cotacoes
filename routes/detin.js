@@ -283,10 +283,10 @@ function analiseCompleta(id) {
   const analise = db.prepare(`SELECT * FROM detin_analises WHERE id = ?`).get(id);
   if (!analise) return null;
   const contratos = db.prepare(`
-    SELECT dac.*, c.numero_contrato, c.fornecedor, c.tipo, c.objeto, c.data_vencimento, c.valor_mensal, c.valor_mensal_efetivo
+    SELECT dac.*, c.numero_contrato, c.fornecedor, c.tipo, c.status, c.objeto, c.data_vencimento, c.valor_mensal, c.valor_mensal_efetivo
     FROM detin_analise_contratos dac JOIN detin_contratos c ON c.id = dac.contrato_id
     WHERE dac.analise_id = ? ORDER BY dac.id
-  `).all(id);
+  `).all(id).map(c => ({ ...c, dias_restantes: diasRestantes(c.data_vencimento) }));
   return { ...analise, contratos };
 }
 
