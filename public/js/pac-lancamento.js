@@ -125,6 +125,18 @@ function diasRestantes(dataIso) {
   return Math.round((alvo - hoje) / 86400000);
 }
 
+// "Destaque inteligente" no Vencimento — pedido do Alex, 2026-09-17: o mesmo
+// tipo de sinal visual que a mensagem de status já dá, só que aplicado na
+// própria data (cor de farol: verde com folga, laranja perto do prazo,
+// vermelho já vencido), reaproveitando badges que já existem no sistema
+// (sem CSS novo). Duplicado em pac-gestao.js (mesma convenção do arquivo).
+function badgeVencimento(dataIso) {
+  if (!dataIso) return `<span class="badge badge-fechado">Vencimento: não informado</span>`;
+  const dias = diasRestantes(dataIso);
+  const classe = dias < 0 ? 'badge-parado' : dias <= 5 ? 'badge-aprovacao' : 'badge-concluido';
+  return `<span class="badge ${classe}">Vencimento: ${fmtBr(dataIso)}</span>`;
+}
+
 let _nomeUsuarioPac = '';
 
 async function atualizarCabecalhoUsuario() {
@@ -243,11 +255,7 @@ async function abrirDfd(id) {
 
   document.getElementById('pac-lanc-titulo').textContent = `${codigoDfd(_dfdAtual)} — ${_dfdAtual.titulo}`;
   const linha2 = document.getElementById('pac-lanc-linha2');
-  // Data de vencimento (entrega) do DFD — pedido do Alex, 2026-09-07: aparecer
-  // sempre que o DFD específico for aberto. DFD criado antes desta versão
-  // pode não ter essa data (fica "não informado", não trava nada).
-  const vencTexto = _dfdAtual.data_entrega ? `Vencimento: ${fmtBr(_dfdAtual.data_entrega)}` : 'Vencimento: não informado';
-  linha2.innerHTML = `Lançamento · ${badgeStatusDfd(_dfdAtual.status)} · ${vencTexto}`;
+  linha2.innerHTML = `Lançamento · ${badgeStatusDfd(_dfdAtual.status)} · ${badgeVencimento(_dfdAtual.data_entrega)}`;
   linha2.style.display = '';
 
   await carregarListas();
