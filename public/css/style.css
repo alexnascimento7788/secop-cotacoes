@@ -493,7 +493,13 @@ input[type="checkbox"].switch-moderno:focus-visible { outline: 2px solid var(--v
    tela são por textos longos"). max-width dá um teto pra quebra acontecer
    num tamanho de coluna razoável. Colunas fixas (ID/Nº PAC) já tinham esse
    ajuste antes (dfd-col-fixa-1/2 abaixo), continuam iguais. */
-.dfd-table td { white-space: normal; max-width: 320px; }
+/* word-break/overflow-wrap: sem isso, um texto CONTÍNUO (sem espaço pra
+   quebrar, ex.: Especificação do Objeto colada) ultrapassava o max-width
+   visualmente e vazava por cima das colunas seguintes — só aparecia depois
+   que o DFD saía de consolidação (a fase editável usa <textarea>, que já
+   contém o overflow sozinho; o <td> de texto puro do pós-consolidação não
+   tinha essa proteção). Achado pelo Alex testando, 2026-09-16. */
+.dfd-table td { white-space: normal; max-width: 320px; word-break: break-word; overflow-wrap: anywhere; }
 /* `border-collapse:separate` (precisa disso pra sticky funcionar) faz o
    `tbody tr { border-bottom }` genérico (style.css, regra de toda tabela do
    sistema) parar de renderizar — em separate, borda em <tr> simplesmente não

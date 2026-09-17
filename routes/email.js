@@ -1,10 +1,13 @@
 // ── API do motor de notificação por e-mail (Admin → Comunicação) ───────────
 // Transversal (não é um "módulo" da plataforma, não passa por requireModulo)
 // — mesmo padrão de routes/admin.js e routes/pac-importacao.js, acesso por
-// ROLE direto (master/admin_sistema), não por Perfil/Rotina.
+// ROLE direto (master/admin_sistema por padrão), não por Perfil/Rotina.
+// requireComunicacao (middleware.js) também libera admin_operacional quando
+// config.comunicacao_libera_admin_operacional = '1' (pedido do Alex,
+// 2026-09-16) — ver Configurações → Parâmetros.
 const express = require('express');
 const { db } = require('../database');
-const { registrarLog, requireAdminSistema, n } = require('../middleware');
+const { registrarLog, requireComunicacao, getComunicacaoLiberaOperacional, n } = require('../middleware');
 const mailer = require('../mailer');
 
 const router = express.Router();
@@ -28,7 +31,7 @@ const EXEMPLOS_VARIAVEIS = {
 // cada vez contra um e-mail escolhido, sem precisar simular a ação real do
 // PAC que dispara esse gatilho. Preenche as variáveis com valores de
 // exemplo e processa a fila NA HORA (não espera o próximo tick de 60s).
-router.post('/api/email/templates/:slug/testar', requireAdminSistema, async (req, res) => {
+router.post('/api/email/templates/:slug/testar', requireComunicacao, async (req, res) => {
   const { email } = req.body || {};
   if (!email || !String(email).trim()) return res.status(400).json({ error: 'Informe um e-mail de destino.' });
   const template = db.prepare(`SELECT slug, ativo, variaveis_disponiveis FROM email_templates WHERE slug = ?`).get(req.params.slug);
@@ -49,14 +52,14 @@ router.post('/api/email/templates/:slug/testar', requireAdminSistema, async (req
 });
 
 // ── Config SMTP ─────────────────────────────────────────────────────────────
-router.get('/api/email/config', requireAdminSistema, (req, res) => {
+router.get('/api/email/config', requireComunicacao, (req, res) => {
   const config = db.prepare(`SELECT * FROM email_config ORDER BY id DESC LIMIT 1`).get();
   if (!config) return res.json(null);
   const { senha_enc, ...semSenha } = config; // nunca volta a senha (nem criptografada) pro cliente
   res.json({ ...semSenha, senha_configurada: !!senha_enc });
 });
 
-router.post('/api/email/config', requireAdminSistema, (req, res) => {
+router.post('/api/email/config', requireComunicacao, (req, res) => {
   const { host, port, secure, usuario, senha, remetente_email, remetente_nome, ativo, tls_legado } = req.body || {};
   if (!host || !port || !remetente_email) {
     return res.status(400).json({ error: 'Host, porta e e-mail do remetente são obrigatórios.' });
@@ -91,24 +94,24 @@ router.post('/api/email/config', requireAdminSistema, (req, res) => {
   res.json({ ok: true });
 });
 
-router.post('/api/email/config/testar', requireAdminSistema, async (req, res) => {
+router.post('/api/email/config/testar', requireComunicacao, async (req, res) => {
   const r = await mailer.testarConexao();
   registrarLog(req, 'EMAIL', 'TESTOU_CONEXAO', r.ok ? 'Teste de conexão SMTP OK' : `Teste de conexão SMTP falhou: ${r.erro}`);
   res.json(r);
 });
 
 // ── Templates ────────────────────────────────────────────────────────────
-router.get('/api/email/templates', requireAdminSistema, (req, res) => {
+router.get('/api/email/templates', requireComunicacao, (req, res) => {
   res.json(db.prepare(`SELECT * FROM email_templates ORDER BY nome`).all());
 });
 
-router.get('/api/email/templates/:slug', requireAdminSistema, (req, res) => {
+router.get('/api/email/templates/:slug', requireComunicacao, (req, res) => {
   const t = db.prepare(`SELECT * FROM email_templates WHERE slug = ?`).get(req.params.slug);
   if (!t) return res.status(404).json({ error: 'Template não encontrado' });
   res.json(t);
 });
 
-router.post('/api/email/templates', requireAdminSistema, (req, res) => {
+router.post('/api/email/templates', requireComunicacao, (req, res) => {
   const { slug, nome, assunto, corpo_html, corpo_texto, variaveis_disponiveis } = req.body || {};
   if (!slug || !nome || !assunto || !corpo_html) {
     return res.status(400).json({ error: 'Slug, nome, assunto e corpo HTML são obrigatórios.' });
@@ -129,7 +132,7 @@ router.post('/api/email/templates', requireAdminSistema, (req, res) => {
   res.status(201).json({ ok: true });
 });
 
-router.put('/api/email/templates/:slug', requireAdminSistema, (req, res) => {
+router.put('/api/email/templates/:slug', requireComunicacao, (req, res) => {
   const t = db.prepare(`SELECT slug FROM email_templates WHERE slug = ?`).get(req.params.slug);
   if (!t) return res.status(404).json({ error: 'Template não encontrado' });
   const { nome, assunto, corpo_html, corpo_texto, variaveis_disponiveis } = req.body || {};
@@ -143,7 +146,7 @@ router.put('/api/email/templates/:slug', requireAdminSistema, (req, res) => {
   res.json({ ok: true });
 });
 
-router.patch('/api/email/templates/:slug/ativo', requireAdminSistema, (req, res) => {
+router.patch('/api/email/templates/:slug/ativo', requireComunicacao, (req, res) => {
   const { ativo } = req.body || {};
   const info = db.prepare(`UPDATE email_templates SET ativo = ? WHERE slug = ?`).run(ativo ? 1 : 0, req.params.slug);
   if (!info.changes) return res.status(404).json({ error: 'Template não encontrado' });
@@ -152,11 +155,11 @@ router.patch('/api/email/templates/:slug/ativo', requireAdminSistema, (req, res)
 });
 
 // ── Destinatários fixos ──────────────────────────────────────────────────
-router.get('/api/email/destinatarios/:slug', requireAdminSistema, (req, res) => {
+router.get('/api/email/destinatarios/:slug', requireComunicacao, (req, res) => {
   res.json(db.prepare(`SELECT * FROM email_destinatarios_fixos WHERE template_slug = ? ORDER BY id`).all(req.params.slug));
 });
 
-router.post('/api/email/destinatarios/:slug', requireAdminSistema, (req, res) => {
+router.post('/api/email/destinatarios/:slug', requireComunicacao, (req, res) => {
   const { email, nome } = req.body || {};
   if (!email || !String(email).trim()) return res.status(400).json({ error: 'E-mail é obrigatório.' });
   const info = db.prepare(`INSERT INTO email_destinatarios_fixos (template_slug, email, nome) VALUES (?, ?, ?)`)
@@ -165,7 +168,7 @@ router.post('/api/email/destinatarios/:slug', requireAdminSistema, (req, res) =>
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
-router.delete('/api/email/destinatarios/:id', requireAdminSistema, (req, res) => {
+router.delete('/api/email/destinatarios/:id', requireComunicacao, (req, res) => {
   const d = db.prepare(`SELECT template_slug, email FROM email_destinatarios_fixos WHERE id = ?`).get(req.params.id);
   if (!d) return res.status(404).json({ error: 'Destinatário não encontrado' });
   db.prepare(`DELETE FROM email_destinatarios_fixos WHERE id = ?`).run(req.params.id);
@@ -174,7 +177,7 @@ router.delete('/api/email/destinatarios/:id', requireAdminSistema, (req, res) =>
 });
 
 // ── Fila ─────────────────────────────────────────────────────────────────
-router.get('/api/email/fila', requireAdminSistema, (req, res) => {
+router.get('/api/email/fila', requireComunicacao, (req, res) => {
   const { status } = req.query;
   const rows = status
     ? db.prepare(`SELECT * FROM email_fila WHERE status = ? ORDER BY criado_em DESC LIMIT 200`).all(status)
@@ -182,7 +185,7 @@ router.get('/api/email/fila', requireAdminSistema, (req, res) => {
   res.json(rows);
 });
 
-router.post('/api/email/fila/:id/reenviar', requireAdminSistema, (req, res) => {
+router.post('/api/email/fila/:id/reenviar', requireComunicacao, (req, res) => {
   const item = db.prepare(`SELECT id, status FROM email_fila WHERE id = ?`).get(req.params.id);
   if (!item) return res.status(404).json({ error: 'Item não encontrado' });
   if (!['erro', 'cancelado'].includes(item.status)) return res.status(409).json({ error: 'Só é possível reenviar item com erro ou cancelado.' });
@@ -193,7 +196,7 @@ router.post('/api/email/fila/:id/reenviar', requireAdminSistema, (req, res) => {
 
 // Soft: marca como cancelado em vez de apagar a linha — mantém rastro do que
 // foi decidido não enviar (mesmo espírito de nunca apagar email_log).
-router.delete('/api/email/fila/:id', requireAdminSistema, (req, res) => {
+router.delete('/api/email/fila/:id', requireComunicacao, (req, res) => {
   const item = db.prepare(`SELECT id, status FROM email_fila WHERE id = ?`).get(req.params.id);
   if (!item) return res.status(404).json({ error: 'Item não encontrado' });
   if (item.status !== 'pendente') return res.status(409).json({ error: 'Só é possível cancelar item pendente.' });
@@ -216,14 +219,14 @@ router.delete('/api/email/fila/:id/erro', (req, res) => {
   res.json({ ok: true });
 });
 
-router.post('/api/email/fila/processar', requireAdminSistema, async (req, res) => {
+router.post('/api/email/fila/processar', requireComunicacao, async (req, res) => {
   const resumo = await mailer.processarFila();
   registrarLog(req, 'EMAIL', 'PROCESSOU_FILA', `Processamento manual: ${resumo.enviados} enviado(s), ${resumo.erros} erro(s) de ${resumo.processados} item(ns)`);
   res.json(resumo);
 });
 
 // ── Log ──────────────────────────────────────────────────────────────────
-router.get('/api/email/log', requireAdminSistema, (req, res) => {
+router.get('/api/email/log', requireComunicacao, (req, res) => {
   const { template_slug, status_final, de, ate } = req.query;
   const condicoes = []; const params = [];
   if (template_slug) { condicoes.push('template_slug = ?'); params.push(template_slug); }
@@ -235,14 +238,14 @@ router.get('/api/email/log', requireAdminSistema, (req, res) => {
 });
 
 // ── Alertas ──────────────────────────────────────────────────────────────
-router.get('/api/email/alertas', requireAdminSistema, (req, res) => {
+router.get('/api/email/alertas', requireComunicacao, (req, res) => {
   const todos = req.query.todos === '1';
   res.json(todos
     ? db.prepare(`SELECT * FROM email_alertas ORDER BY id DESC LIMIT 200`).all()
     : db.prepare(`SELECT * FROM email_alertas WHERE resolvido = 0 ORDER BY id DESC`).all());
 });
 
-router.patch('/api/email/alertas/:id/resolver', requireAdminSistema, (req, res) => {
+router.patch('/api/email/alertas/:id/resolver', requireComunicacao, (req, res) => {
   const info = db.prepare(`UPDATE email_alertas SET resolvido = 1, resolvido_em = datetime('now') WHERE id = ?`).run(req.params.id);
   if (!info.changes) return res.status(404).json({ error: 'Alerta não encontrado' });
   registrarLog(req, 'EMAIL', 'RESOLVEU_ALERTA', `Marcou o alerta #${req.params.id} como resolvido`);
@@ -256,7 +259,9 @@ router.patch('/api/email/alertas/:id/resolver', requireAdminSistema, (req, res) 
 // endpoints também liberariam — dá pra checar sem 403 quebrar o carregamento
 // da sidebar de todo mundo.
 router.get('/api/email/resumo', (req, res) => {
-  if (req.user.username !== 'master' && req.user.role !== 'admin_sistema') {
+  const podeVer = req.user.username === 'master' || req.user.role === 'admin_sistema'
+    || (req.user.role === 'admin_operacional' && getComunicacaoLiberaOperacional());
+  if (!podeVer) {
     return res.json({ alertas_nao_resolvidos: 0, fila_erros: 0 });
   }
   const alertas = db.prepare(`SELECT COUNT(*) AS n FROM email_alertas WHERE resolvido = 0`).get().n;

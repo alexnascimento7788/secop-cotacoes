@@ -37,6 +37,22 @@ function getSecopEdicaoLivre() {
   return row?.valor === '1';
 }
 
+// Mesmo padrão acima — Admin > Comunicação (routes/email.js) era só
+// master/admin_sistema (pedido do Alex, 2026-09-16: "criar um parâmetro para
+// liberar a tela do admin de comunicação, e não somente o master"). Ligado,
+// admin_operacional (escopo do próprio departamento) também alcança, sem
+// precisar virar admin_sistema (que ganharia Departamentos/Módulos/Rotinas/
+// Perfis junto — mais poder do que o pedido pede).
+function getComunicacaoLiberaOperacional() {
+  const row = db.prepare(`SELECT valor FROM config WHERE chave = 'comunicacao_libera_admin_operacional'`).get();
+  return row?.valor === '1';
+}
+function requireComunicacao(req, res, next) {
+  if (req.user.username === 'master' || req.user.role === 'admin_sistema') return next();
+  if (req.user.role === 'admin_operacional' && getComunicacaoLiberaOperacional()) return next();
+  return res.status(403).json({ error: 'Acesso restrito ao administrador do sistema' });
+}
+
 // Empurra o vencimento da sessão pra frente a cada requisição autenticada —
 // o cookie em si dura bastante (ver /api/auth/login), quem controla o timeout
 // de verdade é sessions.expires, rolando conforme uso real
@@ -214,4 +230,5 @@ module.exports = {
   resolverPerfilId, modulosDoUsuario, registrarLog, CONSULTA_POST_OK,
   requireAdminAny, requireAdminSistema, requireModulo, ROTINA_FLAGS_VALIDAS,
   requireRotina, getCpfHubKey, siglaSetor, gerarCodigoPac,
+  getComunicacaoLiberaOperacional, requireComunicacao,
 };

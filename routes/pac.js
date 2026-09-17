@@ -868,11 +868,19 @@ router.post('/api/pac/dfds/:dfd_id/setores/:setor_id/finalizar', pac, requireRot
 // mostrar "Gerar Consolidação") quanto pelo próprio Lançamento do gestor
 // (esconder/desabilitar o botão "Finalizar meu DFD" depois de já finalizado).
 router.get('/api/pac/dfds/:id/status-finalizacao', pac, requireRotinaPac('ver'), (req, res) => {
+  // Achado pelo Alex, 2026-09-16: um gestor com acesso a 'pac-gestao' (não só
+  // 'pac-lancamento') via até então TODOS os setores participantes do DFD
+  // aqui, mesmo os que ele não gerencia — porque a query nunca cruzava com
+  // setor_usuarios, só com dfd_setores. Real DEPLA (sem linha nenhuma em
+  // setor_usuarios) continua vendo todos; master/consulta idem.
+  const restrito = req.user.username !== 'master' && req.user.role !== 'consulta' ? setoresDoUsuario(req.user.user_id) : [];
+  const filtro = restrito.length ? ` AND ds.setor_id IN (${restrito.map(() => '?').join(',')})` : '';
+  const params = restrito.length ? [req.params.id, ...restrito] : [req.params.id];
   const rows = db.prepare(`
     SELECT s.id AS setor_id, s.nome AS setor_nome, ds.finalizado_em
     FROM dfd_setores ds JOIN setores s ON s.id = ds.setor_id
-    WHERE ds.dfd_id = ? ORDER BY s.ordem
-  `).all(req.params.id);
+    WHERE ds.dfd_id = ?${filtro} ORDER BY s.ordem
+  `).all(...params);
   res.json({ setores: rows, todos_finalizados: rows.length > 0 && rows.every(r => !!r.finalizado_em) });
 });
 
@@ -1300,6 +1308,29 @@ router.delete('/api/pac/solicitacoes/:id', pac, requireRotina('pac-solicitacoes'
 // em qual dos 2 baldes de valor estimado ele entra: TU e MLP dividem o mesmo
 // balde (valor_tu_mlp), RDC é separado — mesmo agrupamento que a planilha de
 // solicitações já usa pros valores realizados (valor_tu_mlp/valor_rdc).
+//
+// Pedido do Alex, 2026-09-16: um item pode ter MAIS DE UMA fonte pagadora
+// rateada por percentual (ex.: 60% TU + 40% RDC), escolhido num botão à
+// parte em Lançamento (ver abrirModalRateioFonte em pac-lancamento.js) — sem
+// tabela nova: o valor da coluna "fonte_pagadora" vira um JSON
+// {"TU":60,"RDC":40} em vez do texto simples quando há 2+ fontes (1 fonte
+// só continua salvando o texto puro de sempre, sem JSON, sem mudança de
+// comportamento pra quem nunca usar rateio).
+function splitPorFonte(fonteValor, valorEstimado) {
+  const s = fonteValor == null ? '' : String(fonteValor).trim();
+  if (s.startsWith('{')) {
+    try {
+      const rateio = JSON.parse(s);
+      let tuMlp = 0, rdc = 0;
+      Object.entries(rateio).forEach(([fonte, pct]) => {
+        const parcela = valorEstimado * (Number(pct) || 0) / 100;
+        if (fonte === 'RDC') rdc += parcela; else tuMlp += parcela;
+      });
+      return { tuMlp, rdc };
+    } catch { /* JSON malformado — trata como valor simples abaixo */ }
+  }
+  return s === 'RDC' ? { tuMlp: 0, rdc: valorEstimado } : { tuMlp: valorEstimado, rdc: 0 };
+}
 function montarAcompanhamento(dfdId, setorIds) {
   const filtroSetor = setorIds ? ` AND di.setor_id IN (${setorIds.map(() => '?').join(',')})` : '';
   const params = setorIds ? [dfdId, ...setorIds] : [dfdId];
@@ -1336,8 +1367,7 @@ function montarAcompanhamento(dfdId, setorIds) {
     const sols = solicitacoesPorItem[item.id] || [];
     const realizadoTuMlp = sols.reduce((s, x) => s + (Number(x.valor_tu_mlp) || 0), 0);
     const realizadoRdc = sols.reduce((s, x) => s + (Number(x.valor_rdc) || 0), 0);
-    const estimadoTuMlp = fonte === 'RDC' ? 0 : valorEstimado;
-    const estimadoRdc = fonte === 'RDC' ? valorEstimado : 0;
+    const { tuMlp: estimadoTuMlp, rdc: estimadoRdc } = splitPorFonte(fonte, valorEstimado);
     return {
       item_id: item.id, numero_pac: item.numero_pac, codigo_pac: item.codigo_pac, numero_item: item.numero_item,
       setor_id: item.setor_id, setor_nome: item.setor_nome, status_execucao: item.status_execucao,
@@ -1371,7 +1401,11 @@ function montarAcompanhamento(dfdId, setorIds) {
 router.get('/api/pac/dfds/:id/acompanhamento', pac, requireRotina('pac-gestao', 'ver'), (req, res) => {
   const dfd = db.prepare(`SELECT id FROM dfds WHERE id = ?`).get(req.params.id);
   if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
-  const base = montarAcompanhamento(dfd.id, null);
+  // Mesmo raciocínio de status-finalizacao acima: gestor de setor com acesso
+  // a pac-gestao só enxerga os próprios setores aqui; DEPLA/master/consulta
+  // (sem vínculo em setor_usuarios) continuam vendo o DFD inteiro.
+  const restrito = req.user.username !== 'master' && req.user.role !== 'consulta' ? setoresDoUsuario(req.user.user_id) : [];
+  const base = montarAcompanhamento(dfd.id, restrito.length ? restrito : null);
   const semPac = db.prepare(`
     SELECT * FROM pac_solicitacoes WHERE dfd_id = ? AND item_id IS NULL AND excluido = 0
     ORDER BY data_requisicao DESC, id DESC

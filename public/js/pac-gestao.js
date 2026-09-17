@@ -285,7 +285,45 @@ async function carregarDetalheDfd() {
     `<button class="btn btn-secondary btn-sm" onclick="abrirAcaoDfd('${s}')">${rotulos[s]}</button>`
   ).join(' ');
 
-  await renderItensDfd(dfd.colunas);
+  const itens = await renderItensDfd(dfd.colunas);
+  await renderMensagemStatusDfd(dfd, itens.length > 0);
+}
+
+// "Recado" do cabeçalho — muda conforme o que está de fato acontecendo com o
+// DFD (pedido do Alex, 2026-09-16: "precisa melhorar e caminhar conforme o
+// que está ocorrendo"), não só um texto fixo de vencimento. dias vem de
+// data_entrega (mesma lógica de prazo já usada em Lançamento, duplicada aqui
+// — mesma convenção do resto do arquivo, sem módulo compartilhado novo).
+function diasRestantesPac(dataIso) {
+  if (!dataIso) return null;
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const alvo = new Date(String(dataIso).split(/[T ]/)[0] + 'T00:00:00');
+  return Math.round((alvo - hoje) / 86400000);
+}
+function mensagemStatusDfd({ status, temItens, todosFinalizados, dias }) {
+  const prazoTxto = dias == null ? '' : dias > 0 ? ` Restam ${dias} dia(s) para o prazo.` : dias === 0 ? ' O prazo termina hoje!' : ` O prazo já venceu há ${-dias} dia(s).`;
+  if (status === 'cancelado') return { texto: 'Este DFD foi cancelado.', tom: 'muted' };
+  if (status === 'fechado') return { texto: 'Este DFD está fechado — processo concluído.', tom: 'success' };
+  if (status === 'consolidado') return { texto: 'Consolidação finalizada — aguardando o fechamento do DFD pelo DEPLA.', tom: 'info' };
+  if (status === 'em_consolidacao') return { texto: 'Em consolidação — os itens estão sendo trabalhados pelo DEPLA em Gestão > Consolidação.', tom: 'info' };
+  if (status === 'analise') return { texto: 'Enviado para análise do DEPLA. Precisa alterar algo depois de enviado? É possível solicitar um pedido de edição.', tom: 'warning' };
+  // status === 'aberto'
+  if (!temItens) return { texto: `Este DFD está aberto e ainda não há nenhum item lançado.${prazoTxto}`, tom: 'warning' };
+  if (!todosFinalizados) return { texto: `Lançamento em andamento — ainda falta algum setor finalizar.${prazoTxto}`, tom: 'info' };
+  return { texto: `Todos os setores finalizaram o lançamento — pronto para seguir ao próximo passo (enviar para análise).${prazoTxto}`, tom: 'success' };
+}
+async function renderMensagemStatusDfd(dfd, temItens) {
+  const el = document.getElementById('dfd-det-msg-status');
+  if (!el) return;
+  let todosFinalizados = false;
+  try {
+    const res = await fetch(`/api/pac/dfds/${dfd.id}/status-finalizacao`);
+    if (res.ok) { const s = await res.json(); todosFinalizados = !!s.todos_finalizados; }
+  } catch {}
+  const dias = diasRestantesPac(dfd.data_entrega);
+  const { texto, tom } = mensagemStatusDfd({ status: dfd.status, temItens, todosFinalizados, dias });
+  el.textContent = texto;
+  el.className = `pac-dfd-msg-status tom-${tom}`;
 }
 
 const _explicacaoAcaoDfd = {
@@ -457,6 +495,7 @@ async function renderItensDfd(colunasParam) {
       ${temColContrato ? celulaContratoLeitura(item, colunasContrato, todasColunas, item.id) : ''}
     </tr>
   `).join('') || `<tr><td colspan="${colunasResto.length + 3 + (temColContrato ? 1 : 0)}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`;
+  return itens;
 }
 
 /* ── Formatação por tipo de coluna (mesma ideia de fmtBr/fmtMoeda do resto do
@@ -471,10 +510,30 @@ function fmtMoeda(v) {
   if (v === null || v === undefined || v === '' || isNaN(Number(v))) return '';
   return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
+// Fonte pagadora rateada entre 2+ fontes (JSON {"TU":60,"RDC":40}, ver
+// abrirModalRateioFonte em pac-lancamento.js) — mesmo parser duplicado aqui
+// (convenção do arquivo, sem módulo compartilhado novo) só pra EXIBIR; quem
+// edita é sempre o gestor em Lançamento.
+function parseRateioFonte(valor) {
+  if (!valor) return null;
+  const s = String(valor).trim();
+  if (!s.startsWith('{')) return null;
+  try {
+    const obj = JSON.parse(s);
+    return (obj && typeof obj === 'object') ? obj : null;
+  } catch { return null; }
+}
+function textoRateioFonte(valor) {
+  const rateio = parseRateioFonte(valor);
+  if (!rateio) return null;
+  return Object.entries(rateio).map(([f, p]) => `${f} ${p}%`).join(' / ');
+}
+
 function formatarValorColuna(coluna, valor) {
   if (valor === null || valor === undefined || valor === '') return '—';
   if (coluna.tipo_input === 'data') return fmtBr(valor);
   if (coluna.tipo_input === 'moeda') return fmtMoeda(valor);
+  if (coluna.slug === 'fonte_pagadora') return textoRateioFonte(valor) || valor;
   return valor;
 }
 
@@ -1105,6 +1164,12 @@ function renderCelulaConsolEditavel(item, coluna) {
   const valor = (item.valores || {})[coluna.id];
   const attrs = `data-item="${item.id}" data-coluna="${coluna.id}" data-tipo="${coluna.tipo_input}" class="filtro-moderno"`;
   if (coluna.tipo_input === 'auto') return `<td>${valor ?? ''}</td>`;
+  // Fonte pagadora rateada (JSON) fica só leitura aqui — editar via um select
+  // simples sobrescreveria o rateio inteiro por um valor único sem querer;
+  // quem edita rateio é sempre o gestor, em Lançamento (botão "⚖").
+  if (coluna.slug === 'fonte_pagadora' && parseRateioFonte(valor)) {
+    return `<td><span style="font-size:12.5px;" title="Rateio definido em Lançamento — edite lá pra manter o percentual.">${textoRateioFonte(valor)}</span></td>`;
+  }
   if (coluna.tipo_input === 'select') {
     const opcoes = (_listasCacheConsol[coluna.lista] || []).map(o =>
       `<option value="${o.valor.replace(/"/g, '&quot;')}"${o.valor === valor ? ' selected' : ''}>${o.valor}</option>`).join('');
@@ -1741,7 +1806,9 @@ function renderTabelaAcompanhamento() {
   const itens = _acompDados.itens.filter(i =>
     (!filtroSetor || String(i.setor_id) === filtroSetor) &&
     (!filtroStatus || i.status_execucao === filtroStatus) &&
-    (!filtroFonte || i.fonte_pagadora === filtroFonte)
+    // Fonte rateada entre 2+ (JSON) casa com o filtro se a fonte escolhida
+    // fizer parte do rateio, não só no caso de fonte única.
+    (!filtroFonte || i.fonte_pagadora === filtroFonte || !!(parseRateioFonte(i.fonte_pagadora) || {})[filtroFonte])
   );
 
   const linhaSaldo = v => v < 0 ? `<span class="pac-saldo-neg">${fmtMoeda(v)}</span>` : fmtMoeda(v);
