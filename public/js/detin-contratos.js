@@ -43,6 +43,22 @@ let _contratos = [];
 let _setores = [];
 let _usuarios = [];
 let _contratoEditandoId = null;
+let _linhaExpandidaId = null;
+const _aditivosCache = {};
+
+/* ── Chips de resumo (mesmo dado do Painel, sempre geral — não filtrado) ──── */
+
+async function carregarChips() {
+  try {
+    const res = await fetch('/api/detin/painel');
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    const criticos = (data.alertas || []).filter(a => a.dias_restantes <= 10).length;
+    document.getElementById('dt-chip-ativos').textContent = data.total_ativos;
+    document.getElementById('dt-chip-comprometido').textContent = 'R$ ' + fmtMoedaInput(data.valor_mensal_total);
+    document.getElementById('dt-chip-criticos').textContent = criticos;
+  } catch {}
+}
 
 /* ── Listagem ────────────────────────────────────────────────────────────── */
 
@@ -78,20 +94,35 @@ function limparFiltros() {
   carregarContratos();
 }
 
+function nomeSetor(id) { return (_setores.find(s => s.id === id) || {}).nome || '—'; }
+function nomeUsuario(id) { return (_usuarios.find(u => u.id === id) || {}).nome || '—'; }
+
+// Proporção da barrinha de urgência: cheia (100%) quando vence hoje/já venceu,
+// esvaziando conforme os dias aumentam até o teto de 180 dias (mesma janela
+// visual usada no Painel pra normalizar prazos curtos e longos na mesma escala).
+function vencPct(dias) {
+  if (dias == null) return 0;
+  return Math.max(100 - Math.min(Math.max(dias, 0), 180) / 180 * 100, 4);
+}
+
 function renderTabela() {
   const tbody = document.getElementById('contratos-tbody');
   if (!_contratos.length) {
-    tbody.innerHTML = `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum contrato encontrado.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum contrato encontrado.</td></tr>`;
     return;
   }
   tbody.innerHTML = _contratos.map(c => {
     const f = farolInfo(c.dias_restantes);
     const vencTxt = c.data_vencimento
-      ? `<span style="color:${f.cor};font-weight:600;">${fmtBr(c.data_vencimento)}</span>`
+      ? `<span style="color:${f.cor};font-weight:600;">${fmtBr(c.data_vencimento)}</span><span class="dt-venc-bar"><span class="dt-venc-bar-fill" style="width:${vencPct(c.dias_restantes)}%;background:${f.cor};"></span></span>`
       : '<span class="text-muted">Sem vigência</span>';
     const valorMensal = c.valor_mensal_efetivo != null ? c.valor_mensal_efetivo : c.valor_mensal;
     const divergente = c.valor_mensal_efetivo != null && c.valor_mensal != null && c.valor_mensal_efetivo !== c.valor_mensal;
-    return `<tr>
+    const aberto = _linhaExpandidaId === c.id;
+    const linhaPrincipal = `<tr class="dt-row-clicavel" onclick="alternarExpansaoLinha(${c.id})">
+      <td><button type="button" class="dt-expand-btn${aberto ? ' aberto' : ''}" aria-label="Ver detalhes" onclick="event.stopPropagation();alternarExpansaoLinha(${c.id});">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="9 18 15 12 9 6"></polyline></svg>
+      </button></td>
       <td>${c.numero_contrato || '<span class="text-muted">—</span>'}</td>
       <td>${c.fornecedor}</td>
       <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(c.objeto || '').replace(/"/g, '&quot;')}">${c.objeto || '—'}</td>
@@ -99,9 +130,37 @@ function renderTabela() {
       <td>${vencTxt}</td>
       <td>${valorMensal != null ? 'R$ ' + fmtMoedaInput(valorMensal) : '—'}${divergente ? '<span class="dt-divergencia" title="Valor efetivo diverge do contratual">⚠️</span>' : ''}</td>
       <td><span class="badge badge-${BADGE_STATUS_CLASS[c.status] || 'fechado'}">${LABEL_STATUS[c.status] || c.status}</span></td>
-      <td style="text-align:right;white-space:nowrap;"><button class="btn btn-secondary btn-sm" onclick="abrirModalContratoEditar(${c.id})">Editar</button></td>
+      <td style="text-align:right;white-space:nowrap;"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();abrirModalContratoEditar(${c.id})">Editar</button></td>
     </tr>`;
+    if (!aberto) return linhaPrincipal;
+    const aditivosTxt = _aditivosCache[c.id] != null ? `${_aditivosCache[c.id]} registrado(s)` : 'Carregando...';
+    const linhaDetalhe = `<tr class="dt-detalhe-row"><td colspan="9">
+      <div class="dt-detalhe-grid">
+        <div><div class="dt-detalhe-campo-label">Setor</div><div class="dt-detalhe-campo-valor">${nomeSetor(c.setor_id)}</div></div>
+        <div><div class="dt-detalhe-campo-label">Responsável</div><div class="dt-detalhe-campo-valor">${nomeUsuario(c.responsavel_id)}</div></div>
+        <div><div class="dt-detalhe-campo-label">Nº SEI</div><div class="dt-detalhe-campo-valor">${c.numero_sei || '—'}</div></div>
+        <div><div class="dt-detalhe-campo-label">Aditivos</div><div class="dt-detalhe-campo-valor">${aditivosTxt}</div></div>
+        <div class="dt-detalhe-acoes">
+          ${c.tem_anexo ? `<button type="button" class="btn btn-secondary btn-sm" onclick="event.stopPropagation();verAnexoContrato(${c.id})">📎 Ver anexo</button>` : ''}
+          <button type="button" class="btn btn-primary btn-sm" onclick="event.stopPropagation();abrirModalContratoEditar(${c.id})">Abrir ficha completa</button>
+        </div>
+      </div>
+    </td></tr>`;
+    return linhaPrincipal + linhaDetalhe;
   }).join('');
+}
+
+async function alternarExpansaoLinha(id) {
+  _linhaExpandidaId = _linhaExpandidaId === id ? null : id;
+  renderTabela();
+  if (_linhaExpandidaId === id && _aditivosCache[id] == null) {
+    try {
+      const res = await fetch(`/api/detin/contratos/${id}/aditivos`);
+      const lista = res.ok ? await res.json() : [];
+      _aditivosCache[id] = lista.length;
+    } catch { _aditivosCache[id] = 0; }
+    if (_linhaExpandidaId === id) renderTabela();
+  }
 }
 
 /* ── Modal de cadastro/edição ───────────────────────────────────────────── */
@@ -241,6 +300,7 @@ async function salvarContrato() {
     fecharModalContrato();
     carregarListaFornecedores();
     carregarContratos();
+    carregarChips();
   } catch (e) {
     msg.textContent = 'Erro: ' + e.message;
   }
@@ -314,9 +374,11 @@ async function salvarAditivo() {
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao salvar'); }
     fecharModalAditivo();
     await carregarAditivos(_contratoEditandoId);
+    delete _aditivosCache[_contratoEditandoId];
     if (body.nova_data_vencimento) document.getElementById('mc-data-vencimento').value = body.nova_data_vencimento;
     if (body.novo_valor_mensal) document.getElementById('mc-valor-mensal').value = fmtMoedaInput(body.novo_valor_mensal);
     toast('Aditivo registrado.');
+    carregarChips();
   } catch (e) {
     msg.textContent = 'Erro: ' + e.message;
   }
@@ -327,7 +389,9 @@ async function excluirAditivo(id, contratoId) {
     const res = await fetch(`/api/detin/aditivos/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error();
     await carregarAditivos(contratoId);
+    delete _aditivosCache[contratoId];
     toast('Aditivo excluído.');
+    carregarChips();
   } catch {
     toast('Erro ao excluir', 'error');
   }
@@ -453,6 +517,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   carregarListaFornecedores();
   carregarContratos();
+  carregarChips();
+  garantirListasCarregadas(); // pré-carrega setor/responsável pra linha expansível não esperar
 
   // Vindo de um link do Painel ("Ver contrato") — abre direto no detalhe.
   const idParam = new URLSearchParams(location.search).get('id');

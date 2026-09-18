@@ -11,10 +11,30 @@
   <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
   <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');var _mc=localStorage.getItem('secop_modulo_cache');if(_mc)document.documentElement.setAttribute('data-modulo',_mc);</script>
   <style>
+    .dt-tabular { font-variant-numeric: tabular-nums; }
+
+    .dt-chips { display: flex; gap: 14px; margin-bottom: 16px; }
+    .dt-chip-stat { flex: 1; background: var(--surface); border: 1px solid var(--cinza-b); border-radius: 10px; padding: 13px 18px; display: flex; align-items: baseline; gap: 8px; }
+    .dt-chip-stat-num { font-size: 21px; font-weight: 800; color: var(--text); }
+    .dt-chip-stat-num.critico { color: #c0392b; }
+    .dt-chip-stat-label { font-size: 12px; color: var(--text-muted); }
+
     .dt-filtros { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin-bottom: 16px; }
     .dt-filtros .form-group { margin: 0; min-width: 150px; }
     .dt-divergencia { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 12px; background: #fef9c3; color: #854d0e; font-size: 10.5px; font-weight: 700; }
     [data-theme="dark"] .dt-divergencia { background: rgba(202,138,4,.22); color: #fde047; }
+
+    .dt-expand-btn { background: none; border: none; cursor: pointer; color: var(--text-subtle); padding: 4px; display: inline-flex; align-items: center; justify-content: center; transition: transform .15s; }
+    .dt-expand-btn.aberto { transform: rotate(90deg); color: var(--text); }
+    .dt-row-clicavel { cursor: pointer; }
+    .dt-row-clicavel:hover { background: var(--surface-2); }
+    .dt-venc-bar { display: block; margin-top: 4px; width: 78px; height: 5px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+    .dt-venc-bar-fill { display: block; height: 100%; border-radius: 3px; }
+    .dt-detalhe-row td { background: var(--surface-2); padding: 14px 20px 16px 44px !important; border-bottom: 1px solid var(--cinza-b); }
+    .dt-detalhe-grid { display: flex; gap: 30px; flex-wrap: wrap; align-items: flex-start; font-size: 12.5px; }
+    .dt-detalhe-campo-label { font-size: 10.5px; font-weight: 700; color: var(--text-muted); margin-bottom: 3px; text-transform: uppercase; letter-spacing: .3px; }
+    .dt-detalhe-campo-valor { color: var(--text); font-weight: 600; }
+    .dt-detalhe-acoes { margin-left: auto; display: flex; gap: 8px; }
 
     .dt-modal-tabs { display: flex; gap: 4px; border-bottom: 1.5px solid var(--cinza-b); margin-bottom: 16px; }
     .dt-modal-tab { padding: 8px 14px; font-size: 12.5px; font-weight: 600; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1.5px; }
@@ -83,6 +103,12 @@
       </div>
     </div>
 
+    <div class="dt-chips" id="dt-chips">
+      <div class="dt-chip-stat"><span class="dt-chip-stat-num dt-tabular" id="dt-chip-ativos">—</span><span class="dt-chip-stat-label">contrato(s) ativo(s)</span></div>
+      <div class="dt-chip-stat"><span class="dt-chip-stat-num dt-tabular" id="dt-chip-comprometido">—</span><span class="dt-chip-stat-label">comprometido/mês</span></div>
+      <div class="dt-chip-stat"><span class="dt-chip-stat-num dt-tabular critico" id="dt-chip-criticos">—</span><span class="dt-chip-stat-label">crítico(s) (≤ 10 dias)</span></div>
+    </div>
+
     <div class="card">
       <div class="dt-filtros">
         <div class="form-group">
@@ -119,10 +145,10 @@
       <div class="table-wrap">
         <table>
           <thead><tr>
-            <th>Nº Contrato</th><th>Fornecedor</th><th>Objeto</th><th>Tipo</th>
+            <th style="width:28px;"></th><th>Nº Contrato</th><th>Fornecedor</th><th>Objeto</th><th>Tipo</th>
             <th>Vencimento</th><th>Valor Mensal</th><th>Status</th><th></th>
           </tr></thead>
-          <tbody id="contratos-tbody"><tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
+          <tbody id="contratos-tbody"><tr><td colspan="9" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
         </table>
       </div>
     </div>
