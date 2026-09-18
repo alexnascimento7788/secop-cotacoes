@@ -1,4 +1,4 @@
-// DETIN — Painel executivo (termômetro financeiro + linha do tempo + KPIs + fila de ação).
+// DETIN — Painel executivo (donuts animados + linha do tempo + KPIs + fila de ação).
 
 function toast(msg, tipo) {
   const t = document.getElementById('toast');
@@ -34,23 +34,69 @@ function farolTimeline(dias) {
   return { cor: '#16a34a', label: 'Normal' };
 }
 
-// Paleta cíclica pra segmentar termômetro/gráficos por fornecedor — sem
+// Paleta cíclica pra segmentar donuts/gráficos por fornecedor — sem
 // biblioteca, cores fixas o bastante pra distinguir visualmente até ~10
 // fornecedores (mais que isso, repete, mas não é o caso real do DETIN hoje).
 const PALETA_FORNECEDOR = ['#1A3F6B', '#2A5A94', '#5B8FC7', '#8FB3DA', '#C97A00', '#E08E00', '#1A6B35', '#2E8B47', '#9333ea', '#c0392b'];
 
 const MESES_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 
-function svgBarrasHorizontais(dados, formatarValor) {
-  if (!dados.length) return '<div class="text-muted" style="font-size:12px;">Sem dados.</div>';
-  const max = Math.max(...dados.map(d => d.valor), 1);
-  return dados.map(d => `
-    <div class="dt-mini-bar-row">
-      <span class="dt-mini-bar-label" title="${d.label}">${d.label}</span>
-      <span class="dt-mini-bar-track"><span class="dt-mini-bar-fill" style="width:${Math.max((d.valor / max) * 100, 2)}%;background:${d.cor};"></span></span>
-      <span class="dt-mini-bar-valor">${formatarValor ? formatarValor(d.valor) : d.valor}</span>
-    </div>
+/* ── Animação: contador (count-up) e utilitário de donut ────────────────── */
+
+// Anima um número de 0 até `valorFinal`, chamando `formatar(valorAtual)` a
+// cada frame — usado nos KPIs grandes (valor mensal/anual, ativos, críticos)
+// pra dar o "gráfico animado" pedido sem precisar de biblioteca de charts.
+function animarNumero(el, valorFinal, formatar, duracao = 850) {
+  if (!el) return;
+  const inicio = performance.now();
+  function passo(agora) {
+    const decorrido = agora - inicio;
+    let p = Math.min(decorrido / duracao, 1);
+    p = 1 - Math.pow(1 - p, 3); // ease-out cúbico
+    el.textContent = formatar(valorFinal * p);
+    if (p < 1) requestAnimationFrame(passo);
+  }
+  requestAnimationFrame(passo);
+}
+
+// Monta os <circle> de um donut multi-segmento (SVG stroke-dasharray),
+// devolvendo o HTML dos segmentos e a soma total. Cada <circle> nasce com
+// dasharray "0 circunferência" e só ganha o valor final 1 frame depois
+// (raf duplo) — é a transição CSS de stroke-dasharray que faz o "desenho"
+// animar ao abrir a página, sem depender de lib de gráfico.
+function montarDonut(itens, valorFn, corFn, raio, strokeW, centro) {
+  const circunferencia = 2 * Math.PI * raio;
+  const total = itens.reduce((s, it) => s + valorFn(it), 0) || 1;
+  let acumulado = 0;
+  const segmentos = itens.map((it, i) => {
+    const valor = valorFn(it);
+    const frac = valor / total;
+    const dash = frac * circunferencia;
+    const offset = -acumulado;
+    acumulado += dash;
+    return { cor: corFn(it, i), dash, offset };
+  });
+  const html = segmentos.map(s => `
+    <circle cx="${centro}" cy="${centro}" r="${raio}" fill="none" stroke="${s.cor}" stroke-width="${strokeW}"
+      stroke-dasharray="0 ${circunferencia.toFixed(1)}" stroke-dashoffset="${s.offset.toFixed(1)}"
+      data-dash-final="${s.dash.toFixed(1)} ${(circunferencia - s.dash).toFixed(1)}"></circle>
   `).join('');
+  return { html, total };
+}
+
+// Dispara as transições CSS: define o dasharray/width final 2 frames depois
+// de inserir o HTML (precisa que o navegador pinte o estado "0" primeiro,
+// senão a transição não roda).
+function dispararAnimacoes(container) {
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    container.querySelectorAll('circle[data-dash-final]').forEach(c => {
+      c.setAttribute('stroke-dasharray', c.dataset.dashFinal);
+    });
+    container.querySelectorAll('[data-width-final]').forEach(b => {
+      b.style.width = b.dataset.widthFinal;
+    });
+    container.classList.add('in');
+  }));
 }
 
 async function carregarPainel() {
@@ -69,15 +115,26 @@ async function carregarPainel() {
 
 function renderTermometro(data) {
   const fornecedores = data.contratos_por_fornecedor || [];
-  const total = fornecedores.reduce((s, f) => s + f.valor_mensal, 0) || 1;
-  document.getElementById('dt-termometro-barra').innerHTML = fornecedores.map((f, i) => {
-    const pct = Math.max((f.valor_mensal / total) * 100, 0.5);
-    const cor = PALETA_FORNECEDOR[i % PALETA_FORNECEDOR.length];
-    return `<div class="dt-termometro-seg" style="width:${pct}%;background:${cor};" title="${f.fornecedor}: R$ ${fmtMoeda(f.valor_mensal)}/mês (${f.total} contrato(s))"></div>`;
-  }).join('');
+  const card = document.getElementById('dt-termometro-card');
 
-  document.getElementById('dt-valor-mensal').innerHTML = `R$ ${fmtMoeda(data.valor_mensal_total)}<small> /mês</small>`;
-  document.getElementById('dt-valor-anual').textContent = `Projeção anual: R$ ${fmtMoeda(data.valor_anual_projetado)}`;
+  const raio = 70, strokeW = 20;
+  const { html } = montarDonut(fornecedores, f => f.valor_mensal, (f, i) => PALETA_FORNECEDOR[i % PALETA_FORNECEDOR.length], raio, strokeW, 88);
+  document.getElementById('dt-donut-fornecedor').innerHTML = html;
+
+  animarNumero(document.getElementById('dt-valor-mensal'), data.valor_mensal_total, v => `R$ ${fmtMoeda(v)}`);
+  animarNumero(document.getElementById('dt-valor-anual'), data.valor_anual_projetado, v => `Projeção anual: R$ ${fmtMoeda(v)}`);
+
+  const maxFornecedor = Math.max(...fornecedores.map(f => f.valor_mensal), 1);
+  document.getElementById('dt-legenda-fornecedor').innerHTML = fornecedores.map((f, i) => {
+    const cor = PALETA_FORNECEDOR[i % PALETA_FORNECEDOR.length];
+    const pct = Math.max((f.valor_mensal / maxFornecedor) * 100, 2);
+    return `<div class="dt-legenda-linha">
+      <span class="dt-legenda-dot" style="background:${cor};"></span>
+      <span class="dt-legenda-nome" title="${f.fornecedor}">${f.fornecedor}</span>
+      <span class="dt-legenda-track"><span class="dt-legenda-fill" style="background:${cor};" data-width-final="${pct}%"></span></span>
+      <span class="dt-legenda-valor dt-tabular">R$ ${fmtMoeda(f.valor_mensal)}</span>
+    </div>`;
+  }).join('') || '<div class="text-muted" style="font-size:12px;">Sem contratos com valor mensal cadastrado.</div>';
 
   const badge = document.getElementById('dt-badge-pendencia');
   if (data.pendencias && data.pendencias.length) {
@@ -86,6 +143,8 @@ function renderTermometro(data) {
   } else {
     badge.style.display = 'none';
   }
+
+  dispararAnimacoes(card);
 }
 
 function renderTimeline(timeline) {
@@ -110,22 +169,54 @@ function renderTimeline(timeline) {
 function renderMetricas(data) {
   const criticos = (data.alertas || []).filter(a => a.dias_restantes <= 10).length;
   document.getElementById('dt-metricas').innerHTML = `
-    <div class="dt-metrica-num">${data.total_ativos}</div>
-    <div class="dt-metrica-label">contrato(s) ativo(s)</div>
-    <div class="dt-metrica-num">R$ ${fmtMoeda(data.valor_mensal_total)}</div>
-    <div class="dt-metrica-label">comprometido por mês</div>
-    <div class="dt-metrica-num${criticos > 0 ? ' critico' : ''}">${criticos}</div>
-    <div class="dt-metrica-label">crítico(s) (≤ 10 dias)</div>
+    <div class="dt-metrica-item">
+      <div class="dt-metrica-num dt-tabular" id="dt-metrica-ativos">0</div>
+      <div class="dt-metrica-label">contrato(s) ativo(s)</div>
+    </div>
+    <div class="dt-metrica-item">
+      <div class="dt-metrica-num dt-tabular" id="dt-metrica-comprometido">R$ 0,00</div>
+      <div class="dt-metrica-label">comprometido por mês</div>
+    </div>
+    <div class="dt-metrica-item">
+      <div class="dt-metrica-num dt-tabular${criticos > 0 ? ' critico' : ''}" id="dt-metrica-criticos">0</div>
+      <div class="dt-metrica-label">crítico(s) (≤ 10 dias)</div>
+    </div>
   `;
+  animarNumero(document.getElementById('dt-metrica-ativos'), data.total_ativos, v => String(Math.round(v)));
+  animarNumero(document.getElementById('dt-metrica-comprometido'), data.valor_mensal_total, v => `R$ ${fmtMoeda(v)}`);
+  animarNumero(document.getElementById('dt-metrica-criticos'), criticos, v => String(Math.round(v)));
 
   const coresTipo = { servico_continuado: '#1A3F6B', licenca: '#C97A00', locacao: '#1A6B35', pagamento_unico: '#9333ea' };
   const labelTipo = { servico_continuado: 'Serviço contínuo', licenca: 'Licença', locacao: 'Locação', pagamento_unico: 'Pagamento único' };
-  const dadosTipo = (data.contratos_por_tipo || []).map(t => ({ label: labelTipo[t.tipo] || t.tipo, valor: t.total, cor: coresTipo[t.tipo] || '#888' }));
-  document.getElementById('dt-bar-tipo').innerHTML = svgBarrasHorizontais(dadosTipo, v => String(v));
+  const porTipo = data.contratos_por_tipo || [];
 
-  const top5 = [...(data.contratos_por_fornecedor || [])].sort((a, b) => b.valor_mensal - a.valor_mensal).slice(0, 5)
-    .map((f, i) => ({ label: f.fornecedor, valor: f.valor_mensal, cor: PALETA_FORNECEDOR[i % PALETA_FORNECEDOR.length] }));
-  document.getElementById('dt-bar-fornecedor').innerHTML = svgBarrasHorizontais(top5, v => 'R$ ' + fmtMoeda(v));
+  const card = document.getElementById('dt-donut-tipo-card');
+  const { html } = montarDonut(porTipo, t => t.total, t => coresTipo[t.tipo] || '#888', 52, 17, 64);
+  document.getElementById('dt-donut-tipo').innerHTML = html;
+  const totalContratos = porTipo.reduce((s, t) => s + t.total, 0);
+  animarNumero(document.getElementById('dt-donut-tipo-total'), totalContratos, v => String(Math.round(v)));
+  document.getElementById('dt-legenda-tipo').innerHTML = porTipo.map(t => `
+    <div class="dt-legenda-tipo-linha">
+      <span class="dt-legenda-tipo-sq" style="background:${coresTipo[t.tipo] || '#888'};"></span>
+      <span class="dt-legenda-tipo-nome">${labelTipo[t.tipo] || t.tipo}</span>
+      <span class="dt-legenda-tipo-qtd dt-tabular">${t.total}</span>
+    </div>
+  `).join('') || '<div class="text-muted" style="font-size:12px;">Sem dados.</div>';
+  dispararAnimacoes(card);
+
+  const top5 = [...(data.contratos_por_fornecedor || [])].sort((a, b) => b.valor_mensal - a.valor_mensal).slice(0, 5);
+  const maxTop = Math.max(...top5.map(f => f.valor_mensal), 1);
+  const contBarras = document.getElementById('dt-bar-fornecedor');
+  contBarras.innerHTML = top5.map((f, i) => {
+    const cor = PALETA_FORNECEDOR[i % PALETA_FORNECEDOR.length];
+    const pct = Math.max((f.valor_mensal / maxTop) * 100, 2);
+    return `<div class="dt-mini-bar-row">
+      <span class="dt-mini-bar-label" title="${f.fornecedor}">${f.fornecedor}</span>
+      <span class="dt-mini-bar-track"><span class="dt-mini-bar-fill" style="background:${cor};" data-width-final="${pct}%"></span></span>
+      <span class="dt-mini-bar-valor dt-tabular">R$ ${fmtMoeda(f.valor_mensal)}</span>
+    </div>`;
+  }).join('') || '<div class="text-muted" style="font-size:12px;">Sem dados.</div>';
+  dispararAnimacoes(contBarras);
 }
 
 function renderFilaAcao(alertas) {
@@ -134,17 +225,29 @@ function renderFilaAcao(alertas) {
     el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;color:var(--verde,#1A6B35);font-size:13px;">✅ Nenhum contrato crítico nos próximos 60 dias.</div>`;
     return;
   }
+  const raio = 16, strokeW = 5, circunferencia = 2 * Math.PI * raio;
   el.innerHTML = alertas.map(c => {
     const f = farolInfo(c.dias_restantes);
     const txtDias = c.dias_restantes === 0 ? 'Vence hoje' : c.dias_restantes < 0 ? `Venceu há ${-c.dias_restantes}d` : `${c.dias_restantes} dia(s)`;
-    return `<div class="dt-acao-card">
-      <span class="dt-acao-farol" style="background:${f.cor};"></span>
-      <span class="dt-acao-fornecedor">${c.fornecedor}</span>
+    const filled = Math.max(Math.min(c.dias_restantes / 60, 1), 0);
+    const dash = filled * circunferencia;
+    return `<div class="dt-acao-card" style="border-left-color:${f.cor};">
+      <div class="dt-acao-ring-wrap">
+        <svg width="38" height="38" viewBox="0 0 38 38">
+          <circle cx="19" cy="19" r="${raio}" fill="none" stroke="var(--surface-2)" stroke-width="${strokeW}"/>
+          <circle cx="19" cy="19" r="${raio}" fill="none" stroke="${f.cor}" stroke-width="${strokeW}" stroke-linecap="round"
+            transform="rotate(-90 19 19)" stroke-dasharray="0 ${circunferencia.toFixed(1)}"
+            data-dash-final="${dash.toFixed(1)} ${(circunferencia - dash).toFixed(1)}"></circle>
+        </svg>
+        <span class="dt-acao-ring-dias" style="color:${f.cor};">${c.dias_restantes ?? '—'}</span>
+      </div>
+      <span class="dt-acao-fornecedor" title="${c.fornecedor}">${c.fornecedor}</span>
       <span class="dt-acao-objeto" title="${c.objeto || ''}">${c.objeto || '—'}</span>
       <span class="dt-acao-dias" style="color:${f.cor};">${txtDias}</span>
       <button class="btn btn-secondary btn-sm" onclick="location.href='detin-contratos.html?id=${c.id}'">Ver contrato</button>
     </div>`;
   }).join('');
+  dispararAnimacoes(el);
 }
 
 document.addEventListener('DOMContentLoaded', carregarPainel);

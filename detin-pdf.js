@@ -161,6 +161,8 @@ function fmtMoeda(v) {
 }
 const LABEL_RENOVACAO = { renovacao: 'Renovação', nova_licitacao: 'Nova Licitação', extincao: 'Extinção do Serviço' };
 const LABEL_TIPO = { servico_continuado: 'Serviço contínuo', licenca: 'Licença', locacao: 'Locação', pagamento_unico: 'Pagamento único' };
+// Mesmas cores de public/js/detin-painel.js (coresTipo) — duplicado, convenção do projeto.
+const CORES_TIPO_HEX = { servico_continuado: '#1A3F6B', licenca: '#C97A00', locacao: '#1A6B35', pagamento_unico: '#9333ea' };
 const LABEL_STATUS = { ativo: 'Ativo', em_renovacao: 'Em renovação', encerrado: 'Encerrado', cancelado: 'Cancelado' };
 const LABEL_ADITIVO = { prazo: 'Prazo', valor: 'Valor', objeto: 'Objeto', rescisao: 'Rescisão' };
 
@@ -180,6 +182,37 @@ function farolInfo(dias) {
   if (dias <= 30) return corRgb('#eab308');
   if (dias <= 60) return corRgb('#16a34a');
   return rgb(0.61, 0.64, 0.69);
+}
+
+// Caminho SVG de uma fatia de pizza (ângulo 0 = topo, sentido horário) —
+// autorado em convenção normal de SVG (Y cresce pra baixo); drawSvgPath do
+// pdf-lib já inverte o eixo Y sozinho, então não precisa espelhar nada aqui.
+function svgArcoPizza(raio, fracInicio, fracFim) {
+  const ang0 = (-90 + 360 * fracInicio) * Math.PI / 180;
+  const ang1 = (-90 + 360 * fracFim) * Math.PI / 180;
+  const x0 = raio * Math.cos(ang0), y0 = raio * Math.sin(ang0);
+  const x1 = raio * Math.cos(ang1), y1 = raio * Math.sin(ang1);
+  const largeArc = (fracFim - fracInicio) > 0.5 ? 1 : 0;
+  return `M 0,0 L ${x0.toFixed(2)},${y0.toFixed(2)} A ${raio},${raio} 0 ${largeArc} 1 ${x1.toFixed(2)},${y1.toFixed(2)} Z`;
+}
+
+// Donut vetorial (fatias de pizza + círculo do miolo por cima) centrado em
+// (cx, cy) — cy já em coordenada de página do pdf-lib (Y crescendo pra cima).
+function desenharDonutPdf(page, cx, cy, raioExt, raioInt, itens, valorFn, corFn) {
+  const total = itens.reduce((s, it) => s + valorFn(it), 0) || 1;
+  let acumulado = 0;
+  itens.forEach((it, i) => {
+    const frac = valorFn(it) / total;
+    if (frac <= 0) return;
+    const cor = corFn(it, i);
+    if (frac >= 0.999) {
+      page.drawCircle({ x: cx, y: cy, size: raioExt, color: cor });
+    } else {
+      page.drawSvgPath(svgArcoPizza(raioExt, acumulado, acumulado + frac), { x: cx, y: cy, color: cor });
+    }
+    acumulado += frac;
+  });
+  page.drawCircle({ x: cx, y: cy, size: raioInt, color: rgb(1, 1, 1) });
 }
 
 async function carregarLogo(pdfDoc) {
@@ -419,26 +452,31 @@ function desenharConteudoFinanceiro(w, negrito, regular, dados) {
   if (!fornecedores.length) {
     w.paragrafo('Nenhum contrato com valor mensal cadastrado.', 10.5);
   } else {
-    w.garantirEspaco(24);
-    const barH = 20;
-    let x = MARGIN;
-    fornecedores.forEach((f, i) => {
-      const larg = Math.max((f.valor_mensal / totalValor) * CONTENT_W, 2);
-      w.page.drawRectangle({ x, y: w.y - barH, width: larg, height: barH, color: corRgb(PALETA_FORNECEDOR_HEX[i % PALETA_FORNECEDOR_HEX.length]) });
-      x += larg;
-    });
-    w.espaco(barH + 14);
+    const raioExt = 52, raioInt = 30;
+    w.garantirEspaco(raioExt * 2 + 10);
+    const donutCx = MARGIN + raioExt;
+    const donutCy = w.y - raioExt;
+    desenharDonutPdf(w.page, donutCx, donutCy, raioExt, raioInt,
+      fornecedores, f => f.valor_mensal, (f, i) => corRgb(PALETA_FORNECEDOR_HEX[i % PALETA_FORNECEDOR_HEX.length]));
+    const totalTxt = fmtMoeda(totalValor);
+    const twTotal = negrito.widthOfTextAtSize(totalTxt, 9);
+    w.page.drawText(totalTxt, { x: donutCx - twTotal / 2, y: donutCy + 2, size: 9, font: negrito, color: AZUL_DETIN });
+    const twMes = regular.widthOfTextAtSize('/mês', 7.5);
+    w.page.drawText('/mês', { x: donutCx - twMes / 2, y: donutCy - 9, size: 7.5, font: regular, color: rgb(0.5, 0.5, 0.5) });
 
+    const legendaX = MARGIN + raioExt * 2 + 22;
+    const legendaW = CONTENT_W - (raioExt * 2 + 22);
+    let legendaY = w.y;
     fornecedores.forEach((f, i) => {
-      w.garantirEspaco(14);
       const cor = corRgb(PALETA_FORNECEDOR_HEX[i % PALETA_FORNECEDOR_HEX.length]);
-      w.page.drawRectangle({ x: MARGIN, y: w.y - 8, width: 9, height: 9, color: cor });
+      w.page.drawRectangle({ x: legendaX, y: legendaY - 8, width: 9, height: 9, color: cor });
       const pct = ((f.valor_mensal / totalValor) * 100).toFixed(1);
-      w.page.drawText(`${f.fornecedor} — ${fmtMoeda(f.valor_mensal)}/mês (${pct}%, ${f.total} contrato(s))`, { x: MARGIN + 14, y: w.y, size: 9.5, font: regular });
-      w.y -= 15;
+      const linha = truncar(`${f.fornecedor} — ${fmtMoeda(f.valor_mensal)}/mês (${pct}%, ${f.total} contrato(s))`, regular, 9.5, legendaW - 14);
+      w.page.drawText(linha, { x: legendaX + 14, y: legendaY, size: 9.5, font: regular });
+      legendaY -= 15;
     });
 
-    w.espaco(10);
+    w.y = Math.min(donutCy - raioExt, legendaY) - 14;
     w.linha();
     w.titulo('Top fornecedores por valor mensal', 12);
     const top = [...fornecedores].sort((a, b) => b.valor_mensal - a.valor_mensal).slice(0, 8);
@@ -459,8 +497,16 @@ function desenharConteudoFinanceiro(w, negrito, regular, dados) {
   w.linha();
   w.titulo('Distribuição por tipo de contrato', 12);
   const porTipo = dados.contratos_por_tipo || [];
-  if (!porTipo.length) w.paragrafo('Sem dados.', 10.5);
-  else porTipo.forEach(t => w.campo(`${LABEL_TIPO[t.tipo] || t.tipo}:`, `${t.total} contrato(s)`));
+  if (!porTipo.length) {
+    w.paragrafo('Sem dados.', 10.5);
+  } else {
+    porTipo.forEach(t => {
+      w.garantirEspaco(15);
+      w.page.drawRectangle({ x: MARGIN, y: w.y - 8, width: 9, height: 9, color: corRgb(CORES_TIPO_HEX[t.tipo] || '#888888') });
+      w.page.drawText(`${LABEL_TIPO[t.tipo] || t.tipo} — ${t.total} contrato(s)`, { x: MARGIN + 14, y: w.y, size: 9.5, font: regular });
+      w.y -= 15;
+    });
+  }
 }
 
 // Agrega fornecedor/tipo a partir de uma lista de contratos (usado tanto
