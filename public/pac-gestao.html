@@ -75,16 +75,30 @@
 
     /* ── Tela orçamentária do PAC (Consolidação) ─────────────────────────────
        comparativo natureza x orçamento por DFD — "informativo caso o valor
-       atual seja maior que o orçamento, o percentual, setas indicadores". */
-    .orcpac-linha { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; margin-bottom: 6px; background: var(--surface-2); }
+       atual seja maior que o orçamento, o percentual, setas indicadores".
+       Pedido do Alex, 2026-09-24 (2ª rodada): tela mais larga, cabeçalho
+       centralizado com a logo, mais destaque em Usado/Orçado, ícone+seta de
+       saldo positivo/negativo, e sem travar sem barra de rolagem (usa o
+       mesmo .modal-box-lg/.modal-box-lg-corpo já provado em outras telas —
+       .orcpac-view precisa ser flex column pra esse padrão funcionar, senão
+       o filho com overflow:auto não tem contexto de altura pra valer). */
+    .orcpac-view { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+    .orcpac-cabecalho { display: flex; align-items: center; justify-content: center; gap: 14px; text-align: center; flex-shrink: 0; margin-bottom: 16px; }
+    .orcpac-cabecalho img { height: 40px; flex-shrink: 0; }
+    .orcpac-cabecalho h3 { margin: 0 0 2px; }
+    .orcpac-cabecalho p { margin: 0; font-size: 12.5px; }
+    .orcpac-linha { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 8px; margin-bottom: 8px; background: var(--surface-2); }
     .orcpac-linha.estourou { background: #fee2e2; }
     [data-theme="dark"] .orcpac-linha.estourou { background: rgba(220,38,38,.18); }
-    .orcpac-nome { flex: 1 1 auto; font-size: 13px; font-weight: 600; }
-    .orcpac-valores { text-align: right; font-size: 12px; color: var(--text-subtle); white-space: nowrap; }
-    .orcpac-pct { font-size: 15px; font-weight: 700; min-width: 62px; text-align: right; }
-    .orcpac-pct.ok { color: var(--verde, #2E7D32); }
-    .orcpac-pct.estourou { color: #c0392b; }
-    [data-theme="dark"] .orcpac-pct.estourou { color: #f87171; }
+    .orcpac-nome { flex: 1 1 auto; font-size: 13.5px; font-weight: 600; }
+    .orcpac-valores { text-align: right; white-space: nowrap; }
+    .orcpac-valores .orcpac-valor-linha { font-size: 14px; font-weight: 700; }
+    .orcpac-valores .orcpac-valor-linha .lbl { font-size: 10.5px; font-weight: 600; color: var(--text-subtle); text-transform: uppercase; letter-spacing: .3px; margin-right: 4px; }
+    .orcpac-saldo { display: flex; align-items: center; gap: 4px; font-size: 16px; font-weight: 700; min-width: 100px; justify-content: flex-end; }
+    .orcpac-saldo.positivo { color: var(--verde, #2E7D32); }
+    .orcpac-saldo.negativo { color: #c0392b; }
+    [data-theme="dark"] .orcpac-saldo.negativo { color: #f87171; }
+    .orcpac-seta { font-size: 20px; line-height: 1; }
 
     /* ── Consolidação / Solicitações / Acompanhamento (execução do PAC) ──────── */
     .pac-filtros { display: flex; gap: 14px; flex-wrap: wrap; align-items: end; }
@@ -748,19 +762,29 @@
      sai de vez (pedido do Alex: "botão voltar em todas estas telas ou
      fechar no formato que achar melhor"). -->
 <div class="modal-overlay" id="modal-orcamentario">
-  <div class="modal-box" style="max-width:640px;max-height:85vh;display:flex;flex-direction:column;">
-    <div id="orcpac-view-resumo">
-      <h3 style="margin-bottom:2px;">Orçamento x Gastos do DFD</h3>
-      <p class="text-muted" id="orcpac-resumo-sub" style="font-size:12.5px;margin:0 0 14px;">—</p>
-      <div id="orcpac-resumo-linhas" style="overflow-y:auto;flex:1 1 auto;"></div>
+  <div class="modal-box modal-box-lg" style="width:860px;max-height:88vh;">
+    <div id="orcpac-view-resumo" class="orcpac-view">
+      <div class="orcpac-cabecalho">
+        <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" onerror="this.style.display='none'" />
+        <div>
+          <h3>Orçamento x Gastos do DFD</h3>
+          <p class="text-muted" id="orcpac-resumo-sub">—</p>
+        </div>
+      </div>
+      <div id="orcpac-resumo-linhas" class="modal-box-lg-corpo"></div>
       <div style="margin-top:16px;text-align:right;flex-shrink:0;">
         <button class="btn btn-secondary" onclick="fecharModalOrcamentario()">Fechar</button>
       </div>
     </div>
-    <div id="orcpac-view-detalhe" style="display:none;">
-      <h3 id="orcpac-detalhe-titulo" style="margin-bottom:2px;">—</h3>
-      <p class="text-muted" style="font-size:12.5px;margin:0 0 14px;">Setores/itens que estão somando nesta Natureza, do maior pro menor valor.</p>
-      <div class="table-wrap" style="overflow-y:auto;flex:1 1 auto;">
+    <div id="orcpac-view-detalhe" class="orcpac-view" style="display:none;">
+      <div class="orcpac-cabecalho">
+        <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" onerror="this.style.display='none'" />
+        <div>
+          <h3 id="orcpac-detalhe-titulo">—</h3>
+          <p class="text-muted">Setores/itens que estão somando nesta Natureza, do maior pro menor valor.</p>
+        </div>
+      </div>
+      <div class="table-wrap modal-box-lg-corpo">
         <table>
           <thead><tr><th>Setor</th><th>Nº PAC</th><th>Descrição</th><th style="text-align:right;">Valor</th></tr></thead>
           <tbody id="orcpac-detalhe-tbody"></tbody>

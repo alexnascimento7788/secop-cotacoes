@@ -1609,24 +1609,22 @@ async function renderConsolidadoDetalhe() {
       ${colunasDfd.map(c => editavelConsol ? renderCelulaConsolEditavel(item, c) : `<td>${formatarValorColuna(c, v[c.id])}</td>`).join('')}
       ${temContrato ? celulaContratoLeitura(item, colunasContrato, todasColunas, item.id) : ''}
       <td>
-        <div style="display:flex;align-items:center;gap:6px;">
-          <select class="consol-natureza-select" onchange="salvarNaturezaConsolidacao(${item.id}, this.value)">
-            <option value=""${!item.natureza_consolidacao ? ' selected' : ''}>—</option>
-            ${_listaNatureza.map(n => `<option value="${n.valor.replace(/"/g, '&quot;')}"${item.natureza_consolidacao === n.valor ? ' selected' : ''}>${n.valor}</option>`).join('')}
-          </select>
-          ${String(item.natureza_consolidacao || '').trim()
-            ? `<button type="button" class="btn btn-secondary btn-xs" style="padding:2px 7px;flex-shrink:0;" onclick="abrirOrcamentarioDoDfd()" title="Orçamento x gastos deste DFD">📊</button>`
-            : ''}
-        </div>
+        <select class="consol-natureza-select" onchange="salvarNaturezaConsolidacao(${item.id}, this.value)">
+          <option value=""${!item.natureza_consolidacao ? ' selected' : ''}>—</option>
+          ${_listaNatureza.map(n => `<option value="${n.valor.replace(/"/g, '&quot;')}"${item.natureza_consolidacao === n.valor ? ' selected' : ''}>${n.valor}</option>`).join('')}
+        </select>
       </td>
       <td><input type="text" class="consol-obs-input" value="${(item.observacao_consolidacao || '').replace(/"/g, '&quot;')}" placeholder="—" onblur="salvarObservacaoConsolidacao(${item.id}, this.value)" /></td>
-      <td>${badgeStatusConsolidacao(item.status_consolidacao)}</td>
+      <td style="white-space:nowrap;">
+        ${String(item.natureza_consolidacao || '').trim()
+          ? `<button type="button" class="btn btn-secondary btn-xs" style="padding:2px 7px;margin-right:6px;" onclick="abrirOrcamentarioDoDfd('${item.natureza_consolidacao.replace(/'/g, "\\'")}')" title="Orçamento x gastos deste DFD">📊</button>`
+          : ''}
+        ${badgeStatusConsolidacao(item.status_consolidacao)}
+      </td>
       <td style="text-align:right;white-space:nowrap;">
-        ${item.status_consolidacao !== 'finalizado' ? (
-          String(item.natureza_consolidacao || '').trim()
-            ? `<button class="btn btn-primary btn-xs" onclick="alterarStatusConsolidacao(${item.id},'finalizado')">Finalizada</button>`
-            : `<button class="btn btn-primary btn-xs" disabled title="Preencha a Natureza deste item antes de finalizar.">Finalizada</button>`
-        ) : ''}
+        ${item.status_consolidacao !== 'finalizado'
+          ? `<button class="btn btn-primary btn-xs" onclick="alterarStatusConsolidacao(${item.id},'finalizado')">Finalizada</button>`
+          : ''}
         <button class="btn btn-danger btn-xs" onclick="cancelarPac(${item.id})">Cancelar</button>
       </td>
     </tr>`);
@@ -1892,7 +1890,12 @@ async function finalizarConsolidacaoSetor(setorId) {
    Valor, maior pro menor). */
 let _orcpacLinhas = [];
 
-async function abrirOrcamentarioDoDfd() {
+// natureza: quando aberto a partir do ícone "📊" de UM item específico
+// (pedido do Alex, 2026-09-24: "a primeira linha sempre devera ser do pac
+// da linha da consolidação para facilitar a apuração") — essa natureza sobe
+// pro topo da lista, com destaque visual, em vez de ficar perdida na ordem
+// alfabética/de cadastro.
+async function abrirOrcamentarioDoDfd(natureza) {
   const modal = document.getElementById('modal-orcamentario');
   document.getElementById('orcpac-resumo-linhas').innerHTML = '<div class="text-muted" style="padding:12px;">Carregando...</div>';
   document.getElementById('orcpac-view-resumo').style.display = '';
@@ -1906,26 +1909,33 @@ async function abrirOrcamentarioDoDfd() {
     const dfd = dfdRes.ok ? await dfdRes.json() : {};
     if (!orcRes.ok) { const e = await orcRes.json().catch(() => ({})); throw new Error(e.error || 'Erro ao carregar orçamento'); }
     _orcpacLinhas = await orcRes.json();
+    if (natureza) {
+      const idx = _orcpacLinhas.findIndex(l => l.natureza === natureza);
+      if (idx > 0) _orcpacLinhas.unshift(_orcpacLinhas.splice(idx, 1)[0]);
+    }
     document.getElementById('orcpac-resumo-sub').textContent = `Orçamento: ${dfd.orcamento_nome || '—'}`;
-    renderResumoOrcamentario();
+    renderResumoOrcamentario(natureza);
   } catch (e) {
     document.getElementById('orcpac-resumo-linhas').innerHTML = `<div style="padding:12px;color:#c0392b;">${e.message}</div>`;
   }
 }
 
-function renderResumoOrcamentario() {
+function renderResumoOrcamentario(naturezaDestaque) {
   document.getElementById('orcpac-resumo-linhas').innerHTML = _orcpacLinhas.map(l => {
+    const saldo = l.valor_orcado - l.valor_usado;
+    const positivo = saldo >= 0;
     const pct = l.valor_orcado > 0 ? (l.valor_usado / l.valor_orcado) * 100 : (l.valor_usado > 0 ? Infinity : 0);
-    const estourou = l.valor_usado > l.valor_orcado;
-    const seta = estourou ? '▲' : (l.valor_usado > 0 ? '▼' : '');
+    const destaque = l.natureza === naturezaDestaque;
     return `
-      <div class="orcpac-linha${estourou ? ' estourou' : ''}">
+      <div class="orcpac-linha${!positivo ? ' estourou' : ''}"${destaque ? ' style="border:2px solid var(--laranja, #F9A800);"' : ''}>
         <div class="orcpac-nome">${l.natureza}</div>
         <div class="orcpac-valores">
-          Usado: R$ ${_consolFmtMoeda(l.valor_usado)}<br>
-          Orçado: R$ ${_consolFmtMoeda(l.valor_orcado)}
+          <div class="orcpac-valor-linha"><span class="lbl">Usado</span>R$ ${_consolFmtMoeda(l.valor_usado)}</div>
+          <div class="orcpac-valor-linha"><span class="lbl">Orçado</span>R$ ${_consolFmtMoeda(l.valor_orcado)}</div>
         </div>
-        <div class="orcpac-pct ${estourou ? 'estourou' : 'ok'}">${seta} ${pct === Infinity ? '—' : pct.toFixed(1) + '%'}</div>
+        <div class="orcpac-saldo ${positivo ? 'positivo' : 'negativo'}" title="${positivo ? 'Dentro do orçamento' : 'Orçamento estourado'} — ${pct === Infinity ? '—' : pct.toFixed(1) + '% usado'}">
+          <span class="orcpac-seta">${positivo ? '▲' : '▼'}</span>${positivo ? '✅' : '⚠️'}
+        </div>
         <button type="button" class="btn btn-secondary btn-xs" onclick="abrirDetalheNaturezaOrcamentaria('${l.natureza.replace(/'/g, "\\'")}')">Quem soma</button>
       </div>`;
   }).join('') || '<div class="text-muted" style="padding:12px;">Este orçamento não tem nenhuma natureza cadastrada.</div>';
