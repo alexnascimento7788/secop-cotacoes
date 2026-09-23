@@ -455,6 +455,12 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 [data-theme="dark"] .badge-consolidado     { background: rgba(124,58,237,.22); color: #c4b5fd; }
 [data-theme="dark"] .badge-fechado         { background: rgba(100,116,139,.25); color: #cbd5e1; }
 
+/* PAC: encerramento do DFD em Consolidação — pedido do Alex, 2026-09-24: o
+   cinza neutro de badge-fechado passou despercebido, precisa chamar atenção
+   (laranja + fonte maior que o badge padrão). */
+.badge-alerta-encerramento { background: #fed7aa; color: #9a3412; font-size: 13px; padding: 5px 12px; }
+[data-theme="dark"] .badge-alerta-encerramento { background: rgba(234,88,12,.28); color: #fdba74; }
+
 /* PAC: campo obrigatório do lançamento ainda em branco — pedido do Alex,
    2026-09-15: "acenda um alerta na borda [...] com o fundo vermelho e o
    texto em branco item não preenchido", além do aviso já existente no
