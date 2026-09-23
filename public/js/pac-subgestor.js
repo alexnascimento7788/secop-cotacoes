@@ -121,6 +121,10 @@ function editarItemSubgestor(id) {
   selSetor.disabled = true; // setor não muda numa edição — só o servidor que decide o setor na criação
   renderCampos();
   preencherCamposComValores(item.valores, '#sg-campos');
+  // Fonte pagadora não é um <input>/<select> genérico (pode ser rateio JSON)
+  // — reconstrói a exibição a partir do valor que preencherCamposComValores
+  // acabou de jogar no hidden.
+  (_dfdAtual.colunas || []).filter(c => c.grupo === 'A' && c.slug === 'fonte_pagadora').forEach(c => atualizarExibicaoFonteSubgestor(c.id));
   if (temColunaContrato()) {
     renderContratoEdicao(item.valores);
     document.getElementById('sg-edit-contrato-wrap').style.display = '';
@@ -177,6 +181,7 @@ function verItemSubgestor(id) {
   document.getElementById('sg-detalhe-corpo').innerHTML = colunas.map(c => {
     let v = item.valores?.[c.id];
     if (v == null || v === '') v = '—';
+    else if (c.slug === 'fonte_pagadora' && textoRateioFonteSubgestor(v)) v = textoRateioFonteSubgestor(v);
     else if (c.tipo_input === 'moeda') v = 'R$ ' + fmtMoeda(v);
     else if (c.tipo_input === 'data') v = fmtBr(v);
     return `<div style="margin-bottom:10px;"><div style="font-size:11px;color:var(--text-subtle);font-weight:600;">${c.label}</div><div>${v}</div></div>`;
@@ -221,6 +226,9 @@ function renderCampos() {
       ${renderCampoNovo(c)}
     </div>
   `).join('');
+  // Popula o <select>/rateio da fonte pagadora (o wrapper sai vazio de
+  // renderCampoFontePagadoraSubgestor — precisa desse passo pra aparecer).
+  colunas.filter(c => c.slug === 'fonte_pagadora').forEach(c => atualizarExibicaoFonteSubgestor(c.id));
 }
 
 // Pergunta "Este item possui contrato?" + campos do grupo C, dentro do modal
@@ -247,6 +255,7 @@ function sgAtualizarVisibilidadeContrato() {
 function renderCampoNovo(coluna) {
   const id = `campo-novo-${coluna.id}`;
   const base = `id="${id}" data-coluna="${coluna.id}" data-tipo="${coluna.tipo_input}"`;
+  if (coluna.slug === 'fonte_pagadora') return renderCampoFontePagadoraSubgestor(coluna, id);
   if (coluna.tipo_input === 'select') {
     const opcoes = (_listasCache[coluna.lista] || []).map(o => `<option value="${o.valor}">${o.valor}</option>`).join('');
     return `<select ${base}><option value="">—</option>${opcoes}</select>`;
@@ -256,6 +265,113 @@ function renderCampoNovo(coluna) {
   if (coluna.tipo_input === 'numero') return `<input type="number" ${base} step="any" />`;
   if (coluna.tipo_input === 'data') return `<input type="date" ${base} />`;
   return `<input type="text" ${base} />`;
+}
+
+/* ── Rateio de fonte pagadora (mesmo recurso do gestor de setor em
+   Lançamento, botão "⚖") — pedido do Alex, 2026-09-24: "a insercao dos
+   percentuais por fonte pagadora nao existe [na tela do sub-gestor],
+   precisamos disto tbm". Diferença daqui pro de pac-lancamento.js: lá o
+   item já existe e o modal salva na hora (PUT); aqui o item pode nem
+   existir ainda (form de criação), então o rateio só fica guardado num
+   <input type="hidden"> (data-coluna, lido por coletarValoresNovo() como
+   qualquer outro campo) e vai junto no POST/PUT geral do form. */
+function parseRateioFonteSubgestor(valor) {
+  if (!valor) return null;
+  const s = String(valor).trim();
+  if (!s.startsWith('{')) return null;
+  try {
+    const obj = JSON.parse(s);
+    return (obj && typeof obj === 'object') ? obj : null;
+  } catch { return null; }
+}
+function textoRateioFonteSubgestor(valor) {
+  const rateio = parseRateioFonteSubgestor(valor);
+  if (!rateio) return null;
+  return Object.entries(rateio).map(([f, p]) => `${f} ${p}%`).join(' / ');
+}
+
+function renderCampoFontePagadoraSubgestor(coluna, id) {
+  return `<div id="fonte-visivel-${coluna.id}"></div><input type="hidden" id="${id}" data-coluna="${coluna.id}" data-tipo="${coluna.tipo_input}" value="" />`;
+}
+
+// Reconstrói o <select> (ou o texto do rateio + botão "⚖") a partir do valor
+// atual guardado no hidden — chamado depois de renderCampos() (estado
+// inicial em branco) e depois de preencherCamposComValores() na edição
+// (estado já preenchido).
+function atualizarExibicaoFonteSubgestor(colunaId) {
+  const coluna = (_dfdAtual.colunas || []).find(c => c.id === colunaId);
+  const wrap = document.getElementById(`fonte-visivel-${colunaId}`);
+  if (!coluna || !wrap) return;
+  const hidden = document.getElementById(`campo-novo-${colunaId}`);
+  const valor = hidden ? hidden.value : '';
+  const rateio = parseRateioFonteSubgestor(valor);
+  const btnRateio = `<button type="button" class="btn btn-secondary btn-xs" style="padding:2px 7px;flex-shrink:0;" onclick="abrirModalRateioFonteSubgestor(${colunaId})" title="Ratear entre mais de uma fonte pagadora">⚖</button>`;
+  wrap.style.display = 'flex'; wrap.style.alignItems = 'center'; wrap.style.gap = '6px';
+  if (rateio) {
+    wrap.innerHTML = `<span style="font-size:12.5px;flex:1;" title="${textoRateioFonteSubgestor(valor)}">${textoRateioFonteSubgestor(valor)}</span>${btnRateio}`;
+  } else {
+    const opcoes = (_listasCache[coluna.lista] || []).map(o => `<option value="${o.valor}"${o.valor === valor ? ' selected' : ''}>${o.valor}</option>`).join('');
+    wrap.innerHTML = `<select onchange="document.getElementById('campo-novo-${colunaId}').value=this.value" style="flex:1;"><option value="">—</option>${opcoes}</select>${btnRateio}`;
+  }
+}
+
+let _sgRfColunaId = null;
+function abrirModalRateioFonteSubgestor(colunaId) {
+  const coluna = (_dfdAtual.colunas || []).find(c => c.id === colunaId);
+  if (!coluna) return;
+  _sgRfColunaId = colunaId;
+  const hidden = document.getElementById(`campo-novo-${colunaId}`);
+  const valorAtual = hidden ? hidden.value : '';
+  const rateioAtual = parseRateioFonteSubgestor(valorAtual) || (valorAtual ? { [valorAtual]: 100 } : {});
+  const opcoes = (_listasCache[coluna.lista] || []).map(o => o.valor);
+  document.getElementById('sg-rateio-fonte-linhas').innerHTML = opcoes.map(op => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+      <label style="display:flex;align-items:center;gap:6px;flex:1;cursor:pointer;">
+        <input type="checkbox" id="sg-rf-chk-${op}" ${rateioAtual[op] != null ? 'checked' : ''} onchange="atualizarTotalRateioFonteSubgestor()"> ${op}
+      </label>
+      <input type="number" id="sg-rf-pct-${op}" min="0" max="100" step="0.01" value="${rateioAtual[op] ?? ''}"
+        style="width:80px;text-align:right;" placeholder="%" oninput="atualizarTotalRateioFonteSubgestor()">
+    </div>`).join('');
+  document.getElementById('sg-rateio-fonte-msg').textContent = '';
+  atualizarTotalRateioFonteSubgestor();
+  document.getElementById('modal-sg-rateio-fonte').classList.add('open');
+}
+function fecharModalRateioFonteSubgestor() {
+  document.getElementById('modal-sg-rateio-fonte').classList.remove('open');
+  _sgRfColunaId = null;
+}
+function lerRateioFonteFormSubgestor() {
+  const coluna = (_dfdAtual.colunas || []).find(c => c.id === _sgRfColunaId);
+  const opcoes = (_listasCache[coluna?.lista] || []).map(o => o.valor);
+  const rateio = {};
+  opcoes.forEach(op => {
+    const chk = document.getElementById(`sg-rf-chk-${op}`);
+    if (chk && chk.checked) rateio[op] = Number(document.getElementById(`sg-rf-pct-${op}`).value) || 0;
+  });
+  return rateio;
+}
+function atualizarTotalRateioFonteSubgestor() {
+  const rateio = lerRateioFonteFormSubgestor();
+  const total = Object.values(rateio).reduce((s, v) => s + v, 0);
+  const el = document.getElementById('sg-rateio-fonte-total');
+  if (!el) return;
+  el.textContent = `Total: ${total}%`;
+  el.style.color = Math.abs(total - 100) < 0.01 ? 'var(--verde,#2E7D32)' : '#c0392b';
+}
+function salvarRateioFonteSubgestor() {
+  const rateio = lerRateioFonteFormSubgestor();
+  const fontes = Object.keys(rateio);
+  const msg = document.getElementById('sg-rateio-fonte-msg');
+  if (!fontes.length) { msg.textContent = 'Marque ao menos uma fonte pagadora.'; return; }
+  const total = fontes.reduce((s, f) => s + rateio[f], 0);
+  if (Math.abs(total - 100) > 0.01) { msg.textContent = `A soma dos percentuais precisa ser 100% (está em ${total}%).`; return; }
+  // 1 fonte só = mesmo formato simples de sempre (texto puro), igual ao
+  // gestor de setor — não vira JSON pra um caso que já era 100% implícito.
+  const valor = fontes.length === 1 ? fontes[0] : JSON.stringify(rateio);
+  const hidden = document.getElementById(`campo-novo-${_sgRfColunaId}`);
+  if (hidden) hidden.value = valor;
+  atualizarExibicaoFonteSubgestor(_sgRfColunaId);
+  fecharModalRateioFonteSubgestor();
 }
 
 function coletarValoresNovo() {
