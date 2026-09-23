@@ -540,6 +540,15 @@ function setupDb() {
     [['pac-lancamento', RW], ['pac-acompanhamento', SOVER]]);
   seedPerfil('pac', 'Analista DEPLA', 'Gestão completa do PAC; acompanha lançamentos.',
     [['pac-gestao', TUDO], ['pac-lancamento', SOVER], ['pac-solicitacoes', TUDO]]);
+  // Papel novo (pedido do Alex, 2026-09-23): lança itens em nome de QUALQUER
+  // setor do DFD, sem precisar pertencer a nenhum (setor_usuarios) — a
+  // unidade dele (ver unidade_usuarios, atribuída em Gestão > Parâmetros >
+  // Unidades > Acesso) é quem dá esse acesso amplo. Só "ver+incluir": ele
+  // nunca edita/exclui item existente, e o "ver" aqui é consumido só pela
+  // tela própria dele (pac-subgestor.html) — nunca a de Lançamento comum,
+  // que continua vendo por setor_usuarios.
+  seedPerfil('pac', 'Sub-gestor DEPLA', 'Lança itens em nome de qualquer setor do DFD, restrito a uma unidade (filial) — não vê os lançamentos do gestor oficial.',
+    [['pac-lancamento', { ver: 1, incluir: 1, alterar: 0, excluir: 0 }]]);
 
   seedPerfil('detin', 'Gestor DETIN', 'Gestão completa de contratos e análises do DETIN.',
     [['detin-painel', SOVER], ['detin-contratos', TUDO], ['detin-analise', { ver: 1, incluir: 1, alterar: 0, excluir: 0 }]]);

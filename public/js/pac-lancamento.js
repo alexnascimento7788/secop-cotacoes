@@ -1230,17 +1230,14 @@ function renderFormNovoItem() {
     ? `<select id="novo-item-setor" style="margin-right:10px;">${disponiveis.map(s => `<option value="${s.id}">${s.nome}</option>`).join('')}</select>`
     : `<input type="hidden" id="novo-item-setor" value="${disponiveis[0].id}" />`;
 
-  // Unidade a referenciar no novo item — interseção entre as unidades
-  // participantes do DFD e as que este usuário pode lançar (lista vazia de
-  // minhas_unidades_restritas = sem restrição, todas as participantes
-  // valem). "Acredito que não terá mais de uma, mas preparamos pra isto"
-  // (Alex) — na prática normal isso vira um <input hidden> com "Contagem".
-  const minhasRestritas = _dfdAtual.minhas_unidades_restritas || [];
+  // Unidade a referenciar no novo item — quem lança aqui é sempre gestor de
+  // setor comum (sub-gestor tem tela própria, pac-subgestor.html, e nunca
+  // chega neste formulário), então não há restrição: mostra as unidades
+  // participantes do DFD (normalmente só "Contagem", vira <input hidden>).
   const unidadesDfd = _dfdAtual.unidades || [];
-  const unidadesDisponiveis = minhasRestritas.length ? unidadesDfd.filter(u => minhasRestritas.includes(u.id)) : unidadesDfd;
-  const selectUnidade = unidadesDisponiveis.length > 1
-    ? `<select id="novo-item-unidade" style="margin-right:10px;">${unidadesDisponiveis.map(u => `<option value="${u.id}">${u.nome}</option>`).join('')}</select>`
-    : `<input type="hidden" id="novo-item-unidade" value="${unidadesDisponiveis[0]?.id || ''}" />`;
+  const selectUnidade = unidadesDfd.length > 1
+    ? `<select id="novo-item-unidade" style="margin-right:10px;">${unidadesDfd.map(u => `<option value="${u.id}">${u.nome}</option>`).join('')}</select>`
+    : `<input type="hidden" id="novo-item-unidade" value="${unidadesDfd[0]?.id || ''}" />`;
 
   wrap.innerHTML = `${selectSetor}${selectUnidade}<button class="btn btn-primary btn-sm" onclick="iniciarNovoItem()">+ Novo item</button>`;
 }

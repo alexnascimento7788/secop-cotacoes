@@ -318,11 +318,19 @@ router.delete('/api/pac/unidades/:id', pac, requireRotina('pac-gestao', 'excluir
 // sub-gestor). Mesmo padrão de setor_usuarios/DETIN "Acesso por Setor"
 // (routes/detin.js), 1 nível abaixo. Sem vínculo = vê/lança em todas as
 // unidades (comportamento de hoje, sem mudança pra quem não usar isto).
+// Lista só quem já tem o perfil "Sub-gestor DEPLA" atribuído no módulo PAC
+// (Admin > Usuários) — essa tela decide SÓ a unidade, não quem é sub-gestor
+// (isso é o perfil). Sem o perfil, marcar aqui não dá acesso nenhum de
+// verdade (a rotina pac-lancamento é quem abre a porta).
 router.get('/api/pac/unidades/:id/usuarios', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
   res.json(db.prepare(`
     SELECT u.id, u.username, u.nome_completo,
            EXISTS(SELECT 1 FROM unidade_usuarios uu WHERE uu.unidade_id = ? AND uu.user_id = u.id) AS vinculado
-    FROM users u WHERE u.username != 'master' AND u.ativo = 1 ORDER BY COALESCE(u.nome_completo, u.username)
+    FROM users u
+    JOIN user_modulos um ON um.user_id = u.id
+    JOIN modulos m ON m.id = um.modulo_id AND m.slug = 'pac'
+    JOIN perfis p ON p.id = um.perfil_id AND p.nome = 'Sub-gestor DEPLA'
+    WHERE u.ativo = 1 ORDER BY COALESCE(u.nome_completo, u.username)
   `).all(req.params.id));
 });
 router.put('/api/pac/unidades/:id/usuarios', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
@@ -357,6 +365,19 @@ router.get('/api/pac/dfds', pac, requireRotinaPac('ver'), (req, res) => {
       FROM dfds d LEFT JOIN users u ON u.id = d.cancelado_por
       ORDER BY d.ano_base DESC, d.id DESC
     `).all();
+  } else if (unidadesDoUsuario(req.user.user_id).length) {
+    // Sub-gestor DEPLA (papel próprio, independente de setor_usuarios — ver
+    // unidade_usuarios): enxerga os DFDs onde a UNIDADE dele participa,
+    // nunca por setor (ele não pertence a nenhum). Contagem = só o que ELE
+    // MESMO lançou (nunca vê o lançamento do gestor oficial do setor).
+    const minhas = unidadesDoUsuario(req.user.user_id);
+    const ph = minhas.map(() => '?').join(',');
+    rows = db.prepare(`
+      SELECT DISTINCT d.*,
+        (SELECT COUNT(*) FROM dfd_itens WHERE dfd_id = d.id AND excluido_em IS NULL AND criado_por = ?) AS itens_count
+      FROM dfds d JOIN dfd_unidades du ON du.dfd_id = d.id
+      WHERE du.unidade_id IN (${ph}) ORDER BY d.ano_base DESC, d.id DESC
+    `).all(req.user.user_id, ...minhas);
   } else {
     const meus = setoresDoUsuario(req.user.user_id);
     if (!meus.length) return res.json([]);
@@ -411,9 +432,12 @@ router.get('/api/pac/dfds/:id', pac, requireRotinaPac('ver'), (req, res) => {
     FROM dfd_colunas_ativas dca JOIN dfd_colunas_catalogo c ON c.id = dca.coluna_id
     WHERE dca.dfd_id = ? ORDER BY dca.ordem
   `).all(req.params.id);
-  // Unidades que ESTE usuário pode lançar/ver — vazio = sem restrição (gestor
-  // principal, DEPLA, master); usado pelo front pra decidir o seletor de
-  // unidade no "+ Novo item" e se mostra os botões de aprovar/rejeitar.
+  // Unidade(s) do sub-gestor (papel próprio, ver unidade_usuarios) — vazio
+  // pra qualquer gestor de setor comum/DEPLA/master (eles não têm restrição
+  // de unidade nenhuma). Usado por 2 páginas diferentes: Lançamento comum
+  // (decide se mostra os botões de aprovar/rejeitar num item pendente) e a
+  // tela própria do sub-gestor (define automaticamente a unidade do item
+  // que ele lançar, sem ele escolher).
   const minhasUnidadesRestritas = req.user.username === 'master' ? [] : unidadesDoUsuario(req.user.user_id);
   res.json({ ...dfd, setores: setoresParticipantes, unidades: unidadesParticipantes, colunas, minhas_unidades_restritas: minhasUnidadesRestritas });
 });
@@ -627,23 +651,24 @@ router.put('/api/pac/dfds/:id/colunas', pac, requireRotina('pac-gestao', 'altera
 router.get('/api/pac/dfds/:id/itens', pac, requireRotinaPac('ver'), (req, res) => {
   const dfdId = req.params.id;
   let itens;
+  const minhasUnidades = req.user.username === 'master' ? [] : unidadesDoUsuario(req.user.user_id);
   if (temPacGestao(req)) {
     itens = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL ORDER BY setor_id, numero_item`).all(dfdId);
+  } else if (minhasUnidades.length) {
+    // Sub-gestor DEPLA (papel próprio, independente de setor — ver
+    // unidade_usuarios): NUNCA vê a lista do gestor oficial do setor, só os
+    // próprios lançamentos (qualquer setor, sempre dentro da sua unidade —
+    // pedido explícito do Alex, 2026-09-23: "não vê o dfd do gestor...
+    // somente o gestor oficial que vai ver").
+    itens = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND criado_por = ? ORDER BY criado_em DESC`).all(dfdId, req.user.user_id);
   } else {
     const meus = setoresDoUsuario(req.user.user_id);
     if (!meus.length) return res.json([]);
     const ph = meus.map(() => '?').join(',');
-    // Sub-gestor (restrito a 1+ unidades via unidade_usuarios) só vê itens
-    // daquela(s) unidade(s) — não enxerga o que o gestor principal do setor
-    // está lançando noutra unidade. Sem restrição = vê tudo do setor, igual
-    // sempre foi.
-    const minhasUnidades = unidadesDoUsuario(req.user.user_id);
-    if (minhasUnidades.length) {
-      const phU = minhasUnidades.map(() => '?').join(',');
-      itens = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND setor_id IN (${ph}) AND unidade_id IN (${phU}) ORDER BY numero_item`).all(dfdId, ...meus, ...minhasUnidades);
-    } else {
-      itens = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND setor_id IN (${ph}) ORDER BY numero_item`).all(dfdId, ...meus);
-    }
+    // Gestor de setor comum: vê TODOS os itens do(s) próprio(s) setor(es),
+    // de qualquer unidade — inclusive os pendentes lançados por sub-gestor,
+    // que é quem aprova/rejeita (ver PATCH .../aprovacao).
+    itens = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND setor_id IN (${ph}) ORDER BY numero_item`).all(dfdId, ...meus);
   }
   const ids = itens.map(i => i.id);
   const valoresPorItem = {};
@@ -681,18 +706,29 @@ router.post('/api/pac/dfds/:id/itens', pac, requireRotina('pac-lancamento', 'inc
   const { setor_id, valores } = req.body || {};
   let { unidade_id } = req.body || {};
   if (!setor_id) return res.status(400).json({ error: 'Setor é obrigatório' });
-  if (req.user.username !== 'master' && !setoresDoUsuario(req.user.user_id).includes(Number(setor_id))) {
+
+  // Sub-gestor DEPLA (papel próprio, ver unidade_usuarios) — NÃO precisa
+  // pertencer ao setor (pedido explícito do Alex, 2026-09-23: "o sub gestor
+  // não precisa ser gestor de setor... ele escolhe o setor, que logicamente
+  // estará atrelado ao DFD"). A unidade dele é AUTOMÁTICA (a atribuída em
+  // Gestão > Parâmetros > Unidades > Acesso), nunca escolhida pelo body —
+  // é isso que dá acesso a lançar em qualquer setor do DFD.
+  const minhasUnidades = req.user.username === 'master' ? [] : unidadesDoUsuario(req.user.user_id);
+  const souSubgestor = minhasUnidades.length > 0;
+  if (souSubgestor) {
+    unidade_id = minhasUnidades[0]; // hoje sempre 1 só; se um dia tiver mais, precisaria vir escolhida
+  } else if (req.user.username !== 'master' && !setoresDoUsuario(req.user.user_id).includes(Number(setor_id))) {
     return res.status(403).json({ error: 'Você não pertence a este setor.' });
   }
   const setor = db.prepare(`SELECT id, nome, sigla FROM setores WHERE id = ?`).get(setor_id);
   const participa = db.prepare(`SELECT 1 FROM dfd_setores WHERE dfd_id = ? AND setor_id = ?`).get(dfdId, setor_id);
   if (!participa) return res.status(400).json({ error: 'Este setor não participa deste DFD.' });
 
-  // Unidade (filial) do item — default "Contagem" quando não vier no body.
-  // Só valida participação (dfd_unidades) se o DFD JÁ TIVER alguma unidade
-  // configurada — DFD criado antes desta versão não tem nenhuma linha em
-  // dfd_unidades e não pode ficar bloqueado retroativamente (mesmo espírito
-  // de data_entrega, ver database.js).
+  // Unidade (filial) do item — default "Contagem" quando não vier no body
+  // (gestor comum, que não escolhe explicitamente). Só valida participação
+  // (dfd_unidades) se o DFD JÁ TIVER alguma unidade configurada — DFD criado
+  // antes desta versão não tem nenhuma linha em dfd_unidades e não pode
+  // ficar bloqueado retroativamente (mesmo espírito de data_entrega).
   if (!unidade_id) {
     unidade_id = db.prepare(`SELECT id FROM unidades WHERE nome = 'CeasaMinas - Unidade Contagem'`).get()?.id || null;
   }
@@ -701,13 +737,9 @@ router.post('/api/pac/dfds/:id/itens', pac, requireRotina('pac-lancamento', 'inc
     const participaUnidade = db.prepare(`SELECT 1 FROM dfd_unidades WHERE dfd_id = ? AND unidade_id = ?`).get(dfdId, unidade_id);
     if (!participaUnidade) return res.status(400).json({ error: 'Esta unidade não participa deste DFD.' });
   }
-  // Sub-gestor (restrito a 1+ unidades) só pode lançar na(s) sua(s) própria(s)
-  // unidade(s), e o item nasce "pendente" até o gestor principal aprovar.
-  const minhasUnidades = req.user.username === 'master' ? [] : unidadesDoUsuario(req.user.user_id);
-  if (minhasUnidades.length && !minhasUnidades.includes(Number(unidade_id))) {
-    return res.status(403).json({ error: 'Você só pode lançar itens na(s) sua(s) unidade(s).' });
-  }
-  const aprovacaoSubgestor = minhasUnidades.length ? 'pendente' : null;
+  // Item de sub-gestor nasce "pendente" até o gestor oficial do setor
+  // aprovar — gestor comum/DEPLA/master nunca passa por esse gate.
+  const aprovacaoSubgestor = souSubgestor ? 'pendente' : null;
 
   const erroEspecificacao = validarEspecificacaoObjeto(valores);
   if (erroEspecificacao) return res.status(400).json({ error: erroEspecificacao.mensagem, especificacaoMinima: erroEspecificacao });
@@ -809,16 +841,14 @@ router.patch('/api/pac/itens/:id/aprovacao',
   },
   (req, res) => {
     const item = req.item;
-    if (req.user.username !== 'master' && !setoresDoUsuario(req.user.user_id).includes(item.setor_id)) {
-      return res.status(403).json({ error: 'Você não pertence ao setor deste item.' });
+    // Sub-gestor DEPLA nunca aprova (é justamente quem gera a pendência) —
+    // checado antes do vínculo de setor pra dar a mensagem certa (ele não
+    // tem setor mesmo, mas o motivo real é outro).
+    if (req.user.username !== 'master' && unidadesDoUsuario(req.user.user_id).length) {
+      return res.status(403).json({ error: 'Sub-gestor não aprova lançamentos — isso é feito pelo gestor oficial do setor.' });
     }
-    // Gestor principal = sem restrição de unidade (ou sem restrição NAQUELA
-    // unidade específica). DEPLA (pac-gestao) e master sempre podem.
-    if (req.user.username !== 'master' && !temPacGestao(req)) {
-      const minhasUnidades = unidadesDoUsuario(req.user.user_id);
-      if (minhasUnidades.length && minhasUnidades.includes(item.unidade_id)) {
-        return res.status(403).json({ error: 'Você não pode aprovar seus próprios lançamentos — só o gestor principal do setor.' });
-      }
+    if (req.user.username !== 'master' && !temPacGestao(req) && !setoresDoUsuario(req.user.user_id).includes(item.setor_id)) {
+      return res.status(403).json({ error: 'Você não pertence ao setor deste item.' });
     }
     const { aprovado } = req.body || {};
     if (aprovado) {
