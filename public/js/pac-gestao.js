@@ -14,6 +14,16 @@ function badgeStatusDfd(status) {
   return `<span class="badge badge-${status}">${map[status] || status}</span>`;
 }
 
+// Ordem de prioridade da aba "DFDs" — pedido do Alex, 2026-09-24: quem
+// precisa de ação (aberto/análise) primeiro, seguindo o fluxo natural do
+// pipeline; "cancelado" vai por último por não fazer mais parte dele.
+const ORDEM_STATUS_DFD = { aberto: 0, analise: 1, em_consolidacao: 2, consolidado: 3, fechado: 4, cancelado: 5 };
+function ordenarDfdsPorStatus(lista) {
+  return [...lista].sort((a, b) =>
+    (ORDEM_STATUS_DFD[a.status] ?? 99) - (ORDEM_STATUS_DFD[b.status] ?? 99) ||
+    b.ano_base - a.ano_base || b.id - a.id);
+}
+
 const ABAS_PAC_VALIDAS = new Set(['acompanhamento', 'consolidacao', 'dfds', 'solicitacoes', 'setores', 'parametros', 'pedidos']);
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -180,7 +190,7 @@ async function carregarDfds() {
   try {
     const res = await fetch('/api/pac/dfds');
     _dfds = res.ok ? await res.json() : [];
-    document.getElementById('dfds-tbody').innerHTML = _dfds.map(d => `
+    document.getElementById('dfds-tbody').innerHTML = ordenarDfdsPorStatus(_dfds).map(d => `
       <tr>
         <td><strong>${codigoDfd(d)}</strong></td>
         <td>${d.titulo}</td>
@@ -1272,9 +1282,12 @@ async function abrirConsolidadoDetalhe(dfdId, titulo, anoBase) {
   const vencEl = document.getElementById('consol-det-vencimento');
   // Sempre mostra ENCERRAMENTO aqui (pedido do Alex, 2026-09-22) — telas do
   // DEPLA que fazem análise/consolidação nunca mostram o vencimento (que é
-  // o prazo do SETOR pra lançar, sem relação com o trabalho do DEPLA).
-  if (vencEl) vencEl.textContent = dfdInfo
-    ? (dfdInfo.data_encerramento ? `Encerramento do DFD: ${fmtBrData(dfdInfo.data_encerramento)}` : 'Encerramento do DFD: não informado')
+  // o prazo do SETOR pra lançar, sem relação com o trabalho do DEPLA). Cor
+  // segue o modelo neutro de "fechamento" (badge-fechado), não o farol de
+  // urgência de badgeEncerramento() — pedido do Alex, 2026-09-24: aqui é
+  // informativo, o DFD já passou da fase de correr contra o prazo.
+  if (vencEl) vencEl.innerHTML = dfdInfo
+    ? `<span class="badge badge-fechado">Encerramento do DFD: ${dfdInfo.data_encerramento ? fmtBrData(dfdInfo.data_encerramento) : 'não informado'}</span>`
     : '';
   // Reseta o filtro de setor (dataset.montado força remontar as <option> pra
   // este DFD — sem isso, abrir um 2º DFD reaproveitaria a lista de setores do
@@ -1409,7 +1422,11 @@ async function renderConsolidadoDetalhe() {
       <td><input type="text" class="consol-obs-input" value="${(item.observacao_consolidacao || '').replace(/"/g, '&quot;')}" placeholder="—" onblur="salvarObservacaoConsolidacao(${item.id}, this.value)" /></td>
       <td>${badgeStatusConsolidacao(item.status_consolidacao)}</td>
       <td style="text-align:right;white-space:nowrap;">
-        ${item.status_consolidacao !== 'finalizado' ? `<button class="btn btn-primary btn-xs" onclick="alterarStatusConsolidacao(${item.id},'finalizado')">Finalizada</button>` : ''}
+        ${item.status_consolidacao !== 'finalizado' ? (
+          String(item.natureza_consolidacao || '').trim()
+            ? `<button class="btn btn-primary btn-xs" onclick="alterarStatusConsolidacao(${item.id},'finalizado')">Finalizada</button>`
+            : `<button class="btn btn-primary btn-xs" disabled title="Preencha a Natureza deste item antes de finalizar.">Finalizada</button>`
+        ) : ''}
         <button class="btn btn-danger btn-xs" onclick="cancelarPac(${item.id})">Cancelar</button>
       </td>
     </tr>`);
@@ -1907,7 +1924,14 @@ async function renderFinalizacaoAcompanhamento(dfdId) {
 
     renderKpisAcompanhamento(dfdId, status);
 
-    if (cons.consolidado) { card.style.display = 'none'; return; }
+    // cons.consolidado sozinho não basta: reabrir um DFD já consolidado e
+    // reenviar pra análise NÃO apaga a linha antiga de pac_consolidacoes (só
+    // o novo "Iniciar Consolidação" apaga, ver POST /gerar-consolidacao) —
+    // só esconder o card quando o status atual confirma que o ciclo está
+    // mesmo em andamento/concluído. Bug achado pelo Alex, 2026-09-24: sem
+    // isso, "Iniciar Consolidação" nunca mais reaparecia depois de reabrir.
+    const dfdAtualStatus = _dfds.find(d => d.id === Number(dfdId))?.status;
+    if (cons.consolidado && dfdAtualStatus !== 'analise') { card.style.display = 'none'; return; }
     card.style.display = 'block';
 
     // Resumo com barra de progresso geral primeiro (pedido do Alex,

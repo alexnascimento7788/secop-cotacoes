@@ -1151,9 +1151,16 @@ router.post('/api/pac/dfds/:id/gerar-consolidacao', pac, requireRotina('pac-gest
   if (dfd.status !== 'analise') {
     return res.status(409).json({ error: 'Envie o DFD para análise antes de iniciar a consolidação.' });
   }
-  if (db.prepare(`SELECT 1 FROM pac_consolidacoes WHERE dfd_id = ?`).get(dfd.id)) {
-    return res.status(409).json({ error: 'Este DFD já foi consolidado.' });
-  }
+  // Bug achado pelo Alex, 2026-09-24: reabrir um DFD já consolidado e mandar
+  // de volta pra análise deixava "Iniciar Consolidação" travado pra sempre —
+  // a linha em pac_consolidacoes do ciclo ANTERIOR nunca era removida (nem
+  // pelo reabrir, de propósito, nem por aqui), e o UNIQUE(dfd_id) da tabela
+  // fazia esse INSERT falhar silenciosamente atrás de um 409 genérico. Como
+  // o status já garante (linha acima) que só se chega aqui com o DFD
+  // legitimamente em 'análise' — nunca durante um ciclo em andamento — apagar
+  // a linha antiga aqui é seguro: é a ação explícita do DEPLA de refazer a
+  // consolidação, não uma trava indevida.
+  db.prepare(`DELETE FROM pac_consolidacoes WHERE dfd_id = ?`).run(dfd.id);
   // A exigência de "todos os setores finalizaram" saiu daqui (pedido do
   // Alex, 2026-09-15, mesma mudança de filosofia da v4.22.5): já ter
   // chegado a "análise" é o suficiente — "Finalizar meu DFD" continua
@@ -1218,8 +1225,15 @@ router.patch('/api/pac/itens/:id/consolidacao', pac, requireRotina('pac-gestao',
   if (status === 'cancelado' && !String(justificativa || '').trim()) {
     return res.status(400).json({ error: 'Justificativa é obrigatória para cancelar.' });
   }
-  const item = db.prepare(`SELECT id, dfd_id, setor_id, codigo_pac FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
+  const item = db.prepare(`SELECT id, dfd_id, setor_id, codigo_pac, natureza_consolidacao FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
   if (!item) return res.status(404).json({ error: 'Item não encontrado' });
+  // Pedido do Alex, 2026-09-24: não deixa finalizar a consolidação de uma
+  // linha sem Natureza preenchida (campo obrigatório pra fazer sentido no
+  // relatório final, mas só é exigido nesse momento — editar Natureza antes
+  // disso continua livre, sem travar o resto da tela).
+  if (status === 'finalizado' && !String(item.natureza_consolidacao || '').trim()) {
+    return res.status(400).json({ error: 'Preencha a Natureza deste item antes de finalizar.' });
+  }
   if (status === 'cancelado') {
     db.prepare(`
       UPDATE dfd_itens SET status_consolidacao = 'cancelado', justificativa_cancelamento = ?, cancelado_por = ?, cancelado_em = datetime('now')
