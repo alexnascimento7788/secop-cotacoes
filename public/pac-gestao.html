@@ -56,6 +56,36 @@
     .pac-grids { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
     @media (max-width: 900px) { .pac-grids { grid-template-columns: 1fr; } }
 
+    /* ── Orçamento (pedido do Alex, 2026-09-24) ──────────────────────────────
+       "uma tela elegante e não somente um quadro" — cards em vez de tabela
+       crua na lista; grid de 2 colunas com input de valor inline no detalhe,
+       filtro por nome pra não virar uma parede de 70+ linhas. */
+    .orc-cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+    .orc-card { border: 1px solid var(--cinza-b); border-radius: 10px; padding: 14px 16px; background: var(--surface-2); cursor: pointer; transition: border-color .15s, transform .1s; }
+    .orc-card:hover { border-color: var(--laranja, #F9A800); transform: translateY(-1px); }
+    .orc-card.inativo { opacity: .55; }
+    .orc-card-nome { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
+    .orc-card-total { font-size: 18px; font-weight: 700; color: var(--verde, #2E7D32); }
+    .orc-card-sub { font-size: 11.5px; color: var(--text-subtle); margin-top: 4px; }
+    .orc-card-acoes { margin-top: 10px; display: flex; gap: 6px; }
+    .orc-naturezas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px 16px; max-height: 60vh; overflow-y: auto; padding-right: 4px; }
+    .orc-natureza-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--cinza-b); }
+    .orc-natureza-nome { font-size: 12.5px; flex: 1 1 auto; }
+    .orc-natureza-row input { width: 130px; text-align: right; flex-shrink: 0; }
+
+    /* ── Tela orçamentária do PAC (Consolidação) ─────────────────────────────
+       comparativo natureza x orçamento por DFD — "informativo caso o valor
+       atual seja maior que o orçamento, o percentual, setas indicadores". */
+    .orcpac-linha { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; margin-bottom: 6px; background: var(--surface-2); }
+    .orcpac-linha.estourou { background: #fee2e2; }
+    [data-theme="dark"] .orcpac-linha.estourou { background: rgba(220,38,38,.18); }
+    .orcpac-nome { flex: 1 1 auto; font-size: 13px; font-weight: 600; }
+    .orcpac-valores { text-align: right; font-size: 12px; color: var(--text-subtle); white-space: nowrap; }
+    .orcpac-pct { font-size: 15px; font-weight: 700; min-width: 62px; text-align: right; }
+    .orcpac-pct.ok { color: var(--verde, #2E7D32); }
+    .orcpac-pct.estourou { color: #c0392b; }
+    [data-theme="dark"] .orcpac-pct.estourou { color: #f87171; }
+
     /* ── Consolidação / Solicitações / Acompanhamento (execução do PAC) ──────── */
     .pac-filtros { display: flex; gap: 14px; flex-wrap: wrap; align-items: end; }
     .pac-filtros .form-group { margin: 0; min-width: 160px; }
@@ -129,6 +159,7 @@
           <a href="pac-gestao.html#solicitacoes" class="nav-item pac-nav-sub2" data-tab="solicitacoes">Solicitações</a>
           <a href="pac-gestao.html#setores" class="nav-item pac-nav-sub2" data-tab="setores">Setores</a>
           <a href="pac-gestao.html#parametros" class="nav-item pac-nav-sub2" data-tab="parametros">Parâmetros</a>
+          <a href="pac-gestao.html#orcamentos" class="nav-item pac-nav-sub2" data-tab="orcamentos">Orçamentos</a>
           <a href="pac-gestao.html#pedidos" class="nav-item pac-nav-sub2" data-tab="pedidos">Pedidos <span class="page-tab-count" id="pac-cnt-pedidos">0</span></a>
         </details>
         <a href="pac-importacao.html" class="nav-item pac-nav-sub" id="nav-pac-importacao" style="display:none;">Importação</a>
@@ -581,6 +612,44 @@
       </div>
     </div>
 
+    <!-- ═══ Orçamentos ═══ -->
+    <div id="pane-orcamentos" class="pac-pane">
+      <div id="orc-lista">
+        <div class="pac-card">
+          <div class="pac-card-title">Orçamentos cadastrados</div>
+          <div class="orc-cards-grid" id="orc-cards"><div class="text-muted" style="padding:12px;">Carregando...</div></div>
+        </div>
+        <div class="pac-card">
+          <div class="pac-card-title">Novo orçamento</div>
+          <div class="pac-add-form" style="grid-template-columns:1fr auto;">
+            <div class="form-group"><label>Nome</label><input type="text" id="new-orc-nome" placeholder="Ex: Orçamento 2027" /></div>
+            <button class="btn btn-primary" onclick="criarOrcamento()">+ Criar</button>
+          </div>
+          <div class="pac-msg" id="orc-msg"></div>
+        </div>
+      </div>
+
+      <div id="orc-detalhe" style="display:none;">
+        <button class="btn btn-secondary btn-sm" onclick="fecharDetalheOrcamento()" style="margin-bottom:14px;">← Voltar aos orçamentos</button>
+        <div class="pac-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+            <div class="pac-card-title" id="orc-det-titulo" style="margin:0;">—</div>
+            <div style="display:flex;gap:14px;align-items:center;">
+              <div style="text-align:right;">
+                <div class="text-muted" style="font-size:11px;">Total orçado</div>
+                <div id="orc-det-total" style="font-size:17px;font-weight:700;">R$ 0,00</div>
+              </div>
+              <button class="btn btn-primary" onclick="salvarNaturezasOrcamento()">💾 Salvar valores</button>
+            </div>
+          </div>
+          <div class="form-group" style="max-width:280px;margin-bottom:10px;">
+            <input type="text" id="orc-filtro" placeholder="🔎 Filtrar natureza..." oninput="aplicarFiltroOrcamento()" />
+          </div>
+          <div class="orc-naturezas-grid" id="orc-naturezas-grid"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- ═══ Pedidos ═══ -->
     <div id="pane-pedidos" class="pac-pane">
       <div class="pac-card">
@@ -604,6 +673,15 @@
 <div class="modal-overlay" id="modal-dfd-config">
   <div class="modal-box" style="max-width:640px;max-height:85vh;display:flex;flex-direction:column;">
     <h3 style="flex-shrink:0;">Configurações do DFD</h3>
+    <div style="flex-shrink:0;margin-bottom:16px;">
+      <div class="pac-card-title">Orçamento</div>
+      <div class="form-group" style="max-width:320px;margin:0;">
+        <select id="dfd-det-orcamento-select" onchange="salvarOrcamentoDfd()"></select>
+        <p class="text-muted" style="font-size:11.5px;margin:6px 0 0;">
+          Obrigatório antes de "Iniciar Consolidação" — é o que a tela orçamentária (Consolidação) usa pra comparar o valor dos itens de cada Natureza contra o valor orçado.
+        </p>
+      </div>
+    </div>
     <div class="pac-grids" style="overflow-y:auto;flex:1 1 auto;">
       <div>
         <div class="pac-card-title">Setores participantes</div>
@@ -658,6 +736,39 @@
     </div>
     <div style="margin-top:16px;text-align:right;">
       <button class="btn btn-secondary" onclick="fecharModalUnidadeUsuarios()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tela orçamentária do PAC (Consolidação) — pedido do Alex, 2026-09-24:
+     ícone de gráfico ao lado da Natureza, só depois dela preenchida, abre
+     comparativo de cada Natureza do orçamento x soma dos itens deste DFD.
+     2 "telas" dentro do mesmo modal: resumo (todas as naturezas) e detalhe
+     (quem está somando aquela natureza) — "Voltar" entre elas, "Fechar" só
+     sai de vez (pedido do Alex: "botão voltar em todas estas telas ou
+     fechar no formato que achar melhor"). -->
+<div class="modal-overlay" id="modal-orcamentario">
+  <div class="modal-box" style="max-width:640px;max-height:85vh;display:flex;flex-direction:column;">
+    <div id="orcpac-view-resumo">
+      <h3 style="margin-bottom:2px;">Orçamento x Gastos do DFD</h3>
+      <p class="text-muted" id="orcpac-resumo-sub" style="font-size:12.5px;margin:0 0 14px;">—</p>
+      <div id="orcpac-resumo-linhas" style="overflow-y:auto;flex:1 1 auto;"></div>
+      <div style="margin-top:16px;text-align:right;flex-shrink:0;">
+        <button class="btn btn-secondary" onclick="fecharModalOrcamentario()">Fechar</button>
+      </div>
+    </div>
+    <div id="orcpac-view-detalhe" style="display:none;">
+      <h3 id="orcpac-detalhe-titulo" style="margin-bottom:2px;">—</h3>
+      <p class="text-muted" style="font-size:12.5px;margin:0 0 14px;">Setores/itens que estão somando nesta Natureza, do maior pro menor valor.</p>
+      <div class="table-wrap" style="overflow-y:auto;flex:1 1 auto;">
+        <table>
+          <thead><tr><th>Setor</th><th>Nº PAC</th><th>Descrição</th><th style="text-align:right;">Valor</th></tr></thead>
+          <tbody id="orcpac-detalhe-tbody"></tbody>
+        </table>
+      </div>
+      <div style="margin-top:16px;text-align:right;flex-shrink:0;">
+        <button class="btn btn-secondary" onclick="voltarResumoOrcamentario()">← Voltar</button>
+      </div>
     </div>
   </div>
 </div>
