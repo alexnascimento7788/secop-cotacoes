@@ -208,10 +208,21 @@ function codigoDfd(d) {
   return `DFD-${String(d.id).padStart(3, '0')}-${d.ano_base}`;
 }
 
+// Ordem de prioridade da lista de DFDs — pedido do Alex, 2026-09-24: "os dfd
+// estao todos desordenados, entre aberto, e consolidado". Segue o pipeline
+// (quem precisa de ação primeiro); mesma lógica de pac-gestao.js, duplicada
+// aqui (mesma convenção do resto do arquivo, sem módulo compartilhado novo).
+const ORDEM_STATUS_DFD = { aberto: 0, analise: 1, em_consolidacao: 2, consolidado: 3, fechado: 4, cancelado: 5 };
+function ordenarDfdsPorStatus(lista) {
+  return [...lista].sort((a, b) =>
+    (ORDEM_STATUS_DFD[a.status] ?? 99) - (ORDEM_STATUS_DFD[b.status] ?? 99) ||
+    b.ano_base - a.ano_base || b.id - a.id);
+}
+
 async function carregarDfds() {
   try {
     const res = await fetch('/api/pac/dfds');
-    const dfds = res.ok ? await res.json() : [];
+    const dfds = ordenarDfdsPorStatus(res.ok ? await res.json() : []);
     document.getElementById('dfds-tbody').innerHTML = dfds.map(d => `
       <tr>
         <td><strong>${codigoDfd(d)}</strong></td>
