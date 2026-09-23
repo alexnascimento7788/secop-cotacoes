@@ -177,7 +177,14 @@
           </div>
           <div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap;align-items:flex-end;">
             <div class="form-group" style="flex:1 1 220px;margin:0;"><label>Descrição (opcional)</label><input type="text" id="new-dfd-descricao" placeholder="" /></div>
-            <div class="form-group" style="flex:0 0 180px;margin:0;"><label>Data de vencimento (entrega)</label><input type="date" id="new-dfd-data-entrega" /></div>
+            <div class="form-group" style="flex:0 0 180px;margin:0;">
+              <label title="Prazo para o SETOR concluir o lançamento dos itens.">Data de vencimento (entrega) ⓘ</label>
+              <input type="date" id="new-dfd-data-entrega" title="Prazo para o SETOR concluir o lançamento dos itens." />
+            </div>
+            <div class="form-group" style="flex:0 0 180px;margin:0;">
+              <label title="Data MÁXIMA para o DEPLA fechar o DFD (análise + consolidação). É essa data que aparece pro DEPLA em Acompanhamento/Consolidação.">Data de encerramento ⓘ</label>
+              <input type="date" id="new-dfd-data-encerramento" title="Data MÁXIMA para o DEPLA fechar o DFD (análise + consolidação). É essa data que aparece pro DEPLA em Acompanhamento/Consolidação." />
+            </div>
           </div>
           <div class="pac-msg" id="dfd-msg"></div>
         </div>
@@ -191,6 +198,7 @@
               <div class="pac-card-title" id="dfd-det-titulo" style="margin-bottom:4px;">—</div>
               <span class="badge" id="dfd-det-badge"></span>
               <span class="text-muted" id="dfd-det-vencimento" style="margin-left:10px;"></span>
+              <span class="text-muted" id="dfd-det-encerramento" style="margin-left:10px;"></span>
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
               <div id="dfd-det-acoes"></div>
@@ -437,7 +445,7 @@
           <div class="pac-card-title">DFDs em lançamento</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Código</th><th>Título</th><th>Ano</th><th>Vencimento</th><th>Setores finalizados</th><th>Itens lançados</th><th></th></tr></thead>
+              <thead><tr><th>Código</th><th>Título</th><th>Ano</th><th>Encerramento</th><th>Setores finalizados</th><th>Itens lançados</th><th></th></tr></thead>
               <tbody id="acomp-lista-tbody"><tr><td colspan="7" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
             </table>
           </div>
@@ -535,17 +543,40 @@
           <label>Lista</label>
           <select id="param-lista-select" onchange="carregarParametros()"></select>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Valor</th><th>Ordem</th><th>Ativo</th><th></th></tr></thead>
-            <tbody id="parametros-tbody"><tr><td colspan="4" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
-          </table>
+
+        <!-- Listas genéricas (valor único) -->
+        <div id="param-generico-wrap">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Valor</th><th>Ordem</th><th>Ativo</th><th></th></tr></thead>
+              <tbody id="parametros-tbody"><tr><td colspan="4" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
+            </table>
+          </div>
+          <div class="pac-add-form">
+            <div class="form-group"><label>Novo valor</label><input type="text" id="new-param-valor" placeholder="" /></div>
+            <div class="form-group"><label>Ordem</label><input type="number" id="new-param-ordem" placeholder="0" /></div>
+            <button class="btn btn-primary" onclick="adicionarParametro()">+ Adicionar</button>
+          </div>
         </div>
-        <div class="pac-add-form">
-          <div class="form-group"><label>Novo valor</label><input type="text" id="new-param-valor" placeholder="" /></div>
-          <div class="form-group"><label>Ordem</label><input type="number" id="new-param-ordem" placeholder="0" /></div>
-          <button class="btn btn-primary" onclick="adicionarParametro()">+ Adicionar</button>
+
+        <!-- Unidades físicas (dado estruturado — nome + IBGE + CEP + estado) -->
+        <div id="param-unidades-wrap" style="display:none;">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Nome</th><th>Código IBGE</th><th>CEP</th><th>Estado</th><th>Ordem</th><th>Ativo</th><th></th></tr></thead>
+              <tbody id="unidades-tbody"><tr><td colspan="7" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
+            </table>
+          </div>
+          <div class="pac-add-form">
+            <div class="form-group"><label>Nome</label><input type="text" id="new-unidade-nome" placeholder="CeasaMinas - Unidade ..." /></div>
+            <div class="form-group"><label>Código IBGE</label><input type="text" id="new-unidade-ibge" placeholder="" style="width:100px;" /></div>
+            <div class="form-group"><label>CEP</label><input type="text" id="new-unidade-cep" placeholder="00000-000" style="width:100px;" /></div>
+            <div class="form-group"><label>Estado</label><input type="text" id="new-unidade-estado" placeholder="MG" style="width:60px;" /></div>
+            <div class="form-group"><label>Ordem</label><input type="number" id="new-unidade-ordem" placeholder="0" style="width:70px;" /></div>
+            <button class="btn btn-primary" onclick="adicionarUnidadePac()">+ Adicionar</button>
+          </div>
         </div>
+
         <div class="pac-msg" id="param-msg"></div>
       </div>
     </div>
@@ -579,6 +610,10 @@
         <div id="dfd-det-setores">Carregando...</div>
       </div>
       <div>
+        <div class="pac-card-title">Unidades participantes</div>
+        <div id="dfd-det-unidades">Carregando...</div>
+      </div>
+      <div>
         <div class="pac-card-title">Colunas ativas</div>
         <div id="dfd-det-colunas">Carregando...</div>
       </div>
@@ -601,6 +636,27 @@
     </div>
     <div style="margin-top:16px;text-align:right;">
       <button class="btn btn-secondary" onclick="fecharModalSetorUsuarios()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: restrição gestor→unidade (define quem é sub-gestor) -->
+<div class="modal-overlay" id="modal-unidade-usuarios">
+  <div class="modal-box" style="max-width:460px;">
+    <h3 id="modal-unidade-usuarios-titulo">Acesso — unidade</h3>
+    <p class="text-muted" style="font-size:12px;margin-bottom:12px;">
+      Usuário sem nenhuma unidade marcada continua vendo/lançando em todas as unidades do seu setor (comportamento de
+      hoje). Marcando um usuário aqui, ele vira "sub-gestor": só enxerga e lança itens desta unidade, e o que ele
+      lançar entra como pendente de aprovação pelo gestor principal do setor.
+    </p>
+    <div class="table-wrap" style="max-height:360px;overflow-y:auto;">
+      <table>
+        <thead><tr><th></th><th>Usuário</th></tr></thead>
+        <tbody id="unidade-usuarios-tbody"></tbody>
+      </table>
+    </div>
+    <div style="margin-top:16px;text-align:right;">
+      <button class="btn btn-secondary" onclick="fecharModalUnidadeUsuarios()">Fechar</button>
     </div>
   </div>
 </div>

@@ -26,6 +26,13 @@ function setoresDoUsuario(userId) {
   return db.prepare(`SELECT setor_id FROM setor_usuarios WHERE user_id = ?`).all(userId).map(r => r.setor_id);
 }
 
+// Restrição gestor→unidade (define quem é "sub-gestor") — mesmo espírito de
+// setoresDoUsuario acima: lista vazia = sem restrição, vê/lança em todas as
+// unidades do(s) seu(s) setor(es); 1+ linha = restrito só a essas unidades.
+function unidadesDoUsuario(userId) {
+  return db.prepare(`SELECT unidade_id FROM unidade_usuarios WHERE user_id = ?`).all(userId).map(r => r.unidade_id);
+}
+
 // "Especificação do Objeto" (descricao_objeto) precisa de um mínimo de
 // caracteres quando preenchida — pedido do Alex, 2026-09-15, parametrizável
 // (config.pac_especificacao_min_caracteres, default 50) em vez de fixo no
@@ -260,6 +267,75 @@ router.delete('/api/pac/parametros/:id', pac, requireRotina('pac-gestao', 'exclu
   }
 });
 
+// ── PAC: Unidades (filiais físicas da CeasaMinas) ─────────────────────────────
+// Mesmo espírito de /api/pac/parametros acima, mas com dado estruturado
+// (nome + código IBGE + CEP + estado) — pedido do Alex, 2026-09-22. Exposto
+// dentro da aba Parâmetros no front (não é uma aba nova).
+router.get('/api/pac/unidades', pac, requireRotinaPac('ver'), (req, res) => {
+  res.json(db.prepare(`SELECT id, nome, codigo_ibge, cep, estado, ordem, ativo FROM unidades ORDER BY ordem`).all());
+});
+
+router.post('/api/pac/unidades', pac, requireRotina('pac-gestao', 'incluir'), (req, res) => {
+  const { nome, codigo_ibge, cep, estado, ordem } = req.body || {};
+  if (!nome || !String(nome).trim()) return res.status(400).json({ error: 'Nome é obrigatório' });
+  try {
+    const info = db.prepare(`INSERT INTO unidades (nome, codigo_ibge, cep, estado, ordem) VALUES (?, ?, ?, ?, ?)`)
+      .run(String(nome).trim(), codigo_ibge ? String(codigo_ibge).trim() : null, cep ? String(cep).trim() : null, estado ? String(estado).trim() : null, ordem || 0);
+    registrarLog(req, 'PAC', 'CRIOU_UNIDADE', `Criou a unidade "${nome}"`);
+    res.status(201).json({ id: info.lastInsertRowid });
+  } catch {
+    res.status(400).json({ error: 'Já existe uma unidade com este nome' });
+  }
+});
+
+router.put('/api/pac/unidades/:id', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const u = db.prepare(`SELECT nome FROM unidades WHERE id = ?`).get(req.params.id);
+  if (!u) return res.status(404).json({ error: 'Não encontrada' });
+  const { nome, codigo_ibge, cep, estado, ordem, ativo } = req.body || {};
+  if (nome !== undefined) db.prepare(`UPDATE unidades SET nome = ? WHERE id = ?`).run(String(nome).trim(), req.params.id);
+  if (codigo_ibge !== undefined) db.prepare(`UPDATE unidades SET codigo_ibge = ? WHERE id = ?`).run(codigo_ibge ? String(codigo_ibge).trim() : null, req.params.id);
+  if (cep !== undefined) db.prepare(`UPDATE unidades SET cep = ? WHERE id = ?`).run(cep ? String(cep).trim() : null, req.params.id);
+  if (estado !== undefined) db.prepare(`UPDATE unidades SET estado = ? WHERE id = ?`).run(estado ? String(estado).trim() : null, req.params.id);
+  if (ordem !== undefined) db.prepare(`UPDATE unidades SET ordem = ? WHERE id = ?`).run(ordem, req.params.id);
+  if (ativo !== undefined) db.prepare(`UPDATE unidades SET ativo = ? WHERE id = ?`).run(ativo ? 1 : 0, req.params.id);
+  registrarLog(req, 'PAC', 'EDITOU_UNIDADE', `Editou a unidade "${u.nome}"`);
+  res.json({ ok: true });
+});
+
+router.delete('/api/pac/unidades/:id', pac, requireRotina('pac-gestao', 'excluir'), (req, res) => {
+  const u = db.prepare(`SELECT nome FROM unidades WHERE id = ?`).get(req.params.id);
+  if (!u) return res.status(404).json({ error: 'Não encontrada' });
+  try {
+    db.prepare(`DELETE FROM unidades WHERE id = ?`).run(req.params.id);
+    registrarLog(req, 'PAC', 'EXCLUIU_UNIDADE', `Excluiu a unidade "${u.nome}"`);
+    res.json({ ok: true });
+  } catch {
+    res.status(400).json({ error: 'Esta unidade está em uso — desative-a em vez de excluir.' });
+  }
+});
+
+// Vínculo usuário↔unidade — restrição gestor→unidade (define quem é
+// sub-gestor). Mesmo padrão de setor_usuarios/DETIN "Acesso por Setor"
+// (routes/detin.js), 1 nível abaixo. Sem vínculo = vê/lança em todas as
+// unidades (comportamento de hoje, sem mudança pra quem não usar isto).
+router.get('/api/pac/unidades/:id/usuarios', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  res.json(db.prepare(`
+    SELECT u.id, u.username, u.nome_completo,
+           EXISTS(SELECT 1 FROM unidade_usuarios uu WHERE uu.unidade_id = ? AND uu.user_id = u.id) AS vinculado
+    FROM users u WHERE u.username != 'master' AND u.ativo = 1 ORDER BY COALESCE(u.nome_completo, u.username)
+  `).all(req.params.id));
+});
+router.put('/api/pac/unidades/:id/usuarios', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const { user_id, vinculado } = req.body || {};
+  if (vinculado) {
+    try { db.prepare(`INSERT INTO unidade_usuarios (unidade_id, user_id) VALUES (?, ?)`).run(req.params.id, user_id); } catch {}
+  } else {
+    db.prepare(`DELETE FROM unidade_usuarios WHERE unidade_id = ? AND user_id = ?`).run(req.params.id, user_id);
+  }
+  registrarLog(req, 'PAC', 'UNIDADE_USUARIO', `${vinculado ? 'Vinculou' : 'Desvinculou'} usuário #${user_id} à unidade #${req.params.id}`);
+  res.json({ ok: true });
+});
+
 // ── PAC: catálogo de colunas (fixo, só leitura) ───────────────────────────────
 
 router.get('/api/pac/colunas', pac, requireRotinaPac('ver'), (req, res) => {
@@ -298,14 +374,18 @@ router.get('/api/pac/dfds', pac, requireRotinaPac('ver'), (req, res) => {
 });
 
 router.post('/api/pac/dfds', pac, requireRotina('pac-gestao', 'incluir'), (req, res) => {
-  const { ano_base, titulo, descricao, data_entrega } = req.body || {};
+  const { ano_base, titulo, descricao, data_entrega, data_encerramento } = req.body || {};
   if (!ano_base || !titulo) return res.status(400).json({ error: 'Ano base e título são obrigatórios' });
   // Obrigatório pra DFD NOVO (pedido do Alex, 2026-09-07) — DFDs criados
   // antes desta versão continuam com data_entrega NULL, sem retroatividade.
   if (!data_entrega) return res.status(400).json({ error: 'Data de vencimento (entrega) é obrigatória' });
+  // Data de encerramento (pedido do Alex, 2026-09-22) — data MÁXIMA pro DEPLA
+  // fechar o DFD, diferente da vencimento (que é do SETOR pra lançar). Mesmo
+  // espírito "sem retroatividade" — só obrigatória pra DFD NOVO.
+  if (!data_encerramento) return res.status(400).json({ error: 'Data de encerramento é obrigatória' });
   if (dfdEmTramitacaoBloqueado()) return res.status(409).json({ error: MSG_DFD_EM_TRAMITACAO });
-  const info = db.prepare(`INSERT INTO dfds (ano_base, titulo, descricao, data_entrega, criado_por) VALUES (?, ?, ?, ?, ?)`)
-    .run(ano_base, String(titulo).trim(), descricao ? String(descricao).trim() : null, String(data_entrega), req.user.user_id);
+  const info = db.prepare(`INSERT INTO dfds (ano_base, titulo, descricao, data_entrega, data_encerramento, criado_por) VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(ano_base, String(titulo).trim(), descricao ? String(descricao).trim() : null, String(data_entrega), String(data_encerramento), req.user.user_id);
   const dfdId = info.lastInsertRowid;
   // Colunas ativas começam todas pré-selecionadas (o DEPLA desativa quem não quer).
   const colunas = db.prepare(`SELECT id, ordem_padrao FROM dfd_colunas_catalogo WHERE ativa = 1 ORDER BY ordem_padrao`).all();
@@ -322,22 +402,31 @@ router.get('/api/pac/dfds/:id', pac, requireRotinaPac('ver'), (req, res) => {
     SELECT s.id, s.nome FROM dfd_setores ds JOIN setores s ON s.id = ds.setor_id
     WHERE ds.dfd_id = ? ORDER BY s.ordem
   `).all(req.params.id);
+  const unidadesParticipantes = db.prepare(`
+    SELECT u.id, u.nome FROM dfd_unidades du JOIN unidades u ON u.id = du.unidade_id
+    WHERE du.dfd_id = ? ORDER BY u.ordem
+  `).all(req.params.id);
   const colunas = db.prepare(`
     SELECT c.id, c.slug, c.label, c.grupo, c.tipo_input, c.lista, c.obrigatoria, dca.ordem
     FROM dfd_colunas_ativas dca JOIN dfd_colunas_catalogo c ON c.id = dca.coluna_id
     WHERE dca.dfd_id = ? ORDER BY dca.ordem
   `).all(req.params.id);
-  res.json({ ...dfd, setores: setoresParticipantes, colunas });
+  // Unidades que ESTE usuário pode lançar/ver — vazio = sem restrição (gestor
+  // principal, DEPLA, master); usado pelo front pra decidir o seletor de
+  // unidade no "+ Novo item" e se mostra os botões de aprovar/rejeitar.
+  const minhasUnidadesRestritas = req.user.username === 'master' ? [] : unidadesDoUsuario(req.user.user_id);
+  res.json({ ...dfd, setores: setoresParticipantes, unidades: unidadesParticipantes, colunas, minhas_unidades_restritas: minhasUnidadesRestritas });
 });
 
 router.put('/api/pac/dfds/:id', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
   const dfd = db.prepare(`SELECT titulo FROM dfds WHERE id = ?`).get(req.params.id);
   if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
-  const { ano_base, titulo, descricao, data_entrega } = req.body || {};
+  const { ano_base, titulo, descricao, data_entrega, data_encerramento } = req.body || {};
   if (ano_base !== undefined) db.prepare(`UPDATE dfds SET ano_base = ? WHERE id = ?`).run(ano_base, req.params.id);
   if (titulo !== undefined) db.prepare(`UPDATE dfds SET titulo = ? WHERE id = ?`).run(String(titulo).trim(), req.params.id);
   if (descricao !== undefined) db.prepare(`UPDATE dfds SET descricao = ? WHERE id = ?`).run(descricao ? String(descricao).trim() : null, req.params.id);
   if (data_entrega !== undefined) db.prepare(`UPDATE dfds SET data_entrega = ? WHERE id = ?`).run(data_entrega ? String(data_entrega) : null, req.params.id);
+  if (data_encerramento !== undefined) db.prepare(`UPDATE dfds SET data_encerramento = ? WHERE id = ?`).run(data_encerramento ? String(data_encerramento) : null, req.params.id);
   db.prepare(`UPDATE dfds SET atualizado_em = datetime('now') WHERE id = ?`).run(req.params.id);
   registrarLog(req, 'PAC', 'EDITOU_DFD', `Editou o DFD "${dfd.titulo}"`);
   res.json({ ok: true });
@@ -491,6 +580,27 @@ router.put('/api/pac/dfds/:id/setores', pac, requireRotina('pac-gestao', 'altera
   res.json({ ok: true });
 });
 
+// Participação de unidade no DFD — espelha .../setores acima. Sem e-mail
+// próprio (o aviso de "DFD aberto" já dispara por setor, na rota acima).
+router.get('/api/pac/dfds/:id/unidades', pac, requireRotina('pac-gestao', 'ver'), (req, res) => {
+  res.json(db.prepare(`
+    SELECT u.id, u.nome,
+           EXISTS(SELECT 1 FROM dfd_unidades du WHERE du.dfd_id = ? AND du.unidade_id = u.id) AS ativo
+    FROM unidades u WHERE u.ativo = 1 ORDER BY u.ordem
+  `).all(req.params.id));
+});
+
+router.put('/api/pac/dfds/:id/unidades', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const { unidade_id, ativo } = req.body || {};
+  if (ativo) {
+    try { db.prepare(`INSERT INTO dfd_unidades (dfd_id, unidade_id) VALUES (?, ?)`).run(req.params.id, unidade_id); } catch {}
+  } else {
+    db.prepare(`DELETE FROM dfd_unidades WHERE dfd_id = ? AND unidade_id = ?`).run(req.params.id, unidade_id);
+  }
+  registrarLog(req, 'PAC', 'DFD_UNIDADE', `${ativo ? 'Incluiu' : 'Removeu'} unidade #${unidade_id} no DFD #${req.params.id}`);
+  res.json({ ok: true });
+});
+
 router.get('/api/pac/dfds/:id/colunas', pac, requireRotina('pac-gestao', 'ver'), (req, res) => {
   res.json(db.prepare(`
     SELECT c.id, c.slug, c.label, c.grupo,
@@ -523,7 +633,17 @@ router.get('/api/pac/dfds/:id/itens', pac, requireRotinaPac('ver'), (req, res) =
     const meus = setoresDoUsuario(req.user.user_id);
     if (!meus.length) return res.json([]);
     const ph = meus.map(() => '?').join(',');
-    itens = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND setor_id IN (${ph}) ORDER BY numero_item`).all(dfdId, ...meus);
+    // Sub-gestor (restrito a 1+ unidades via unidade_usuarios) só vê itens
+    // daquela(s) unidade(s) — não enxerga o que o gestor principal do setor
+    // está lançando noutra unidade. Sem restrição = vê tudo do setor, igual
+    // sempre foi.
+    const minhasUnidades = unidadesDoUsuario(req.user.user_id);
+    if (minhasUnidades.length) {
+      const phU = minhasUnidades.map(() => '?').join(',');
+      itens = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND setor_id IN (${ph}) AND unidade_id IN (${phU}) ORDER BY numero_item`).all(dfdId, ...meus, ...minhasUnidades);
+    } else {
+      itens = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND setor_id IN (${ph}) ORDER BY numero_item`).all(dfdId, ...meus);
+    }
   }
   const ids = itens.map(i => i.id);
   const valoresPorItem = {};
@@ -559,6 +679,7 @@ router.post('/api/pac/dfds/:id/itens', pac, requireRotina('pac-lancamento', 'inc
   (req, res) => {
   const dfdId = Number(req.params.id);
   const { setor_id, valores } = req.body || {};
+  let { unidade_id } = req.body || {};
   if (!setor_id) return res.status(400).json({ error: 'Setor é obrigatório' });
   if (req.user.username !== 'master' && !setoresDoUsuario(req.user.user_id).includes(Number(setor_id))) {
     return res.status(403).json({ error: 'Você não pertence a este setor.' });
@@ -566,6 +687,28 @@ router.post('/api/pac/dfds/:id/itens', pac, requireRotina('pac-lancamento', 'inc
   const setor = db.prepare(`SELECT id, nome, sigla FROM setores WHERE id = ?`).get(setor_id);
   const participa = db.prepare(`SELECT 1 FROM dfd_setores WHERE dfd_id = ? AND setor_id = ?`).get(dfdId, setor_id);
   if (!participa) return res.status(400).json({ error: 'Este setor não participa deste DFD.' });
+
+  // Unidade (filial) do item — default "Contagem" quando não vier no body.
+  // Só valida participação (dfd_unidades) se o DFD JÁ TIVER alguma unidade
+  // configurada — DFD criado antes desta versão não tem nenhuma linha em
+  // dfd_unidades e não pode ficar bloqueado retroativamente (mesmo espírito
+  // de data_entrega, ver database.js).
+  if (!unidade_id) {
+    unidade_id = db.prepare(`SELECT id FROM unidades WHERE nome = 'CeasaMinas - Unidade Contagem'`).get()?.id || null;
+  }
+  const totalUnidadesDfd = db.prepare(`SELECT COUNT(*) AS n FROM dfd_unidades WHERE dfd_id = ?`).get(dfdId).n;
+  if (totalUnidadesDfd > 0 && unidade_id) {
+    const participaUnidade = db.prepare(`SELECT 1 FROM dfd_unidades WHERE dfd_id = ? AND unidade_id = ?`).get(dfdId, unidade_id);
+    if (!participaUnidade) return res.status(400).json({ error: 'Esta unidade não participa deste DFD.' });
+  }
+  // Sub-gestor (restrito a 1+ unidades) só pode lançar na(s) sua(s) própria(s)
+  // unidade(s), e o item nasce "pendente" até o gestor principal aprovar.
+  const minhasUnidades = req.user.username === 'master' ? [] : unidadesDoUsuario(req.user.user_id);
+  if (minhasUnidades.length && !minhasUnidades.includes(Number(unidade_id))) {
+    return res.status(403).json({ error: 'Você só pode lançar itens na(s) sua(s) unidade(s).' });
+  }
+  const aprovacaoSubgestor = minhasUnidades.length ? 'pendente' : null;
+
   const erroEspecificacao = validarEspecificacaoObjeto(valores);
   if (erroEspecificacao) return res.status(400).json({ error: erroEspecificacao.mensagem, especificacaoMinima: erroEspecificacao });
 
@@ -578,9 +721,9 @@ router.post('/api/pac/dfds/:id/itens', pac, requireRotina('pac-lancamento', 'inc
   const idPac = crypto.randomUUID();
   const codigoPac = gerarCodigoPac(setor, numeroItem);
   const info = db.prepare(`
-    INSERT INTO dfd_itens (dfd_id, setor_id, numero_item, criado_por, numero_pac, id_pac, codigo_pac)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(dfdId, setor_id, numeroItem, req.user.user_id, String(numeroItem), idPac, codigoPac);
+    INSERT INTO dfd_itens (dfd_id, setor_id, numero_item, criado_por, numero_pac, id_pac, codigo_pac, unidade_id, aprovacao_subgestor)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(dfdId, setor_id, numeroItem, req.user.user_id, String(numeroItem), idPac, codigoPac, unidade_id, aprovacaoSubgestor);
   const itemId = info.lastInsertRowid;
 
   const colunasAtivas = new Set(db.prepare(`SELECT coluna_id FROM dfd_colunas_ativas WHERE dfd_id = ?`).all(dfdId).map(r => r.coluna_id));
@@ -645,6 +788,46 @@ router.delete('/api/pac/itens/:id',
     db.prepare(`UPDATE dfd_itens SET excluido_em = datetime('now') WHERE id = ?`).run(item.id);
     if (req.pedidoConsumir) db.prepare(`UPDATE dfd_pedidos_edicao SET consumido_em = datetime('now') WHERE id = ?`).run(req.pedidoConsumir);
     registrarLog(req, 'PAC', 'EXCLUIU_ITEM', `Excluiu o item #${item.id} do DFD #${item.dfd_id}`);
+    res.json({ ok: true });
+  }
+);
+
+// Aprovação/rejeição de item lançado por sub-gestor (aprovacao_subgestor =
+// 'pendente') — só quem NÃO é restrito naquela unidade (gestor principal do
+// setor), DEPLA ou master. Rejeitar reaproveita o soft-delete que já existe
+// (excluido_em), mesmo efeito de sumir das contagens que um DELETE normal já
+// produz — não precisa de campo novo pra "cancelado por rejeição".
+router.patch('/api/pac/itens/:id/aprovacao',
+  pac,
+  requireRotina('pac-lancamento', 'alterar'),
+  (req, res, next) => {
+    const item = db.prepare(`SELECT id, dfd_id, setor_id, unidade_id, aprovacao_subgestor FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
+    if (!item) return res.status(404).json({ error: 'Item não encontrado' });
+    if (item.aprovacao_subgestor !== 'pendente') return res.status(409).json({ error: 'Este item não está pendente de aprovação.' });
+    req.item = item;
+    next();
+  },
+  (req, res) => {
+    const item = req.item;
+    if (req.user.username !== 'master' && !setoresDoUsuario(req.user.user_id).includes(item.setor_id)) {
+      return res.status(403).json({ error: 'Você não pertence ao setor deste item.' });
+    }
+    // Gestor principal = sem restrição de unidade (ou sem restrição NAQUELA
+    // unidade específica). DEPLA (pac-gestao) e master sempre podem.
+    if (req.user.username !== 'master' && !temPacGestao(req)) {
+      const minhasUnidades = unidadesDoUsuario(req.user.user_id);
+      if (minhasUnidades.length && minhasUnidades.includes(item.unidade_id)) {
+        return res.status(403).json({ error: 'Você não pode aprovar seus próprios lançamentos — só o gestor principal do setor.' });
+      }
+    }
+    const { aprovado } = req.body || {};
+    if (aprovado) {
+      db.prepare(`UPDATE dfd_itens SET aprovacao_subgestor = 'aprovado', atualizado_em = datetime('now') WHERE id = ?`).run(item.id);
+      registrarLog(req, 'PAC', 'APROVOU_ITEM_SUBGESTOR', `Aprovou o item #${item.id} do DFD #${item.dfd_id}`);
+    } else {
+      db.prepare(`UPDATE dfd_itens SET aprovacao_subgestor = 'rejeitado', excluido_em = datetime('now') WHERE id = ?`).run(item.id);
+      registrarLog(req, 'PAC', 'REJEITOU_ITEM_SUBGESTOR', `Rejeitou o item #${item.id} do DFD #${item.dfd_id}`);
+    }
     res.json({ ok: true });
   }
 );

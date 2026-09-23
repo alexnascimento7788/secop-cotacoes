@@ -120,7 +120,7 @@ async function mostrarListaAcompanhamento() {
         <td><strong>${codigoDfd(d)}</strong></td>
         <td>${d.titulo}</td>
         <td>${d.ano_base}</td>
-        <td>${d.data_entrega ? fmtBrData(d.data_entrega) : 'não informado'}</td>
+        <td>${d.data_encerramento ? fmtBrData(d.data_encerramento) : 'não informado'}</td>
         <td>${total ? `${finalizados} de ${total}` : '—'}</td>
         <td>${d.itens_count ?? 0}</td>
         <td style="text-align:right;"><button class="btn btn-primary btn-sm" onclick="abrirAcompanhamentoDoDfd(${d.id})">Abrir →</button></td>
@@ -199,16 +199,20 @@ async function criarDfd() {
   const ano_base = parseInt(document.getElementById('new-dfd-ano').value, 10);
   const descricao = document.getElementById('new-dfd-descricao').value.trim();
   const data_entrega = document.getElementById('new-dfd-data-entrega').value; // <input type=date> já entrega AAAA-MM-DD
+  const data_encerramento = document.getElementById('new-dfd-data-encerramento').value;
   const msg = document.getElementById('dfd-msg');
   msg.style.color = '';
   if (!titulo || !ano_base) { msg.style.color = '#c00'; msg.textContent = 'Informe título e ano base.'; return; }
   // Obrigatória (pedido do Alex, 2026-09-07) — checada aqui pra não depender
   // só do servidor, mas o servidor também recusa (ver POST /api/pac/dfds).
   if (!data_entrega) { msg.style.color = '#c00'; msg.textContent = 'Informe a data de vencimento (entrega).'; return; }
+  // Data de encerramento (pedido do Alex, 2026-09-22) — data MÁXIMA pro
+  // DEPLA fechar o DFD, separada da vencimento (que é do setor).
+  if (!data_encerramento) { msg.style.color = '#c00'; msg.textContent = 'Informe a data de encerramento.'; return; }
   try {
     const res = await fetch('/api/pac/dfds', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ titulo, ano_base, descricao, data_entrega }),
+      body: JSON.stringify({ titulo, ano_base, descricao, data_entrega, data_encerramento }),
     });
     if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
     msg.style.color = '#2E7D32';
@@ -217,6 +221,7 @@ async function criarDfd() {
     document.getElementById('new-dfd-ano').value = '';
     document.getElementById('new-dfd-descricao').value = '';
     document.getElementById('new-dfd-data-entrega').value = '';
+    document.getElementById('new-dfd-data-encerramento').value = '';
     carregarDfds();
   } catch (e) {
     msg.style.color = '#c00'; msg.textContent = 'Erro: ' + e.message;
@@ -252,6 +257,7 @@ async function carregarDetalheDfd() {
   // "destaque inteligente" (cor de farol) desde 2026-09-17, mesmo padrão de
   // badgeVencimento() em pac-lancamento.js.
   document.getElementById('dfd-det-vencimento').innerHTML = badgeVencimento(dfd.data_entrega);
+  document.getElementById('dfd-det-encerramento').innerHTML = badgeEncerramento(dfd.data_encerramento);
 
   fecharAcaoDfd();
   // Botão de atalho pro próximo passo do fluxo — pedido do Alex, 2026-09-15:
@@ -307,6 +313,15 @@ function badgeVencimento(dataIso) {
   const dias = diasRestantesPac(dataIso);
   const classe = dias < 0 ? 'badge-parado' : dias <= 5 ? 'badge-aprovacao' : 'badge-concluido';
   return `<span class="badge ${classe}">Vencimento: ${fmtBrData(dataIso)}</span>`;
+}
+// Data de encerramento (pedido do Alex, 2026-09-22) — data MÁXIMA pro DEPLA
+// fechar o DFD, mostrada ao lado do vencimento (que é do setor). Mesmo
+// padrão visual de badgeVencimento, só trocando o rótulo/dado.
+function badgeEncerramento(dataIso) {
+  if (!dataIso) return `<span class="badge badge-fechado">Encerramento: não informado</span>`;
+  const dias = diasRestantesPac(dataIso);
+  const classe = dias < 0 ? 'badge-parado' : dias <= 5 ? 'badge-aprovacao' : 'badge-concluido';
+  return `<span class="badge ${classe}">Encerramento: ${fmtBrData(dataIso)}</span>`;
 }
 function mensagemStatusDfd({ status, temItens, todosFinalizados, dias }) {
   const prazoTxto = dias == null ? '' : dias > 0 ? ` Restam ${dias} dia(s) para o prazo.` : dias === 0 ? ' O prazo termina hoje!' : ` O prazo já venceu há ${-dias} dia(s).`;
@@ -381,6 +396,7 @@ async function executarAcaoDfd() {
 function abrirConfigDfd() {
   document.getElementById('modal-dfd-config').classList.add('open');
   renderGridSetoresDfd();
+  renderGridUnidadesDfd();
   renderGridColunasDfd();
 }
 
@@ -436,6 +452,35 @@ async function toggleSetorDoDfd(setorId, ativo) {
   } catch {
     toast('Erro ao atualizar setor do DFD', 'error');
     renderGridSetoresDfd();
+  }
+}
+
+// Unidades participantes do DFD — espelha renderGridSetoresDfd/toggleSetorDoDfd acima.
+async function renderGridUnidadesDfd() {
+  const wrap = document.getElementById('dfd-det-unidades');
+  const res = await fetch(`/api/pac/dfds/${_dfdAtualId}/unidades`);
+  const unidades = res.ok ? await res.json() : [];
+  wrap.innerHTML = `
+    <table>
+      <tbody>
+        ${unidades.map(u => `
+          <tr>
+            <td style="width:32px;"><input type="checkbox" ${u.ativo ? 'checked' : ''} onchange="toggleUnidadeDoDfd(${u.id}, this.checked)"></td>
+            <td>${u.nome}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+async function toggleUnidadeDoDfd(unidadeId, ativo) {
+  try {
+    const res = await fetch(`/api/pac/dfds/${_dfdAtualId}/unidades`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ unidade_id: unidadeId, ativo }),
+    });
+    if (!res.ok) throw new Error();
+  } catch {
+    toast('Erro ao atualizar unidade do DFD', 'error');
+    renderGridUnidadesDfd();
   }
 }
 
@@ -780,14 +825,24 @@ const LISTAS_PARAMETRO = [
   ['fonte_pagadora', 'Fonte Pagadora'], ['unidade_medida', 'Unidade'], ['sim_nao', 'Sim/Não'],
   ['tipo_contratacao', 'Tipo de Contratação'], ['natureza_orcamentaria', 'Natureza Orçamentária'],
 ];
+// Sentinela — NÃO é uma lista de dfd_parametros_lista, é a tabela estruturada
+// `unidades` (nome + código IBGE + CEP + estado). Nome do rótulo deixa
+// "(filiais)" explícito pra não confundir com "Unidade" (unidade_medida)
+// logo acima, que é outra coisa (unidade de medida do item).
+const LISTA_UNIDADES_FISICAS = '__unidades_fisicas__';
 
 function popularSelectListas() {
   const sel = document.getElementById('param-lista-select');
-  sel.innerHTML = LISTAS_PARAMETRO.map(([slug, label]) => `<option value="${slug}">${label}</option>`).join('');
+  sel.innerHTML = LISTAS_PARAMETRO.map(([slug, label]) => `<option value="${slug}">${label}</option>`).join('')
+    + `<option value="${LISTA_UNIDADES_FISICAS}">Unidades (filiais)</option>`;
 }
 
 async function carregarParametros() {
   const lista = document.getElementById('param-lista-select').value;
+  const ehUnidades = lista === LISTA_UNIDADES_FISICAS;
+  document.getElementById('param-generico-wrap').style.display = ehUnidades ? 'none' : '';
+  document.getElementById('param-unidades-wrap').style.display = ehUnidades ? '' : 'none';
+  if (ehUnidades) { await carregarUnidadesPac(); return; }
   try {
     const res = await fetch(`/api/pac/parametros?lista=${encodeURIComponent(lista)}`);
     const params = res.ok ? await res.json() : [];
@@ -865,6 +920,146 @@ async function excluirParametro(id, valor) {
     carregarParametros();
   } catch (e) {
     toast('Erro: ' + e.message, 'error');
+  }
+}
+
+/* ── Unidades físicas (filiais da CeasaMinas) ───────────────────────────────
+   Mesma aba Parâmetros, mas dado estruturado (não cabe no mecanismo genérico
+   de dfd_parametros_lista acima) — tabela própria `unidades`. */
+
+async function carregarUnidadesPac() {
+  try {
+    const res = await fetch('/api/pac/unidades');
+    const unidades = res.ok ? await res.json() : [];
+    document.getElementById('unidades-tbody').innerHTML = unidades.map(u => `
+      <tr>
+        <td><strong>${u.nome}</strong></td>
+        <td>${u.codigo_ibge || '—'}</td>
+        <td>${u.cep || '—'}</td>
+        <td>${u.estado || '—'}</td>
+        <td>${u.ordem}</td>
+        <td><input type="checkbox" ${u.ativo ? 'checked' : ''} onchange="toggleUnidadeAtivo(${u.id}, this.checked)"></td>
+        <td style="text-align:right;white-space:nowrap;">
+          <button class="btn btn-secondary btn-sm" onclick='editarUnidadePac(${u.id}, ${JSON.stringify(u.nome)}, ${JSON.stringify(u.codigo_ibge || "")}, ${JSON.stringify(u.cep || "")}, ${JSON.stringify(u.estado || "")}, ${u.ordem})'>Editar</button>
+          <button class="btn btn-secondary btn-sm" onclick='abrirModalUnidadeUsuarios(${u.id}, ${JSON.stringify(u.nome)})'>Acesso</button>
+          <button class="btn btn-danger btn-sm" onclick='excluirUnidadePac(${u.id}, ${JSON.stringify(u.nome)})'>Excluir</button>
+        </td>
+      </tr>
+    `).join('') || `<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhuma unidade cadastrada.</td></tr>`;
+  } catch {
+    toast('Erro ao carregar unidades', 'error');
+  }
+}
+
+async function adicionarUnidadePac() {
+  const nome = document.getElementById('new-unidade-nome').value.trim();
+  const codigo_ibge = document.getElementById('new-unidade-ibge').value.trim();
+  const cep = document.getElementById('new-unidade-cep').value.trim();
+  const estado = document.getElementById('new-unidade-estado').value.trim();
+  const ordem = parseInt(document.getElementById('new-unidade-ordem').value, 10) || 0;
+  const msg = document.getElementById('param-msg');
+  msg.style.color = '';
+  if (!nome) { msg.style.color = '#c00'; msg.textContent = 'Informe o nome da unidade.'; return; }
+  try {
+    const res = await fetch('/api/pac/unidades', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome, codigo_ibge, cep, estado, ordem }),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    msg.style.color = '#2E7D32'; msg.textContent = `"${nome}" adicionada.`;
+    ['new-unidade-nome', 'new-unidade-ibge', 'new-unidade-cep', 'new-unidade-estado', 'new-unidade-ordem'].forEach(id => { document.getElementById(id).value = ''; });
+    carregarUnidadesPac();
+  } catch (e) {
+    msg.style.color = '#c00'; msg.textContent = 'Erro: ' + e.message;
+  }
+}
+
+async function editarUnidadePac(id, nomeAtual, ibgeAtual, cepAtual, estadoAtual, ordemAtual) {
+  const nome = prompt('Nome:', nomeAtual);
+  if (nome === null || !nome.trim()) return;
+  const codigo_ibge = prompt('Código IBGE:', ibgeAtual);
+  if (codigo_ibge === null) return;
+  const cep = prompt('CEP:', cepAtual);
+  if (cep === null) return;
+  const estado = prompt('Estado:', estadoAtual);
+  if (estado === null) return;
+  const ordemStr = prompt('Ordem:', ordemAtual);
+  if (ordemStr === null) return;
+  try {
+    const res = await fetch(`/api/pac/unidades/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome: nome.trim(), codigo_ibge: codigo_ibge.trim(), cep: cep.trim(), estado: estado.trim(), ordem: parseInt(ordemStr, 10) || 0 }),
+    });
+    if (!res.ok) throw new Error();
+    carregarUnidadesPac();
+  } catch {
+    toast('Erro ao editar unidade', 'error');
+  }
+}
+
+async function toggleUnidadeAtivo(id, ativo) {
+  try {
+    const res = await fetch(`/api/pac/unidades/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ativo }),
+    });
+    if (!res.ok) throw new Error();
+  } catch {
+    toast('Erro ao atualizar unidade', 'error');
+    carregarUnidadesPac();
+  }
+}
+
+async function excluirUnidadePac(id, nome) {
+  if (!confirm(`Excluir "${nome}"?`)) return;
+  try {
+    const res = await fetch(`/api/pac/unidades/${id}`, { method: 'DELETE' });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    carregarUnidadesPac();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+  }
+}
+
+/* ── Acesso por Unidade (restrição gestor→unidade / sub-gestor) ─────────────
+   Mesmo padrão de abrirModalSetorUsuarios/renderSetorUsuarios/toggleSetorUsuario
+   acima, trocando setor por unidade. */
+let _unidadeUsuariosId = null;
+
+async function abrirModalUnidadeUsuarios(unidadeId, nomeUnidade) {
+  _unidadeUsuariosId = unidadeId;
+  document.getElementById('modal-unidade-usuarios-titulo').textContent = `Acesso — ${nomeUnidade}`;
+  await renderUnidadeUsuarios();
+  document.getElementById('modal-unidade-usuarios').classList.add('open');
+}
+
+function fecharModalUnidadeUsuarios() {
+  document.getElementById('modal-unidade-usuarios').classList.remove('open');
+  _unidadeUsuariosId = null;
+}
+
+async function renderUnidadeUsuarios() {
+  const tbody = document.getElementById('unidade-usuarios-tbody');
+  tbody.innerHTML = '<tr><td colspan="2" style="padding:12px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>';
+  const res = await fetch(`/api/pac/unidades/${_unidadeUsuariosId}/usuarios`);
+  const usuarios = res.ok ? await res.json() : [];
+  tbody.innerHTML = usuarios.map(u => `
+    <tr>
+      <td style="width:32px;"><input type="checkbox" ${u.vinculado ? 'checked' : ''} onchange="toggleUnidadeUsuario(${u.id}, this.checked)"></td>
+      <td>${u.nome_completo || u.username}</td>
+    </tr>
+  `).join('') || `<tr><td colspan="2" style="padding:12px;text-align:center;color:var(--text-subtle);">Nenhum usuário.</td></tr>`;
+}
+
+async function toggleUnidadeUsuario(userId, vinculado) {
+  try {
+    const res = await fetch(`/api/pac/unidades/${_unidadeUsuariosId}/usuarios`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: userId, vinculado }),
+    });
+    if (!res.ok) throw new Error();
+    toast('Salvo.');
+  } catch {
+    toast('Erro ao salvar', 'error');
+    renderUnidadeUsuarios();
   }
 }
 
@@ -1075,8 +1270,11 @@ async function abrirConsolidadoDetalhe(dfdId, titulo, anoBase) {
   // carregado (carregarConsolidacaoLista chama carregarDfds() se preciso).
   const dfdInfo = _dfds.find(d => d.id === dfdId);
   const vencEl = document.getElementById('consol-det-vencimento');
+  // Sempre mostra ENCERRAMENTO aqui (pedido do Alex, 2026-09-22) — telas do
+  // DEPLA que fazem análise/consolidação nunca mostram o vencimento (que é
+  // o prazo do SETOR pra lançar, sem relação com o trabalho do DEPLA).
   if (vencEl) vencEl.textContent = dfdInfo
-    ? (dfdInfo.data_entrega ? `Vencimento (entrega) do DFD: ${fmtBrData(dfdInfo.data_entrega)}` : 'Vencimento (entrega) do DFD: não informado')
+    ? (dfdInfo.data_encerramento ? `Encerramento do DFD: ${fmtBrData(dfdInfo.data_encerramento)}` : 'Encerramento do DFD: não informado')
     : '';
   // Reseta o filtro de setor (dataset.montado força remontar as <option> pra
   // este DFD — sem isso, abrir um 2º DFD reaproveitaria a lista de setores do
@@ -1678,8 +1876,10 @@ async function carregarAcompanhamento() {
   // Vencimento do DFD selecionado — pedido do Alex, 2026-09-07, ver criarDfd()/
   // POST /api/pac/dfds. _dfds já vem carregado por carregarDfds() no boot.
   const dfdSel = _dfds.find(d => d.id === Number(dfdId));
+  // Sempre mostra ENCERRAMENTO aqui (pedido do Alex, 2026-09-22, mesma regra
+  // de consol-det-vencimento acima).
   document.getElementById('acomp-vencimento').textContent = dfdSel
-    ? (dfdSel.data_entrega ? `Vencimento (entrega) do DFD: ${fmtBrData(dfdSel.data_entrega)}` : 'Vencimento (entrega) do DFD: não informado')
+    ? (dfdSel.data_encerramento ? `Encerramento do DFD: ${fmtBrData(dfdSel.data_encerramento)}` : 'Encerramento do DFD: não informado')
     : '';
   try {
     const res = await fetch(`/api/pac/dfds/${dfdId}/acompanhamento`);
