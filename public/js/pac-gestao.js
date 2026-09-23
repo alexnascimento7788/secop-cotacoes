@@ -1286,8 +1286,11 @@ async function abrirConsolidadoDetalhe(dfdId, titulo, anoBase) {
   // badge-fechado (cinza) passou despercebido (pedido do Alex, 2026-09-24:
   // "nao ficou legal, preciso de algo que chame atencao") — badge-alerta-
   // encerramento é laranja e com fonte maior que o badge padrão.
+  // Rótulo "Data de Finalização" nessa tela — pedido do Alex, 2026-09-24
+  // (só o texto; o dado continua sendo data_encerramento, igual em
+  // Lançamento/DFD/Acompanhamento).
   if (vencEl) vencEl.innerHTML = dfdInfo
-    ? `<span class="badge badge-alerta-encerramento">Encerramento do DFD: ${dfdInfo.data_encerramento ? fmtBrData(dfdInfo.data_encerramento) : 'não informado'}</span>`
+    ? `<span class="badge badge-alerta-encerramento">Data de Finalização: ${dfdInfo.data_encerramento ? fmtBrData(dfdInfo.data_encerramento) : 'não informado'}</span>`
     : '';
   // Reseta o filtro de setor (dataset.montado força remontar as <option> pra
   // este DFD — sem isso, abrir um 2º DFD reaproveitaria a lista de setores do
