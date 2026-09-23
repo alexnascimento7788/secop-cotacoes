@@ -1926,15 +1926,15 @@ function renderResumoOrcamentario(naturezaDestaque) {
     const positivo = saldo >= 0;
     const pct = l.valor_orcado > 0 ? (l.valor_usado / l.valor_orcado) * 100 : (l.valor_usado > 0 ? Infinity : 0);
     const destaque = l.natureza === naturezaDestaque;
+    const classeStatus = positivo ? 'positivo' : 'negativo';
+    const saldoTxt = (saldo < 0 ? '-R$ ' : 'R$ ') + _consolFmtMoeda(Math.abs(saldo));
     return `
-      <div class="orcpac-linha${!positivo ? ' estourou' : ''}"${destaque ? ' style="border:2px solid var(--laranja, #F9A800);"' : ''}>
+      <div class="orcpac-linha${!positivo ? ' estourou' : ''}"${destaque ? ' style="border:2px solid var(--laranja, #F9A800);"' : ''} title="${pct === Infinity ? '—' : pct.toFixed(1) + '% do orçamento usado'}">
         <div class="orcpac-nome">${l.natureza}</div>
         <div class="orcpac-valores">
-          <div class="orcpac-valor-linha"><span class="lbl">Usado</span>R$ ${_consolFmtMoeda(l.valor_usado)}</div>
-          <div class="orcpac-valor-linha"><span class="lbl">Orçado</span>R$ ${_consolFmtMoeda(l.valor_orcado)}</div>
-        </div>
-        <div class="orcpac-saldo ${positivo ? 'positivo' : 'negativo'}" title="${positivo ? 'Dentro do orçamento' : 'Orçamento estourado'} — ${pct === Infinity ? '—' : pct.toFixed(1) + '% usado'}">
-          <span class="orcpac-seta">${positivo ? '▲' : '▼'}</span>${positivo ? '✅' : '⚠️'}
+          <div class="orcpac-valor-col orcado"><span class="lbl">Orçado</span><span class="val">R$ ${_consolFmtMoeda(l.valor_orcado)}</span></div>
+          <div class="orcpac-valor-col usado"><span class="lbl">Usado</span><span class="val ${classeStatus}">R$ ${_consolFmtMoeda(l.valor_usado)}</span></div>
+          <div class="orcpac-valor-col saldo"><span class="lbl">Saldo</span><span class="val ${classeStatus}">${saldoTxt}</span></div>
         </div>
         <button type="button" class="btn btn-secondary btn-xs" onclick="abrirDetalheNaturezaOrcamentaria('${l.natureza.replace(/'/g, "\\'")}')">Quem soma</button>
       </div>`;

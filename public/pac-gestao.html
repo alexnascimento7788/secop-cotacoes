@@ -74,31 +74,33 @@
     .orc-natureza-row input { width: 130px; text-align: right; flex-shrink: 0; }
 
     /* ── Tela orçamentária do PAC (Consolidação) ─────────────────────────────
-       comparativo natureza x orçamento por DFD — "informativo caso o valor
-       atual seja maior que o orçamento, o percentual, setas indicadores".
-       Pedido do Alex, 2026-09-24 (2ª rodada): tela mais larga, cabeçalho
-       centralizado com a logo, mais destaque em Usado/Orçado, ícone+seta de
-       saldo positivo/negativo, e sem travar sem barra de rolagem (usa o
-       mesmo .modal-box-lg/.modal-box-lg-corpo já provado em outras telas —
-       .orcpac-view precisa ser flex column pra esse padrão funcionar, senão
-       o filho com overflow:auto não tem contexto de altura pra valer). */
+       comparativo natureza x orçamento por DFD. Pedido do Alex, 2026-09-24
+       (3ª rodada): os emojis ✅/⚠️ são SEMPRE coloridos pelo próprio sistema
+       operacional (não respeitam CSS `color`) — misturado com a seta ▲/▼
+       (essa sim colorida por CSS) dava a impressão de 2 informações
+       diferentes (verde E laranja juntos, sem sentido). Tirado o ícone;
+       Orçado/Usado/Saldo viram 3 colunas lado a lado tipo mini-tabela —
+       Orçado em azul (neutro, é só referência), Usado e Saldo em
+       verde/vermelho conforme dentro ou fora do orçamento. Saldo é o
+       "totalizador da linha" pedido (orçado − usado, com sinal). */
     .orcpac-view { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
     .orcpac-cabecalho { display: flex; align-items: center; justify-content: center; gap: 14px; text-align: center; flex-shrink: 0; margin-bottom: 16px; }
     .orcpac-cabecalho img { height: 40px; flex-shrink: 0; }
     .orcpac-cabecalho h3 { margin: 0 0 2px; }
     .orcpac-cabecalho p { margin: 0; font-size: 12.5px; }
-    .orcpac-linha { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 8px; margin-bottom: 8px; background: var(--surface-2); }
+    .orcpac-linha { display: flex; align-items: center; gap: 16px; padding: 12px 14px; border-radius: 8px; margin-bottom: 8px; background: var(--surface-2); }
     .orcpac-linha.estourou { background: #fee2e2; }
     [data-theme="dark"] .orcpac-linha.estourou { background: rgba(220,38,38,.18); }
     .orcpac-nome { flex: 1 1 auto; font-size: 13.5px; font-weight: 600; }
-    .orcpac-valores { text-align: right; white-space: nowrap; }
-    .orcpac-valores .orcpac-valor-linha { font-size: 14px; font-weight: 700; }
-    .orcpac-valores .orcpac-valor-linha .lbl { font-size: 10.5px; font-weight: 600; color: var(--text-subtle); text-transform: uppercase; letter-spacing: .3px; margin-right: 4px; }
-    .orcpac-saldo { display: flex; align-items: center; gap: 4px; font-size: 16px; font-weight: 700; min-width: 100px; justify-content: flex-end; }
-    .orcpac-saldo.positivo { color: var(--verde, #2E7D32); }
-    .orcpac-saldo.negativo { color: #c0392b; }
-    [data-theme="dark"] .orcpac-saldo.negativo { color: #f87171; }
-    .orcpac-seta { font-size: 20px; line-height: 1; }
+    .orcpac-valores { display: flex; gap: 18px; flex-shrink: 0; }
+    .orcpac-valor-col { text-align: right; min-width: 108px; }
+    .orcpac-valor-col .lbl { display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--text-subtle); }
+    .orcpac-valor-col .val { font-size: 14.5px; font-weight: 700; white-space: nowrap; }
+    .orcpac-valor-col.orcado .val { color: #1565C0; }
+    [data-theme="dark"] .orcpac-valor-col.orcado .val { color: #60a5fa; }
+    .orcpac-valor-col .val.positivo { color: var(--verde, #2E7D32); }
+    .orcpac-valor-col .val.negativo { color: #c0392b; }
+    [data-theme="dark"] .orcpac-valor-col .val.negativo { color: #f87171; }
 
     /* ── Consolidação / Solicitações / Acompanhamento (execução do PAC) ──────── */
     .pac-filtros { display: flex; gap: 14px; flex-wrap: wrap; align-items: end; }
