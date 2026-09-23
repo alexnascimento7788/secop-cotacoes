@@ -255,7 +255,11 @@ async function abrirDfd(id) {
 
   document.getElementById('pac-lanc-titulo').textContent = `${codigoDfd(_dfdAtual)} — ${_dfdAtual.titulo}`;
   const linha2 = document.getElementById('pac-lanc-linha2');
-  linha2.innerHTML = `Lançamento · ${badgeStatusDfd(_dfdAtual.status)} · ${badgeVencimento(_dfdAtual.data_entrega)}`;
+  // Encerramento (pedido do Alex, 2026-09-22) some SÓ como informação a
+  // mais aqui — o vencimento (prazo do setor pra lançar) continua a mesma
+  // coisa de sempre, essa mudança não troca nada existente.
+  const encerramentoTxt = _dfdAtual.data_encerramento ? ` · Encerramento: ${fmtBr(_dfdAtual.data_encerramento)}` : '';
+  linha2.innerHTML = `Lançamento · ${badgeStatusDfd(_dfdAtual.status)} · ${badgeVencimento(_dfdAtual.data_entrega)}${encerramentoTxt}`;
   linha2.style.display = '';
 
   await carregarListas();
@@ -507,6 +511,10 @@ function fecharAcompanhamentoPopup() {
 function nomeSetorLanc(setorId) {
   return (_meusSetores.find(s => s.id === setorId) || {}).nome || '—';
 }
+function nomeUnidadeLanc(unidadeId) {
+  if (!unidadeId) return '—';
+  return (_dfdAtual.unidades || []).find(u => u.id === unidadeId)?.nome || '—';
+}
 
 async function renderItens() {
   // ID PAC e Nº PAC ficam fixos (sticky) no início da tabela — nenhum dos dois
@@ -531,7 +539,7 @@ async function renderItens() {
   const filtroSetorId = multiSetor && filtroSelect.value ? Number(filtroSelect.value) : null;
 
   const thead = document.getElementById('lanc-itens-thead');
-  thead.innerHTML = `<tr>${multiSetor ? '<th>Setor</th>' : ''}<th class="dfd-col-fixa-1">ID PAC</th><th class="dfd-col-fixa-2">Nº PAC</th>${colunasPrincipais.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}<th></th></tr>`;
+  thead.innerHTML = `<tr>${multiSetor ? '<th>Setor</th>' : ''}<th>Unidade</th><th class="dfd-col-fixa-1">ID PAC</th><th class="dfd-col-fixa-2">Nº PAC</th>${colunasPrincipais.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}<th></th></tr>`;
 
   const res = await fetch(`/api/pac/dfds/${_dfdAtualId}/itens`);
   _itensAtuais = res.ok ? await res.json() : [];
@@ -541,6 +549,7 @@ async function renderItens() {
   // desejada, nº PAC, objeto (a antiga coluna "Subitem", agora digitável).
   const colunaPorSlug = slug => (_dfdAtual.colunas || []).find(c => c.slug === slug);
   const colFonte = colunaPorSlug('fonte_pagadora');
+  const colTipo = colunaPorSlug('tipo');
   const colData = colunaPorSlug('data_desejada');
   const colObjeto = colunaPorSlug('subitem');
 
@@ -549,12 +558,19 @@ async function renderItens() {
     selFonte.innerHTML = '<option value="">Todas</option>' + (_listasCache.fonte_pagadora || []).map(o => `<option value="${o.valor}">${o.valor}</option>`).join('');
     selFonte.dataset.montado = '1';
   }
+  const selTipo = document.getElementById('lanc-filtro-tipo');
+  if (selTipo && colTipo && !selTipo.dataset.montado) {
+    selTipo.innerHTML = '<option value="">Todos</option>' + (_listasCache.tipo || []).map(o => `<option value="${o.valor}">${o.valor}</option>`).join('');
+    selTipo.dataset.montado = '1';
+  }
   const fFonte = selFonte?.value;
+  const fTipo = selTipo?.value;
   const fData = document.getElementById('lanc-filtro-data')?.value;
   const fNumeroPac = document.getElementById('lanc-filtro-numero-pac')?.value.trim().toLowerCase();
   const fObjeto = document.getElementById('lanc-filtro-objeto')?.value.trim().toLowerCase();
 
   if (fFonte && colFonte) itensExibidos = itensExibidos.filter(i => (i.valores || {})[colFonte.id] === fFonte);
+  if (fTipo && colTipo) itensExibidos = itensExibidos.filter(i => (i.valores || {})[colTipo.id] === fTipo);
   if (fData && colData) itensExibidos = itensExibidos.filter(i => (i.valores || {})[colData.id] === fData);
   if (fNumeroPac) itensExibidos = itensExibidos.filter(i => String(i.numero_pac || '').toLowerCase().includes(fNumeroPac) || String(i.codigo_pac || '').toLowerCase().includes(fNumeroPac));
   if (fObjeto && colObjeto) itensExibidos = itensExibidos.filter(i => String((i.valores || {})[colObjeto.id] || '').toLowerCase().includes(fObjeto));
@@ -582,7 +598,11 @@ async function renderItens() {
       : `${itensExibidos.length} de ${_itensAtuais.length} itens (filtrado)`;
   }
 
-  const colspan = (multiSetor ? 1 : 0) + 2 + colunasPrincipais.length + (temColContrato ? 1 : 0) + 1;
+  const colspan = (multiSetor ? 1 : 0) + 3 + colunasPrincipais.length + (temColContrato ? 1 : 0) + 1;
+  // Sou "gestor principal" (posso aprovar/rejeitar lançamento de sub-gestor)
+  // quando NÃO estou restrito a nenhuma unidade — mesmo dado que já veio
+  // junto com o DFD (ver GET /api/pac/dfds/:id, minhas_unidades_restritas).
+  const souGestorPrincipal = !(_dfdAtual.minhas_unidades_restritas || []).length;
   const tbody = document.getElementById('lanc-itens-tbody');
   tbody.innerHTML = itensExibidos.map(item => {
     const liberado = _pedidosLiberados[item.id] || new Set();
@@ -591,9 +611,22 @@ async function renderItens() {
     // "análise" OU setor já finalizado (com DFD ainda aberto pros outros
     // setores) — nos dois casos, "fechado" não aceita nem pedido.
     const podeSolicitar = _dfdAtual.status !== 'fechado' && (_dfdAtual.status === 'analise' || setorFinalizado);
+    // Item lançado por sub-gestor, ainda não aprovado pelo gestor principal
+    // do setor — badge pra todo mundo, botões Aprovar/Rejeitar só pra quem
+    // pode aprovar (pedido do Alex: "com indicação naquela linha, incluindo
+    // aprovação deste gestor ou cancelamento").
+    const pendenteAprovacao = item.aprovacao_subgestor === 'pendente';
     return `
     <tr data-item-id="${item.id}">
       ${multiSetor ? `<td data-label="Setor">${nomeSetorLanc(item.setor_id)}</td>` : ''}
+      <td data-label="Unidade">${nomeUnidadeLanc(item.unidade_id)}${pendenteAprovacao ? `
+        <div style="margin-top:4px;">
+          <span class="badge badge-analise" style="font-size:10px;">Aguardando aprovação</span>
+          ${souGestorPrincipal ? `
+            <button class="btn btn-primary btn-xs" style="margin-top:4px;" onclick="aprovarItemSubgestor(${item.id}, true)">Aprovar</button>
+            <button class="btn btn-danger btn-xs" style="margin-top:4px;" onclick="aprovarItemSubgestor(${item.id}, false)">Rejeitar</button>
+          ` : ''}
+        </div>` : ''}</td>
       <td class="dfd-col-fixa-1" data-label="ID PAC">${item.codigo_pac || '—'}</td>
       <td class="dfd-col-fixa-2" data-label="Nº PAC">${item.numero_pac || '—'}</td>
       ${colunasPrincipais.map(c => renderCelula(item, c, -1, liberado)).join('')}
@@ -613,6 +646,23 @@ async function renderItens() {
 
   wireCelulas();
   renderFormNovoItem();
+}
+
+// Aprovar/rejeitar item lançado por sub-gestor — rejeitar remove o item da
+// lista (soft-delete no servidor), igual uma exclusão normal.
+async function aprovarItemSubgestor(itemId, aprovado) {
+  if (!aprovado && !confirm('Rejeitar este lançamento? O item será removido.')) return;
+  try {
+    const res = await fetch(`/api/pac/itens/${itemId}/aprovacao`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ aprovado }),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    toast(aprovado ? 'Item aprovado.' : 'Item rejeitado.');
+    await renderItens();
+    renderFinalizacao();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+  }
 }
 
 const ICONE_CONTRATO_SIM = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--verde)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg>`;
@@ -848,6 +898,7 @@ function renderInputCelula(itemId, coluna, valor, comBotaoSalvar, pendente) {
 let _mcItemId = null;
 let _mcModoCriacao = false;
 let _mcSetorNovo = null;
+let _mcUnidadeNovo = null;
 
 function abrirModalContrato(itemId) {
   const item = _itensAtuais.find(i => i.id === itemId);
@@ -890,6 +941,10 @@ function abrirModalContratoNovoItem(setorId) {
   _mcModoCriacao = true;
   _mcItemId = null;
   _mcSetorNovo = Number(setorId);
+  // Mesma unidade que o "+ Novo item" já resolveu (novo-item-unidade) — o
+  // popup de contrato só é um passo a mais antes de criar o item de fato.
+  const unidadeEl = document.getElementById('novo-item-unidade');
+  _mcUnidadeNovo = unidadeEl && unidadeEl.value ? Number(unidadeEl.value) : undefined;
   const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
   const nomeSetor = (_meusSetores.find(s => s.id === _mcSetorNovo) || {}).nome;
 
@@ -921,6 +976,7 @@ function fecharModalContrato() {
   _mcItemId = null;
   _mcModoCriacao = false;
   _mcSetorNovo = null;
+  _mcUnidadeNovo = null;
 }
 
 // "Possui Contrato?" (grupo B) não aparece mais como coluna própria na
@@ -959,7 +1015,7 @@ async function salvarContrato() {
     const res = _mcModoCriacao
       ? await fetch(`/api/pac/dfds/${_dfdAtualId}/itens`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ setor_id: _mcSetorNovo, valores }),
+          body: JSON.stringify({ setor_id: _mcSetorNovo, unidade_id: _mcUnidadeNovo, valores }),
         })
       : await fetch(`/api/pac/itens/${_mcItemId}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -1174,7 +1230,19 @@ function renderFormNovoItem() {
     ? `<select id="novo-item-setor" style="margin-right:10px;">${disponiveis.map(s => `<option value="${s.id}">${s.nome}</option>`).join('')}</select>`
     : `<input type="hidden" id="novo-item-setor" value="${disponiveis[0].id}" />`;
 
-  wrap.innerHTML = `${selectSetor}<button class="btn btn-primary btn-sm" onclick="iniciarNovoItem()">+ Novo item</button>`;
+  // Unidade a referenciar no novo item — interseção entre as unidades
+  // participantes do DFD e as que este usuário pode lançar (lista vazia de
+  // minhas_unidades_restritas = sem restrição, todas as participantes
+  // valem). "Acredito que não terá mais de uma, mas preparamos pra isto"
+  // (Alex) — na prática normal isso vira um <input hidden> com "Contagem".
+  const minhasRestritas = _dfdAtual.minhas_unidades_restritas || [];
+  const unidadesDfd = _dfdAtual.unidades || [];
+  const unidadesDisponiveis = minhasRestritas.length ? unidadesDfd.filter(u => minhasRestritas.includes(u.id)) : unidadesDfd;
+  const selectUnidade = unidadesDisponiveis.length > 1
+    ? `<select id="novo-item-unidade" style="margin-right:10px;">${unidadesDisponiveis.map(u => `<option value="${u.id}">${u.nome}</option>`).join('')}</select>`
+    : `<input type="hidden" id="novo-item-unidade" value="${unidadesDisponiveis[0]?.id || ''}" />`;
+
+  wrap.innerHTML = `${selectSetor}${selectUnidade}<button class="btn btn-primary btn-sm" onclick="iniciarNovoItem()">+ Novo item</button>`;
 }
 
 // Contrato é obrigatório (ver abrirModalContratoNovoItem) — só pula direto
@@ -1208,10 +1276,12 @@ function iniciarNovoItem() {
 
 async function criarItem() {
   const setorId = document.getElementById('novo-item-setor').value;
+  const unidadeEl = document.getElementById('novo-item-unidade');
+  const unidadeId = unidadeEl && unidadeEl.value ? Number(unidadeEl.value) : undefined;
   try {
     const res = await fetch(`/api/pac/dfds/${_dfdAtualId}/itens`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ setor_id: Number(setorId), valores: {} }),
+      body: JSON.stringify({ setor_id: Number(setorId), unidade_id: unidadeId, valores: {} }),
     });
     if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
     await renderItens();

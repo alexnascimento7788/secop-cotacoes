@@ -769,6 +769,44 @@ function setupDb() {
       FOREIGN KEY (setor_id) REFERENCES setores(id) ON DELETE CASCADE
     );
 
+    -- Unidades físicas da CeasaMinas (filiais) — pedido do Alex, 2026-09-22.
+    -- Dado estruturado (nome + código IBGE + CEP + estado), por isso é
+    -- tabela própria em vez de mais uma lista genérica em
+    -- dfd_parametros_lista (que só guarda um valor texto).
+    CREATE TABLE IF NOT EXISTS unidades (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome        TEXT    NOT NULL UNIQUE,
+      codigo_ibge TEXT,
+      cep         TEXT,
+      estado      TEXT,
+      ativo       INTEGER NOT NULL DEFAULT 1,
+      ordem       INTEGER NOT NULL DEFAULT 0,
+      criado_em   DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Participação de unidade num DFD — espelha dfd_setores.
+    CREATE TABLE IF NOT EXISTS dfd_unidades (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      dfd_id     INTEGER NOT NULL,
+      unidade_id INTEGER NOT NULL,
+      UNIQUE (dfd_id, unidade_id),
+      FOREIGN KEY (dfd_id) REFERENCES dfds(id) ON DELETE CASCADE,
+      FOREIGN KEY (unidade_id) REFERENCES unidades(id) ON DELETE CASCADE
+    );
+
+    -- Restrição gestor→unidade — espelha setor_usuarios. Sem vínculo aqui =
+    -- gestor "principal" (vê/lança em todas as unidades do seu setor); com
+    -- 1+ vínculo = sub-gestor, restrito às unidades marcadas (ver
+    -- unidadesDoUsuario() em routes/pac.js).
+    CREATE TABLE IF NOT EXISTS unidade_usuarios (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      unidade_id INTEGER NOT NULL,
+      user_id    INTEGER NOT NULL,
+      UNIQUE (unidade_id, user_id),
+      FOREIGN KEY (unidade_id) REFERENCES unidades(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS dfd_colunas_ativas (
       id        INTEGER PRIMARY KEY AUTOINCREMENT,
       dfd_id    INTEGER NOT NULL,
@@ -996,6 +1034,21 @@ function setupDb() {
   try { _db.exec(`ALTER TABLE dfds ADD COLUMN justificativa_cancelamento TEXT`); } catch {}
   try { _db.exec(`ALTER TABLE dfds ADD COLUMN cancelado_por INTEGER REFERENCES users(id)`); } catch {}
   try { _db.exec(`ALTER TABLE dfds ADD COLUMN cancelado_em DATETIME`); } catch {}
+  // Data de encerramento do DFD (pedido do Alex, 2026-09-22) — data MÁXIMA
+  // pro DEPLA fechar o DFD, diferente de data_entrega (prazo do SETOR pra
+  // lançar). Obrigatória pra DFD NOVO (POST /api/pac/dfds), sem
+  // retroatividade pros já existentes (mesmo espírito de data_entrega).
+  try { _db.exec(`ALTER TABLE dfds ADD COLUMN data_encerramento TEXT`); } catch {}
+  // Unidade física (filial) do item — campo estrutural fixo, igual setor_id,
+  // não é coluna configurável do catálogo. Sem retroatividade: itens já
+  // existentes ficam com NULL; itens novos default pra "Contagem" (ver
+  // POST /api/pac/dfds/:id/itens).
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN unidade_id INTEGER REFERENCES unidades(id)`); } catch {}
+  // Aprovação de item lançado por sub-gestor (usuário restrito a 1+
+  // unidades via unidade_usuarios) — NULL = item de gestor sem restrição,
+  // fluxo de sempre, sem gate nenhum. 'pendente'|'aprovado'|'rejeitado'
+  // pros itens de sub-gestor (ver POST/PATCH .../itens em routes/pac.js).
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN aprovacao_subgestor TEXT`); } catch {}
 
   // Seed dos setores participantes do PAC (nomes exatamente como fornecidos)
   [
@@ -1005,6 +1058,21 @@ function setupDb() {
     'Gerência Gov. Valadares', 'Gerência Barbacena', 'Gerência Juiz de Fora',
   ].forEach((nome, i) => {
     try { _db.prepare(`INSERT INTO setores (nome, ordem) VALUES (?, ?)`).run(nome, i + 1); } catch {}
+  });
+
+  // Seed das unidades físicas da CeasaMinas — pedido do Alex, 2026-09-22.
+  // "Contagem" primeiro (é o default de unidade no lançamento de item).
+  [
+    ['CeasaMinas - Unidade Contagem', '3118601', '32145-900', 'MG'],
+    ['CeasaMinas - Unidade Uberlândia', '3170206', '38408-369', 'MG'],
+    ['CeasaMinas - Unidade Juiz de Fora', '3136702', '36088-000', 'MG'],
+    ['CeasaMinas - Unidade Barbacena', '3105608', '36204-666', 'MG'],
+    ['CeasaMinas - Unidade Caratinga', '3113404', '35300-359', 'MG'],
+  ].forEach(([nome, ibge, cep, estado], i) => {
+    try {
+      _db.prepare(`INSERT INTO unidades (nome, codigo_ibge, cep, estado, ordem) VALUES (?, ?, ?, ?, ?)`)
+        .run(nome, ibge, cep, estado, i + 1);
+    } catch {}
   });
 
   // Seed das listas de parâmetro usadas como dropdown nas colunas do DFD
@@ -1361,10 +1429,10 @@ function setupDb() {
       ['pac.dfd.lembrete.prazo.urgente', 'PAC: lembrete urgente de prazo',
         '⚠️ Urgente — {{dias_restantes}} dia(s) para o prazo do DFD {{dfd_titulo}}',
         `<div style="background:#FFF3CD;border:1px solid #FFE082;border-radius:6px;padding:12px 16px;margin-bottom:18px;color:#8a5a00;font-weight:700;">
-           ⚠️ Atenção: prazo próximo do encerramento.
+           ⚠️ Atenção: prazo próximo do vencimento.
          </div>
          <p>Prezado(a) {{nome_gestor}},</p>
-         <p>Restam apenas <strong>{{dias_restantes}} dia(s)</strong> para o encerramento do prazo do DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}) — o setor <strong>{{nome_setor}}</strong> ainda não concluiu o lançamento.</p>
+         <p>Restam apenas <strong>{{dias_restantes}} dia(s)</strong> para o vencimento do prazo do DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}) — o setor <strong>{{nome_setor}}</strong> ainda não concluiu o lançamento.</p>
          <p>Prazo final: <strong>{{dfd_prazo}}</strong>.</p>
          <p>Por favor, conclua o lançamento com urgência para não comprometer o cronograma do Plano Anual de Contratações.</p>
          ${botao('Acessar o Lançamento')}`,
