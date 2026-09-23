@@ -72,6 +72,16 @@
           </div>
         </div>
         <div class="sg-form-grid" id="sg-campos"></div>
+        <div id="sg-contrato-wrap" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--cinza-b);">
+          <div class="form-group" style="margin-bottom:14px;max-width:240px;">
+            <label for="sg-possui">Este item possui contrato?</label>
+            <select id="sg-possui" onchange="sgAtualizarVisibilidadeContrato()">
+              <option value="nao">Não</option>
+              <option value="sim">Sim</option>
+            </select>
+          </div>
+          <div class="sg-form-grid" id="sg-campos-contrato" style="display:none;"></div>
+        </div>
         <div id="sg-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin:14px 0 4px;"></div>
         <button class="btn btn-primary" onclick="lancarItemSubgestor()">Lançar item</button>
       </div>
