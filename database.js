@@ -980,6 +980,32 @@ function setupDb() {
       FOREIGN KEY (dfd_id) REFERENCES dfds(id) ON DELETE CASCADE
     );
 
+    -- Orçamento anual do PAC (pedido do Alex, 2026-09-24) — cadastrado à
+    -- parte em Gestão > Administração > Orçamentos, um DFD referencia UM
+    -- orçamento (dfds.orcamento_id) e a comparação "usado x orçado" soma só
+    -- os itens DAQUELE DFD (confirmado pelo Alex: "so dentro do DFD, seus
+    -- setores e pacs" — não é cumulativo entre DFDs diferentes).
+    CREATE TABLE IF NOT EXISTS orcamentos (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome       TEXT    NOT NULL UNIQUE,
+      ativo      INTEGER NOT NULL DEFAULT 1,
+      criado_por INTEGER REFERENCES users(id),
+      criado_em  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Uma linha por Natureza (mesma string usada em dfd_itens.natureza_consolidacao
+    -- e na lista de parâmetro 'natureza' — comparação é sempre por nome, igual
+    -- o resto do PAC já faz com natureza). Sem coluna 'ordem': segue a ordem
+    -- da lista de parâmetro na hora de exibir.
+    CREATE TABLE IF NOT EXISTS orcamento_naturezas (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      orcamento_id INTEGER NOT NULL,
+      natureza     TEXT    NOT NULL,
+      valor        REAL    NOT NULL DEFAULT 0,
+      UNIQUE (orcamento_id, natureza),
+      FOREIGN KEY (orcamento_id) REFERENCES orcamentos(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS pac_solicitacoes (
       id                    INTEGER PRIMARY KEY AUTOINCREMENT,
       dfd_id                INTEGER NOT NULL,
@@ -1069,6 +1095,11 @@ function setupDb() {
   // fluxo de sempre, sem gate nenhum. 'pendente'|'aprovado'|'rejeitado'
   // pros itens de sub-gestor (ver POST/PATCH .../itens em routes/pac.js).
   try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN aprovacao_subgestor TEXT`); } catch {}
+  // Orçamento atribuído ao DFD (pedido do Alex, 2026-09-24) — obrigatório
+  // pra INICIAR CONSOLIDAÇÃO (ver POST /gerar-consolidacao em routes/pac.js),
+  // não pra criar o DFD; sem retroatividade, DFD já consolidado antes desta
+  // versão fica com NULL e não é afetado.
+  try { _db.exec(`ALTER TABLE dfds ADD COLUMN orcamento_id INTEGER REFERENCES orcamentos(id)`); } catch {}
 
   // Seed dos setores participantes do PAC (nomes exatamente como fornecidos)
   [
@@ -1127,7 +1158,91 @@ function setupDb() {
       'Bens do Ativo Permanente',
       'Expediente', 'Combustíveis e Lubrificantes', 'Limpeza / Material', 'Suprimentos de Tecnologia e Informática', 'Segurança EPI', 'Uniformes', 'Utensílios de Copa e Cozinha',
       'Tecnologia, Informática e Sistemas', 'Serviços de Limpeza', 'Guarda e Vigilância', 'Serviços Técnicos Profissionais', 'Instrução e Treinamento', 'Telefone', 'Locação de Veículos',
+      // Restante das contas do orçamento anual (pedido do Alex, 2026-09-24:
+      // "verifique se temos todas as naturezas as que não tiver crie") — 53
+      // contas do PDF do orçamento que ainda não tinham natureza equivalente
+      // cadastrada. Nomes normalizados pra Title Case (o PDF vinha
+      // inconsistente entre maiúscula/minúscula); onde o PDF tinha uma
+      // variante "Material"/"Serviço" de uma conta que já existia com nome
+      // mais curto (ex.: "Bens do Ativo Permanente" x "...Material"), mantive
+      // as DUAS como naturezas distintas — são sub-contas diferentes no plano
+      // de contas real, não duplicata.
+      'Água e Esgoto', 'Aluguel de Equipamentos', 'Aluguel de Equipamentos de Informática',
+      'Associações de Classe', 'Auditoria', 'Auxilio Estágio', 'Auxilio Funeral',
+      'Bens do Ativo Permanente Material', 'Consumo Diversos Material', 'Convênios',
+      'Cópias, Autenticações e Revelações', 'Despesa com Expediente', 'Despesa com Limpeza Material',
+      'Despesa de Condução Urbanas', 'Despesa Legais e Judiciais', 'Despesa Serviços de Limpeza - Serviços',
+      'Despesas com Lanche da Diretoria', 'Despesas com Serviços de Malotes e Correios',
+      'Despesas com Uniformes', 'Encadernações de Livros', 'Energia Elétrica e Gás',
+      'Estacionamento e Pedágio', 'Estudos e Projetos', 'Gás de Cozinha',
+      'Hospedagem e Estadia', 'Impostos e Taxas Diversos', 'Lanches e Refeições a Empregados',
+      'Lanches e Refeições de Terceiros', 'Livros, Revistas e Jornais Serviço',
+      'Manut. Cons. Arruamentos Serviço', 'Manut. Cons. de Instalações - Material',
+      'Manut. Cons. Dependências - Material', 'Manut. Cons. Dependências - Serviço',
+      'Manut. Cons. Instalações - Serviço', 'Manut. Cons. Máquinas e Equip.– Material',
+      'Manut. Cons. Máquinas e Equip.– Serviço', 'Manut. Cons. Veículos - Serviços',
+      'Manut. Conserv. Ap.Telecomunicação – Serviço', 'Manut. Conserv. Móveis e Utensílios - Material',
+      'Passagens Aéreas e Rodoviárias', 'Patrocínio - Material', 'Patrocínio - Serviço',
+      'Postais, Telegráficos e Correios', 'Promoções e Eventos - Material',
+      'Promoções e Eventos - Serviços', 'Publicidade Institucional', 'Publicidade Legal - Serviços',
+      'Segurança - EPI', 'Seguro Adm / Viagens / Funcionários', 'Seguro de Imóveis',
+      'Serviços Gerais', 'Transporte de Funcionários', 'Vale Alimentação + Vale Refeição',
     ]);
+  }
+
+  // Orçamento de teste (pedido do Alex, 2026-09-24: "crie o orcamento 2026 -
+  // teste para ja termos base a testar") — valores do PDF real do orçamento
+  // anual, 1 linha por natureza. Onde a conta do PDF já correspondia a uma
+  // natureza mais curta já existente (ex.: "Combustíveis e Lubrificantes"),
+  // usa o nome CANÔNICO já cadastrado, não a grafia do PDF, pra bater
+  // exatamente com o que os itens do PAC vão gravar em natureza_consolidacao.
+  {
+    const orc = (() => {
+      try {
+        return _db.prepare(`INSERT INTO orcamentos (nome) VALUES (?)`).run('Orçamento 2026 - teste').lastInsertRowid;
+      } catch {
+        return _db.prepare(`SELECT id FROM orcamentos WHERE nome = ?`).get('Orçamento 2026 - teste')?.id;
+      }
+    })();
+    if (orc) {
+      const linhas = [
+        ['Água e Esgoto', 332067.00], ['Aluguel de Equipamentos', 185000.00],
+        ['Aluguel de Equipamentos de Informática', 768703.00], ['Associações de Classe', 166034.00],
+        ['Auditoria', 310800.00], ['Auxilio Estágio', 426209.00], ['Auxilio Funeral', 60000.00],
+        ['Bens do Ativo Permanente Material', 144929.00], ['Combustíveis e Lubrificantes', 132827.00],
+        ['Consumo Diversos Material', 37446.00], ['Convênios', 0],
+        ['Cópias, Autenticações e Revelações', 5535.00], ['Despesa com Expediente', 386656.00],
+        ['Despesa com Limpeza Material', 16604.00], ['Despesa de Condução Urbanas', 41440.00],
+        ['Despesa Legais e Judiciais', 387411.00], ['Despesa Serviços de Limpeza - Serviços', 922200.00],
+        ['Despesas com Lanche da Diretoria', 16604.00], ['Despesas com Serviços de Malotes e Correios', 22138.00],
+        ['Despesas com Uniformes', 50000.00], ['Encadernações de Livros', 5535.00],
+        ['Energia Elétrica e Gás', 1106888.00], ['Estacionamento e Pedágio', 10360.00],
+        ['Estudos e Projetos', 1000000.00], ['Gás de Cozinha', 5535.00],
+        ['Guarda e Vigilância', 3800000.00], ['Hospedagem e Estadia', 1500.00],
+        ['Impostos e Taxas Diversos', 55344.00], ['Instrução e Treinamento', 240000.00],
+        ['Investimento - Informática', 5000000.00], ['Investimento - Infraestrutura', 100000000.00],
+        ['Investimento - Móveis, Máq. e Equip.', 5000000.00], ['Lanches e Refeições a Empregados', 0],
+        ['Lanches e Refeições de Terceiros', 11069.00], ['Livros, Revistas e Jornais Serviço', 5535.00],
+        ['Locação de Veículos', 420000.00], ['Manut. Cons. Arruamentos Serviço', 150000.00],
+        ['Manut. Cons. de Instalações - Material', 55344.00], ['Manut. Cons. Dependências - Material', 31080.00],
+        ['Manut. Cons. Dependências - Serviço', 1500000.00], ['Manut. Cons. Instalações - Serviço', 500000.00],
+        ['Manut. Cons. Máquinas e Equip.– Material', 25900.00], ['Manut. Cons. Máquinas e Equip.– Serviço', 100000.00],
+        ['Manut. Cons. Veículos - Serviços', 20720.00], ['Manut. Conserv. Ap.Telecomunicação – Serviço', 5535.00],
+        ['Manut. Conserv. Móveis e Utensílios - Material', 0], ['Passagens Aéreas e Rodoviárias', 387411.00],
+        ['Patrocínio - Material', 47000.00], ['Patrocínio - Serviço', 100000.00],
+        ['Postais, Telegráficos e Correios', 11069.00], ['Promoções e Eventos - Material', 51800.00],
+        ['Promoções e Eventos - Serviços', 290080.00], ['Publicidade Institucional', 250000.00],
+        ['Publicidade Legal - Serviços', 267029.00], ['Segurança - EPI', 13706.00],
+        ['Seguro Adm / Viagens / Funcionários', 192261.00], ['Seguro de Imóveis', 885511.00],
+        ['Serviços Gerais', 155400.00], ['Serviços Técnicos Profissionais', 8105000.00],
+        ['Suprimentos de Tecnologia e Informática', 45470.00], ['Tecnologia, Informática e Sistemas', 800000.00],
+        ['Telefone', 99620.00], ['Transporte de Funcionários', 798702.00],
+        ['Utensílios de Copa e Cozinha', 22138.00], ['Vale Alimentação + Vale Refeição', 2346210.00],
+      ];
+      linhas.forEach(([natureza, valor]) => {
+        try { _db.prepare(`INSERT INTO orcamento_naturezas (orcamento_id, natureza, valor) VALUES (?, ?, ?)`).run(orc, natureza, valor); } catch {}
+      });
+    }
   }
 
   // Seed do catálogo fixo de colunas do DFD (17 colunas, 3 grupos visuais).

@@ -344,6 +344,135 @@ router.put('/api/pac/unidades/:id/usuarios', pac, requireRotina('pac-gestao', 'a
   res.json({ ok: true });
 });
 
+// ── PAC: Orçamento (pedido do Alex, 2026-09-24) ───────────────────────────────
+// Gestão > Administração > Orçamentos. Um orçamento é 1 linha por Natureza
+// (mesma string usada em dfd_itens.natureza_consolidacao); um DFD referencia
+// UM orçamento (dfds.orcamento_id, obrigatório pra Iniciar Consolidação, ver
+// POST /gerar-consolidacao). A comparação "usado x orçado" soma só os itens
+// DAQUELE DFD (confirmado pelo Alex — não é cumulativo entre DFDs).
+
+router.get('/api/pac/orcamentos', pac, requireRotinaPac('ver'), (req, res) => {
+  res.json(db.prepare(`
+    SELECT o.id, o.nome, o.ativo,
+      (SELECT COUNT(*) FROM orcamento_naturezas n WHERE n.orcamento_id = o.id) AS naturezas_count,
+      (SELECT COALESCE(SUM(valor), 0) FROM orcamento_naturezas n WHERE n.orcamento_id = o.id) AS total
+    FROM orcamentos o ORDER BY o.ativo DESC, o.nome
+  `).all());
+});
+
+router.post('/api/pac/orcamentos', pac, requireRotina('pac-gestao', 'incluir'), (req, res) => {
+  const { nome } = req.body || {};
+  if (!nome || !String(nome).trim()) return res.status(400).json({ error: 'Nome é obrigatório' });
+  try {
+    const info = db.prepare(`INSERT INTO orcamentos (nome, criado_por) VALUES (?, ?)`).run(String(nome).trim(), req.user.user_id);
+    registrarLog(req, 'PAC', 'CRIOU_ORCAMENTO', `Criou o orçamento "${nome}"`);
+    res.status(201).json({ id: info.lastInsertRowid });
+  } catch {
+    res.status(400).json({ error: 'Já existe um orçamento com este nome' });
+  }
+});
+
+router.put('/api/pac/orcamentos/:id', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const o = db.prepare(`SELECT nome FROM orcamentos WHERE id = ?`).get(req.params.id);
+  if (!o) return res.status(404).json({ error: 'Não encontrado' });
+  const { nome, ativo } = req.body || {};
+  if (nome !== undefined) db.prepare(`UPDATE orcamentos SET nome = ? WHERE id = ?`).run(String(nome).trim(), req.params.id);
+  if (ativo !== undefined) db.prepare(`UPDATE orcamentos SET ativo = ? WHERE id = ?`).run(ativo ? 1 : 0, req.params.id);
+  registrarLog(req, 'PAC', 'EDITOU_ORCAMENTO', `Editou o orçamento "${o.nome}"`);
+  res.json({ ok: true });
+});
+
+router.delete('/api/pac/orcamentos/:id', pac, requireRotina('pac-gestao', 'excluir'), (req, res) => {
+  const o = db.prepare(`SELECT nome FROM orcamentos WHERE id = ?`).get(req.params.id);
+  if (!o) return res.status(404).json({ error: 'Não encontrado' });
+  try {
+    db.prepare(`DELETE FROM orcamentos WHERE id = ?`).run(req.params.id);
+    registrarLog(req, 'PAC', 'EXCLUIU_ORCAMENTO', `Excluiu o orçamento "${o.nome}"`);
+    res.json({ ok: true });
+  } catch {
+    res.status(400).json({ error: 'Este orçamento está em uso por algum DFD — desative-o em vez de excluir.' });
+  }
+});
+
+// Linhas de natureza do orçamento — sempre a lista COMPLETA de naturezas
+// ativas (LEFT JOIN), com valor 0 pras que ainda não foram definidas nesse
+// orçamento específico. Facilita editar tudo numa tela só, sem precisar
+// "adicionar linha" natureza por natureza.
+router.get('/api/pac/orcamentos/:id/naturezas', pac, requireRotinaPac('ver'), (req, res) => {
+  const o = db.prepare(`SELECT id FROM orcamentos WHERE id = ?`).get(req.params.id);
+  if (!o) return res.status(404).json({ error: 'Não encontrado' });
+  res.json(db.prepare(`
+    SELECT l.valor AS natureza, COALESCE(n.valor, 0) AS valor
+    FROM dfd_parametros_lista l
+    LEFT JOIN orcamento_naturezas n ON n.orcamento_id = ? AND n.natureza = l.valor
+    WHERE l.lista = 'natureza' AND l.ativo = 1
+    ORDER BY l.ordem
+  `).all(req.params.id));
+});
+
+router.put('/api/pac/orcamentos/:id/naturezas', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const o = db.prepare(`SELECT nome FROM orcamentos WHERE id = ?`).get(req.params.id);
+  if (!o) return res.status(404).json({ error: 'Não encontrado' });
+  const { naturezas } = req.body || {};
+  if (!naturezas || typeof naturezas !== 'object') return res.status(400).json({ error: 'Naturezas inválidas' });
+  const upsert = db.prepare(`
+    INSERT INTO orcamento_naturezas (orcamento_id, natureza, valor) VALUES (?, ?, ?)
+    ON CONFLICT(orcamento_id, natureza) DO UPDATE SET valor = excluded.valor
+  `);
+  Object.entries(naturezas).forEach(([natureza, valor]) => {
+    upsert.run(req.params.id, natureza, Number(valor) || 0);
+  });
+  registrarLog(req, 'PAC', 'EDITOU_ORCAMENTO_NATUREZAS', `Atualizou valores do orçamento "${o.nome}"`);
+  res.json({ ok: true });
+});
+
+// Comparação "usado x orçado" pro DFD — soma dfd_itens.valor_estimado (única
+// coluna monetária do item) agrupado por natureza_consolidacao, só entre os
+// itens DESTE DFD (não cumulativo, ver comentário no topo da seção). Item
+// cancelado/excluído não entra na soma (não representa mais gasto real).
+router.get('/api/pac/dfds/:id/orcamento', pac, requireRotinaPac('ver'), (req, res) => {
+  const dfd = db.prepare(`SELECT id, orcamento_id FROM dfds WHERE id = ?`).get(req.params.id);
+  if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
+  if (!dfd.orcamento_id) return res.status(400).json({ error: 'Este DFD não tem orçamento definido.' });
+  const valorCol = colunaId('valor_estimado');
+  const linhas = db.prepare(`SELECT natureza, valor FROM orcamento_naturezas WHERE orcamento_id = ?`).all(dfd.orcamento_id);
+  const usadoPorNatureza = {};
+  if (valorCol) {
+    db.prepare(`
+      SELECT di.natureza_consolidacao AS natureza, COALESCE(v.valor, 0) AS valor
+      FROM dfd_itens di
+      LEFT JOIN dfd_itens_valores v ON v.item_id = di.id AND v.coluna_id = ?
+      WHERE di.dfd_id = ? AND di.excluido_em IS NULL AND di.status_consolidacao != 'cancelado' AND di.natureza_consolidacao IS NOT NULL
+    `).all(valorCol, req.params.id).forEach(r => {
+      usadoPorNatureza[r.natureza] = (usadoPorNatureza[r.natureza] || 0) + (Number(r.valor) || 0);
+    });
+  }
+  res.json(linhas.map(l => ({
+    natureza: l.natureza,
+    valor_orcado: l.valor,
+    valor_usado: usadoPorNatureza[l.natureza] || 0,
+  })));
+});
+
+// "Quem está somando" — itens deste DFD com esta natureza, maior valor primeiro.
+router.get('/api/pac/dfds/:id/orcamento/itens', pac, requireRotinaPac('ver'), (req, res) => {
+  const natureza = req.query.natureza;
+  if (!natureza) return res.status(400).json({ error: 'Natureza é obrigatória' });
+  const valorCol = colunaId('valor_estimado');
+  const descCol = colunaId('descricao_objeto');
+  const itens = db.prepare(`
+    SELECT di.id, di.numero_pac, di.codigo_pac, s.nome AS setor_nome,
+      COALESCE(vv.valor, 0) AS valor, vd.valor AS descricao
+    FROM dfd_itens di
+    JOIN setores s ON s.id = di.setor_id
+    LEFT JOIN dfd_itens_valores vv ON vv.item_id = di.id AND vv.coluna_id = ?
+    LEFT JOIN dfd_itens_valores vd ON vd.item_id = di.id AND vd.coluna_id = ?
+    WHERE di.dfd_id = ? AND di.excluido_em IS NULL AND di.status_consolidacao != 'cancelado' AND di.natureza_consolidacao = ?
+    ORDER BY CAST(COALESCE(vv.valor, 0) AS REAL) DESC
+  `).all(valorCol, descCol, req.params.id, natureza);
+  res.json(itens);
+});
+
 // ── PAC: catálogo de colunas (fixo, só leitura) ───────────────────────────────
 
 router.get('/api/pac/colunas', pac, requireRotinaPac('ver'), (req, res) => {
@@ -439,18 +568,20 @@ router.get('/api/pac/dfds/:id', pac, requireRotinaPac('ver'), (req, res) => {
   // tela própria do sub-gestor (define automaticamente a unidade do item
   // que ele lançar, sem ele escolher).
   const minhasUnidadesRestritas = req.user.username === 'master' ? [] : unidadesDoUsuario(req.user.user_id);
-  res.json({ ...dfd, setores: setoresParticipantes, unidades: unidadesParticipantes, colunas, minhas_unidades_restritas: minhasUnidadesRestritas });
+  const orcamento = dfd.orcamento_id ? db.prepare(`SELECT nome FROM orcamentos WHERE id = ?`).get(dfd.orcamento_id) : null;
+  res.json({ ...dfd, orcamento_nome: orcamento?.nome || null, setores: setoresParticipantes, unidades: unidadesParticipantes, colunas, minhas_unidades_restritas: minhasUnidadesRestritas });
 });
 
 router.put('/api/pac/dfds/:id', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
   const dfd = db.prepare(`SELECT titulo FROM dfds WHERE id = ?`).get(req.params.id);
   if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
-  const { ano_base, titulo, descricao, data_entrega, data_encerramento } = req.body || {};
+  const { ano_base, titulo, descricao, data_entrega, data_encerramento, orcamento_id } = req.body || {};
   if (ano_base !== undefined) db.prepare(`UPDATE dfds SET ano_base = ? WHERE id = ?`).run(ano_base, req.params.id);
   if (titulo !== undefined) db.prepare(`UPDATE dfds SET titulo = ? WHERE id = ?`).run(String(titulo).trim(), req.params.id);
   if (descricao !== undefined) db.prepare(`UPDATE dfds SET descricao = ? WHERE id = ?`).run(descricao ? String(descricao).trim() : null, req.params.id);
   if (data_entrega !== undefined) db.prepare(`UPDATE dfds SET data_entrega = ? WHERE id = ?`).run(data_entrega ? String(data_entrega) : null, req.params.id);
   if (data_encerramento !== undefined) db.prepare(`UPDATE dfds SET data_encerramento = ? WHERE id = ?`).run(data_encerramento ? String(data_encerramento) : null, req.params.id);
+  if (orcamento_id !== undefined) db.prepare(`UPDATE dfds SET orcamento_id = ? WHERE id = ?`).run(orcamento_id || null, req.params.id);
   db.prepare(`UPDATE dfds SET atualizado_em = datetime('now') WHERE id = ?`).run(req.params.id);
   registrarLog(req, 'PAC', 'EDITOU_DFD', `Editou o DFD "${dfd.titulo}"`);
   res.json({ ok: true });
@@ -1140,7 +1271,7 @@ function itensConsolidados(dfdId) {
 }
 
 router.post('/api/pac/dfds/:id/gerar-consolidacao', pac, requireRotina('pac-gestao', 'incluir'), (req, res) => {
-  const dfd = db.prepare(`SELECT id, titulo, status FROM dfds WHERE id = ?`).get(req.params.id);
+  const dfd = db.prepare(`SELECT id, titulo, status, orcamento_id FROM dfds WHERE id = ?`).get(req.params.id);
   if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
   // Achado testando de verdade, 2026-09-08: nada aqui checava dfd.status, então
   // dava pra gerar a consolidação com o DFD ainda "Aberto" — a tela de DFDs
@@ -1150,6 +1281,12 @@ router.post('/api/pac/dfds/:id/gerar-consolidacao', pac, requireRotina('pac-gest
   // ser pré-requisito de verdade pra gerar consolidação.
   if (dfd.status !== 'analise') {
     return res.status(409).json({ error: 'Envie o DFD para análise antes de iniciar a consolidação.' });
+  }
+  // Orçamento obrigatório a partir daqui (pedido do Alex, 2026-09-24) — sem
+  // retroatividade, só passa a valer pra quem ainda não passou por este
+  // passo (DFD já consolidado antes desta versão não é afetado).
+  if (!dfd.orcamento_id) {
+    return res.status(400).json({ error: 'Defina o orçamento deste DFD em "⚙️ Configurações" antes de iniciar a consolidação.' });
   }
   // Bug achado pelo Alex, 2026-09-24: reabrir um DFD já consolidado e mandar
   // de volta pra análise deixava "Iniciar Consolidação" travado pra sempre —
