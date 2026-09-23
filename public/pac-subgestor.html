@@ -71,19 +71,17 @@
             <select id="sg-setor-select"></select>
           </div>
         </div>
-        <div class="sg-form-grid" id="sg-campos"></div>
-        <div id="sg-contrato-wrap" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--cinza-b);">
-          <div class="form-group" style="margin-bottom:14px;max-width:240px;">
-            <label for="sg-possui">Este item possui contrato?</label>
-            <select id="sg-possui" onchange="sgAtualizarVisibilidadeContrato()">
-              <option value="nao">Não</option>
-              <option value="sim">Sim</option>
-            </select>
-          </div>
-          <div class="sg-form-grid" id="sg-campos-contrato" style="display:none;"></div>
+
+        <!-- Passo 1: precisa responder Contrato (quando o DFD tem essa coluna) ANTES
+             de poder preencher o resto do item — mesma trava/sequência que o gestor
+             de setor já tem (abrirModalContratoNovoItem em pac-lancamento.js). -->
+        <button class="btn btn-primary" id="sg-btn-novo-item" onclick="iniciarNovoItemSubgestor()">+ Novo item</button>
+
+        <div id="sg-form-item" style="display:none;margin-top:16px;">
+          <div class="sg-form-grid" id="sg-campos"></div>
+          <div id="sg-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin:14px 0 4px;"></div>
+          <button class="btn btn-primary" onclick="lancarItemSubgestor()">Lançar item</button>
         </div>
-        <div id="sg-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin:14px 0 4px;"></div>
-        <button class="btn btn-primary" onclick="lancarItemSubgestor()">Lançar item</button>
       </div>
 
       <div class="card">
@@ -93,6 +91,26 @@
             <thead><tr><th>Setor</th><th>Lançado em</th><th>Status</th></tr></thead>
             <tbody id="sg-meus-tbody"><tr><td colspan="3" style="padding:16px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Trava de contrato — obrigatória ANTES do item existir, mesma sequência
+         do gestor de setor (contrato primeiro, resto do item depois). -->
+    <div class="modal-overlay" id="modal-sg-contrato">
+      <div class="modal-box" style="max-width:420px;">
+        <h3>Dados do contrato</h3>
+        <div class="form-group" style="margin-bottom:14px;">
+          <label for="sg-possui">Este item possui contrato?</label>
+          <select id="sg-possui" onchange="sgAtualizarVisibilidadeContrato()">
+            <option value="nao">Não</option>
+            <option value="sim">Sim</option>
+          </select>
+        </div>
+        <div id="sg-campos-contrato" style="display:none;"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+          <button type="button" class="btn btn-secondary" onclick="cancelarNovoItemSubgestor()">Cancelar</button>
+          <button type="button" class="btn btn-primary" onclick="confirmarContratoSubgestor()">Confirmar</button>
         </div>
       </div>
     </div>
