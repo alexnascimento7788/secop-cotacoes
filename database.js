@@ -548,7 +548,18 @@ function setupDb() {
   // tela própria dele (pac-subgestor.html) — nunca a de Lançamento comum,
   // que continua vendo por setor_usuarios.
   seedPerfil('pac', 'Sub-gestor DEPLA', 'Lança itens em nome de qualquer setor do DFD, restrito a uma unidade (filial) — não vê os lançamentos do gestor oficial.',
-    [['pac-lancamento', { ver: 1, incluir: 1, alterar: 0, excluir: 0 }]]);
+    [['pac-lancamento', { ver: 1, incluir: 1, alterar: 1, excluir: 1 }]]);
+  // Bump pra quem já tinha o perfil seedado antes do alterar/excluir entrarem
+  // acima (v4.29.4) — sem isso o INSERT do seedPerfil é ignorado (já existe)
+  // e a instalação real fica presa em alterar:0/excluir:0 pra sempre.
+  try {
+    _db.prepare(`
+      UPDATE perfil_rotinas SET alterar = 1, excluir = 1
+      WHERE alterar = 0 AND excluir = 0
+        AND perfil_id IN (SELECT id FROM perfis WHERE nome = 'Sub-gestor DEPLA')
+        AND rotina_id IN (SELECT id FROM rotinas WHERE slug = 'pac-lancamento')
+    `).run();
+  } catch {}
 
   seedPerfil('detin', 'Gestor DETIN', 'Gestão completa de contratos e análises do DETIN.',
     [['detin-painel', SOVER], ['detin-contratos', TUDO], ['detin-analise', { ver: 1, incluir: 1, alterar: 0, excluir: 0 }]]);

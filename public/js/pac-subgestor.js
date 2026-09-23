@@ -33,6 +33,8 @@ function fmtBr(iso) {
 let _dfds = [];
 let _dfdAtual = null;
 let _listasCache = {};
+let _meusItens = [];
+let _editandoItemId = null;
 
 async function boot() {
   try {
@@ -80,9 +82,14 @@ async function carregarDfdEscolhido() {
 // pac-lancamento.js). Pedido do Alex, 2026-09-23: "não tem a validação de
 // contrato para iniciar a lançar um item".
 function resetarFluxoNovoItem() {
+  _editandoItemId = null;
+  document.getElementById('sg-setor-select').disabled = false;
   document.getElementById('sg-btn-novo-item').style.display = '';
   document.getElementById('sg-form-item').style.display = 'none';
   document.getElementById('modal-sg-contrato').classList.remove('open');
+  document.getElementById('sg-edit-contrato-wrap').style.display = 'none';
+  document.getElementById('sg-btn-lancar-texto').textContent = 'Lançar item';
+  document.getElementById('sg-msg').textContent = '';
 }
 
 function temColunaContrato() {
@@ -90,6 +97,7 @@ function temColunaContrato() {
 }
 
 function iniciarNovoItemSubgestor() {
+  _editandoItemId = null;
   const setorId = document.getElementById('sg-setor-select').value;
   if (!setorId) { toast('Selecione o setor primeiro.', 'error'); return; }
   if (temColunaContrato()) {
@@ -98,6 +106,85 @@ function iniciarNovoItemSubgestor() {
   } else {
     mostrarFormItem();
   }
+}
+
+// Edição do PRÓPRIO lançamento, só enquanto pendente de aprovação (pedido do
+// Alex, 2026-09-23: "e se ele precisar excluir, ou alterar?"). Diferente da
+// criação, aqui já existem valores — mostra tudo direto (grupo A + contrato),
+// sem o gate do modal, e manda PUT em vez de POST no final.
+function editarItemSubgestor(id) {
+  const item = _meusItens.find(i => i.id === id);
+  if (!item) return;
+  _editandoItemId = id;
+  const selSetor = document.getElementById('sg-setor-select');
+  selSetor.value = item.setor_id;
+  selSetor.disabled = true; // setor não muda numa edição — só o servidor que decide o setor na criação
+  renderCampos();
+  preencherCamposComValores(item.valores, '#sg-campos');
+  if (temColunaContrato()) {
+    renderContratoEdicao(item.valores);
+    document.getElementById('sg-edit-contrato-wrap').style.display = '';
+  } else {
+    document.getElementById('sg-edit-contrato-wrap').style.display = 'none';
+  }
+  document.getElementById('sg-btn-lancar-texto').textContent = 'Salvar alterações';
+  document.getElementById('sg-btn-novo-item').style.display = 'none';
+  document.getElementById('sg-form-item').style.display = '';
+}
+
+function preencherCamposComValores(valores, containerSelector) {
+  document.querySelectorAll(`${containerSelector} [data-coluna]`).forEach(el => {
+    const v = valores?.[el.dataset.coluna];
+    if (v == null) return;
+    el.value = el.dataset.tipo === 'moeda' ? fmtMoeda(v) : v;
+  });
+}
+
+function renderContratoEdicao(valores) {
+  const colunasContrato = (_dfdAtual.colunas || []).filter(c => c.grupo === 'C');
+  const possuiCol = (_dfdAtual.colunas || []).find(c => c.slug === 'possui_contrato');
+  document.getElementById('sg-edit-possui').value = (possuiCol && valores?.[possuiCol.id] === 'Sim') ? 'sim' : 'nao';
+  document.getElementById('sg-edit-campos-contrato').innerHTML = colunasContrato.map(c => `
+    <div class="form-group">
+      <label>${c.label}</label>
+      ${renderCampoNovo(c)}
+    </div>
+  `).join('');
+  preencherCamposComValores(valores, '#sg-edit-campos-contrato');
+  sgEditAtualizarVisibilidadeContrato();
+}
+function sgEditAtualizarVisibilidadeContrato() {
+  const sim = document.getElementById('sg-edit-possui').value === 'sim';
+  document.getElementById('sg-edit-campos-contrato').style.display = sim ? '' : 'none';
+}
+
+async function excluirItemSubgestor(id) {
+  if (!confirm('Excluir este lançamento? Essa ação não pode ser desfeita.')) return;
+  try {
+    const res = await fetch(`/api/pac/itens/${id}`, { method: 'DELETE' });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao excluir'); }
+    toast('Item excluído.');
+    await renderMeusLancamentos();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+function verItemSubgestor(id) {
+  const item = _meusItens.find(i => i.id === id);
+  if (!item) return;
+  const colunas = (_dfdAtual.colunas || []).filter(c => c.slug !== 'numero_item');
+  document.getElementById('sg-detalhe-corpo').innerHTML = colunas.map(c => {
+    let v = item.valores?.[c.id];
+    if (v == null || v === '') v = '—';
+    else if (c.tipo_input === 'moeda') v = 'R$ ' + fmtMoeda(v);
+    else if (c.tipo_input === 'data') v = fmtBr(v);
+    return `<div style="margin-bottom:10px;"><div style="font-size:11px;color:var(--text-subtle);font-weight:600;">${c.label}</div><div>${v}</div></div>`;
+  }).join('');
+  document.getElementById('modal-sg-detalhe').classList.add('open');
+}
+function fecharModalDetalheSubgestor() {
+  document.getElementById('modal-sg-detalhe').classList.remove('open');
 }
 
 function cancelarNovoItemSubgestor() {
@@ -211,19 +298,47 @@ async function lancarItemSubgestor() {
   msg.style.color = '#c00';
   const setorId = Number(document.getElementById('sg-setor-select').value);
   if (!setorId) { msg.textContent = 'Selecione o setor.'; return; }
-  const valores = { ...coletarValoresNovo(), ...coletarValoresContrato() };
+  const editando = !!_editandoItemId;
+  const valores = { ...coletarValoresNovo(), ...(editando ? coletarValoresContratoEdicao() : coletarValoresContrato()) };
   try {
-    const res = await fetch(`/api/pac/dfds/${_dfdAtual.id}/itens`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ setor_id: setorId, valores }), // unidade_id NUNCA vem daqui — o servidor atribui automaticamente a unidade do sub-gestor
-    });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao lançar'); }
+    const res = editando
+      ? await fetch(`/api/pac/itens/${_editandoItemId}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ valores }),
+        })
+      : await fetch(`/api/pac/dfds/${_dfdAtual.id}/itens`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ setor_id: setorId, valores }), // unidade_id NUNCA vem daqui — o servidor atribui automaticamente a unidade do sub-gestor
+        });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || (editando ? 'Erro ao salvar' : 'Erro ao lançar')); }
     resetarFluxoNovoItem(); // volta pro Passo 1 — próximo lançamento passa pela trava de contrato de novo
     await renderMeusLancamentos();
-    toast('Item lançado — aguardando aprovação do gestor oficial do setor.');
+    toast(editando ? 'Alterações salvas.' : 'Item lançado — aguardando aprovação do gestor oficial do setor.');
   } catch (e) {
     msg.textContent = 'Erro: ' + e.message;
   }
+}
+
+// Espelha coletarValoresContrato(), mas lendo do bloco de edição (sem gate) —
+// ver [[project_secop_pac_unidades_subgestor]].
+function coletarValoresContratoEdicao() {
+  const colunasContrato = (_dfdAtual.colunas || []).filter(c => c.grupo === 'C');
+  const possuiEl = document.getElementById('sg-edit-possui');
+  if (!possuiEl || !colunasContrato.length) return {};
+  const escolha = possuiEl.value;
+  const valores = {};
+  if (escolha === 'sim') {
+    document.querySelectorAll('#sg-edit-campos-contrato [data-coluna]').forEach(el => {
+      let v = el.value;
+      if (el.dataset.tipo === 'moeda') { const n = parseMoeda(v); v = n == null ? '' : String(n); }
+      valores[el.dataset.coluna] = v === '' ? null : v;
+    });
+  } else {
+    colunasContrato.forEach(c => { valores[c.id] = c.tipo_input === 'data' ? '1900-01-01' : null; });
+  }
+  const possuiCol = (_dfdAtual.colunas || []).find(c => c.slug === 'possui_contrato');
+  if (possuiCol) valores[possuiCol.id] = escolha === 'sim' ? 'Sim' : 'Não';
+  return valores;
 }
 
 const LABEL_STATUS_SUBGESTOR = { pendente: 'Pendente de aprovação', aprovado: 'Aprovado', rejeitado: 'Rejeitado' };
@@ -233,18 +348,28 @@ async function renderMeusLancamentos() {
   const tbody = document.getElementById('sg-meus-tbody');
   try {
     const res = await fetch(`/api/pac/dfds/${_dfdAtual.id}/itens`);
-    const itens = res.ok ? await res.json() : [];
-    tbody.innerHTML = itens.map(i => {
+    _meusItens = res.ok ? await res.json() : [];
+    tbody.innerHTML = _meusItens.map(i => {
       const setorNome = (_dfdAtual.setores || []).find(s => s.id === i.setor_id)?.nome || '—';
       const status = i.aprovacao_subgestor || 'pendente';
+      // Só dá pra editar/excluir enquanto pendente — depois de aprovado o
+      // item passa a ser do setor oficial, não é mais um rascunho dele.
+      const podeEditar = status === 'pendente';
       return `<tr>
         <td>${setorNome}</td>
         <td>${fmtBr(i.criado_em)}</td>
         <td><span class="badge ${CLASSE_STATUS_SUBGESTOR[status] || 'badge-fechado'}">${LABEL_STATUS_SUBGESTOR[status] || status}</span></td>
+        <td style="text-align:right;white-space:nowrap;">
+          <button class="btn btn-secondary btn-xs" onclick="verItemSubgestor(${i.id})">Ver</button>
+          ${podeEditar ? `
+            <button class="btn btn-secondary btn-xs" onclick="editarItemSubgestor(${i.id})">Editar</button>
+            <button class="btn btn-danger btn-xs" onclick="excluirItemSubgestor(${i.id})">Excluir</button>
+          ` : ''}
+        </td>
       </tr>`;
-    }).join('') || `<tr><td colspan="3" style="padding:16px;text-align:center;color:var(--text-subtle);">Nenhum lançamento seu ainda neste DFD.</td></tr>`;
+    }).join('') || `<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--text-subtle);">Nenhum lançamento seu ainda neste DFD.</td></tr>`;
   } catch {
-    tbody.innerHTML = `<tr><td colspan="3" style="padding:16px;text-align:center;color:var(--text-subtle);">Erro ao carregar.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--text-subtle);">Erro ao carregar.</td></tr>`;
   }
 }
 
