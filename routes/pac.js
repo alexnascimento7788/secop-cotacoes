@@ -659,12 +659,14 @@ router.get('/api/pac/dfds/:id/itens', pac, requireRotinaPac('ver'), (req, res) =
     // unidade_usuarios): NUNCA vê a lista do gestor oficial do setor, só os
     // próprios lançamentos (qualquer setor, sempre dentro da sua unidade —
     // pedido explícito do Alex, 2026-09-23: "não vê o dfd do gestor...
-    // somente o gestor oficial que vai ver"). SEM filtrar excluido_em aqui
-    // de propósito (pedido do Alex, 2026-09-23: "não tem uma visão do que
-    // ele lançou se foi ou não aprovado") — item rejeitado vira soft-delete
-    // (some das telas normais), mas ele precisa continuar vendo O PRÓPRIO
-    // com status "Rejeitado" em vez de simplesmente desaparecer sem aviso.
-    itens = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND criado_por = ? ORDER BY criado_em DESC`).all(dfdId, req.user.user_id);
+    // somente o gestor oficial que vai ver"). Excluído só continua aparecendo
+    // quando foi REJEITADO pelo gestor oficial (pedido do Alex, 2026-09-23:
+    // "não tem uma visão do que ele lançou se foi ou não aprovado" — o
+    // rejeitado vira soft-delete e não pode simplesmente sumir sem aviso).
+    // Um item que ELE MESMO excluiu (v4.29.4, botão Excluir em "Meus
+    // lançamentos") continua 'pendente' e deve sumir de vez, como qualquer
+    // exclusão normal — daí a condição não valer pra esse caso.
+    itens = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND criado_por = ? AND (excluido_em IS NULL OR aprovacao_subgestor = 'rejeitado') ORDER BY criado_em DESC`).all(dfdId, req.user.user_id);
   } else {
     const meus = setoresDoUsuario(req.user.user_id);
     if (!meus.length) return res.json([]);
@@ -777,7 +779,7 @@ router.put('/api/pac/itens/:id',
   pac,
   requireRotina('pac-lancamento', 'alterar'),
   (req, res, next) => {
-    const item = db.prepare(`SELECT id, dfd_id, setor_id FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
+    const item = db.prepare(`SELECT id, dfd_id, setor_id, criado_por, aprovacao_subgestor FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
     if (!item) return res.status(404).json({ error: 'Item não encontrado' });
     req.item = item;
     next();
@@ -785,7 +787,10 @@ router.put('/api/pac/itens/:id',
   (req, res, next) => requireDfdEditavel(() => req.item.dfd_id, { resolveItemId: () => req.item.id, tipo: 'editar', resolveSetorId: () => req.item.setor_id })(req, res, next),
   (req, res) => {
     const item = req.item;
-    if (req.user.username !== 'master' && !setoresDoUsuario(req.user.user_id).includes(item.setor_id)) {
+    // Sub-gestor edita o próprio lançamento enquanto está pendente de
+    // aprovação — ainda não é oficial do setor, é rascunho dele.
+    const souCriadorPendente = item.criado_por === req.user.user_id && item.aprovacao_subgestor === 'pendente';
+    if (req.user.username !== 'master' && !souCriadorPendente && !setoresDoUsuario(req.user.user_id).includes(item.setor_id)) {
       return res.status(403).json({ error: 'Você não pertence ao setor deste item.' });
     }
     const erroEspecificacao = validarEspecificacaoObjeto(req.body?.valores);
@@ -810,7 +815,7 @@ router.delete('/api/pac/itens/:id',
   pac,
   requireRotina('pac-lancamento', 'excluir'),
   (req, res, next) => {
-    const item = db.prepare(`SELECT id, dfd_id, setor_id FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
+    const item = db.prepare(`SELECT id, dfd_id, setor_id, criado_por, aprovacao_subgestor FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
     if (!item) return res.status(404).json({ error: 'Item não encontrado' });
     req.item = item;
     next();
@@ -818,7 +823,8 @@ router.delete('/api/pac/itens/:id',
   (req, res, next) => requireDfdEditavel(() => req.item.dfd_id, { resolveItemId: () => req.item.id, tipo: 'excluir', resolveSetorId: () => req.item.setor_id })(req, res, next),
   (req, res) => {
     const item = req.item;
-    if (req.user.username !== 'master' && !setoresDoUsuario(req.user.user_id).includes(item.setor_id)) {
+    const souCriadorPendente = item.criado_por === req.user.user_id && item.aprovacao_subgestor === 'pendente';
+    if (req.user.username !== 'master' && !souCriadorPendente && !setoresDoUsuario(req.user.user_id).includes(item.setor_id)) {
       return res.status(403).json({ error: 'Você não pertence ao setor deste item.' });
     }
     db.prepare(`UPDATE dfd_itens SET excluido_em = datetime('now') WHERE id = ?`).run(item.id);
