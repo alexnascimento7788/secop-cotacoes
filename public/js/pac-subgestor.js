@@ -93,6 +93,32 @@ function renderCampos() {
       ${renderCampoNovo(c)}
     </div>
   `).join('');
+  renderContrato();
+}
+
+// Pergunta "Este item possui contrato?" + campos do grupo C — mesmo fluxo
+// que o gestor de setor já tem no popup de Lançamento (mcAtualizarVisibilidadeCampos/
+// valoresContratoDoForm em pac-lancamento.js), só que direto no formulário
+// (sub-gestor não passa por "criar item em branco depois abrir popup" — ele
+// preenche tudo de uma vez só). Pedido do Alex, 2026-09-23: "não tem a
+// validação de contrato como no gestor de setor, precisa ter".
+function renderContrato() {
+  const colunasContrato = (_dfdAtual.colunas || []).filter(c => c.grupo === 'C');
+  const wrap = document.getElementById('sg-contrato-wrap');
+  if (!colunasContrato.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  document.getElementById('sg-possui').value = 'nao';
+  document.getElementById('sg-campos-contrato').innerHTML = colunasContrato.map(c => `
+    <div class="form-group">
+      <label>${c.label}</label>
+      ${renderCampoNovo(c)}
+    </div>
+  `).join('');
+  sgAtualizarVisibilidadeContrato();
+}
+function sgAtualizarVisibilidadeContrato() {
+  const sim = document.getElementById('sg-possui').value === 'sim';
+  document.getElementById('sg-campos-contrato').style.display = sim ? '' : 'none';
 }
 
 function renderCampoNovo(coluna) {
@@ -119,12 +145,37 @@ function coletarValoresNovo() {
   return valores;
 }
 
+// Espelha valoresContratoDoForm() de pac-lancamento.js — sem a opção "Não
+// informado" (só faz sentido pra dado histórico importado, nunca pra um
+// lançamento ao vivo). "Não" grava a sentinela 1900-01-01 na coluna de
+// data, mesma convenção usada em todo o resto do projeto pra "resposta
+// completa e definitiva" (ver [[project_secop_pac_dfd]]).
+function coletarValoresContrato() {
+  const colunasContrato = (_dfdAtual.colunas || []).filter(c => c.grupo === 'C');
+  const possuiEl = document.getElementById('sg-possui');
+  if (!possuiEl || !colunasContrato.length) return {};
+  const escolha = possuiEl.value;
+  const valores = {};
+  if (escolha === 'sim') {
+    document.querySelectorAll('#sg-campos-contrato [data-coluna]').forEach(el => {
+      let v = el.value;
+      if (el.dataset.tipo === 'moeda') { const n = parseMoeda(v); v = n == null ? '' : String(n); }
+      valores[el.dataset.coluna] = v === '' ? null : v;
+    });
+  } else {
+    colunasContrato.forEach(c => { valores[c.id] = c.tipo_input === 'data' ? '1900-01-01' : null; });
+  }
+  const possuiCol = (_dfdAtual.colunas || []).find(c => c.slug === 'possui_contrato');
+  if (possuiCol) valores[possuiCol.id] = escolha === 'sim' ? 'Sim' : 'Não';
+  return valores;
+}
+
 async function lancarItemSubgestor() {
   const msg = document.getElementById('sg-msg');
   msg.style.color = '#c00';
   const setorId = Number(document.getElementById('sg-setor-select').value);
   if (!setorId) { msg.textContent = 'Selecione o setor.'; return; }
-  const valores = coletarValoresNovo();
+  const valores = { ...coletarValoresNovo(), ...coletarValoresContrato() };
   try {
     const res = await fetch(`/api/pac/dfds/${_dfdAtual.id}/itens`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -141,8 +192,8 @@ async function lancarItemSubgestor() {
   }
 }
 
-const LABEL_STATUS_SUBGESTOR = { pendente: 'Pendente de aprovação', aprovado: 'Aprovado' };
-const CLASSE_STATUS_SUBGESTOR = { pendente: 'badge-analise', aprovado: 'badge-aberto' };
+const LABEL_STATUS_SUBGESTOR = { pendente: 'Pendente de aprovação', aprovado: 'Aprovado', rejeitado: 'Rejeitado' };
+const CLASSE_STATUS_SUBGESTOR = { pendente: 'badge-analise', aprovado: 'badge-aberto', rejeitado: 'badge-cancelado' };
 
 async function renderMeusLancamentos() {
   const tbody = document.getElementById('sg-meus-tbody');

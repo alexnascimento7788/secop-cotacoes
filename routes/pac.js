@@ -659,8 +659,12 @@ router.get('/api/pac/dfds/:id/itens', pac, requireRotinaPac('ver'), (req, res) =
     // unidade_usuarios): NUNCA vê a lista do gestor oficial do setor, só os
     // próprios lançamentos (qualquer setor, sempre dentro da sua unidade —
     // pedido explícito do Alex, 2026-09-23: "não vê o dfd do gestor...
-    // somente o gestor oficial que vai ver").
-    itens = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND criado_por = ? ORDER BY criado_em DESC`).all(dfdId, req.user.user_id);
+    // somente o gestor oficial que vai ver"). SEM filtrar excluido_em aqui
+    // de propósito (pedido do Alex, 2026-09-23: "não tem uma visão do que
+    // ele lançou se foi ou não aprovado") — item rejeitado vira soft-delete
+    // (some das telas normais), mas ele precisa continuar vendo O PRÓPRIO
+    // com status "Rejeitado" em vez de simplesmente desaparecer sem aviso.
+    itens = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND criado_por = ? ORDER BY criado_em DESC`).all(dfdId, req.user.user_id);
   } else {
     const meus = setoresDoUsuario(req.user.user_id);
     if (!meus.length) return res.json([]);
