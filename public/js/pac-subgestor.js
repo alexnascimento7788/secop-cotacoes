@@ -69,8 +69,50 @@ async function carregarDfdEscolhido() {
     (_dfdAtual.setores || []).map(s => `<option value="${s.id}">${s.nome}</option>`).join('') || '<option value="">Nenhum setor participante</option>';
 
   await carregarListas();
-  renderCampos();
+  resetarFluxoNovoItem();
   await renderMeusLancamentos();
+}
+
+// Passo 1: só "+ Novo item" visível. Passo 2 (contrato, se o DFD tiver essa
+// coluna) e Passo 3 (resto dos campos) só aparecem depois de uma ação
+// explícita — mesma sequência que o gestor de setor já tem
+// (iniciarNovoItem → abrirModalContratoNovoItem → criarItem, em
+// pac-lancamento.js). Pedido do Alex, 2026-09-23: "não tem a validação de
+// contrato para iniciar a lançar um item".
+function resetarFluxoNovoItem() {
+  document.getElementById('sg-btn-novo-item').style.display = '';
+  document.getElementById('sg-form-item').style.display = 'none';
+  document.getElementById('modal-sg-contrato').classList.remove('open');
+}
+
+function temColunaContrato() {
+  return (_dfdAtual.colunas || []).some(c => c.grupo === 'C');
+}
+
+function iniciarNovoItemSubgestor() {
+  const setorId = document.getElementById('sg-setor-select').value;
+  if (!setorId) { toast('Selecione o setor primeiro.', 'error'); return; }
+  if (temColunaContrato()) {
+    renderContrato();
+    document.getElementById('modal-sg-contrato').classList.add('open');
+  } else {
+    mostrarFormItem();
+  }
+}
+
+function cancelarNovoItemSubgestor() {
+  document.getElementById('modal-sg-contrato').classList.remove('open');
+}
+
+function confirmarContratoSubgestor() {
+  document.getElementById('modal-sg-contrato').classList.remove('open');
+  mostrarFormItem();
+}
+
+function mostrarFormItem() {
+  renderCampos();
+  document.getElementById('sg-btn-novo-item').style.display = 'none';
+  document.getElementById('sg-form-item').style.display = '';
 }
 
 async function carregarListas() {
@@ -82,9 +124,8 @@ async function carregarListas() {
   _listasCache = Object.fromEntries(entradas);
 }
 
-// Só grupo A (dados do item em si) — Contrato (grupo C) fica de fora do
-// lançamento cego do sub-gestor por ora; o gestor oficial completa isso
-// depois, ao revisar o item pendente na tela normal de Lançamento.
+// Só grupo A (dados do item em si) — chamado depois que o contrato (se
+// existir na configuração do DFD) já foi confirmado no modal.
 function renderCampos() {
   const colunas = (_dfdAtual.colunas || []).filter(c => c.grupo === 'A' && c.slug !== 'numero_item');
   document.getElementById('sg-campos').innerHTML = colunas.map(c => `
@@ -93,20 +134,15 @@ function renderCampos() {
       ${renderCampoNovo(c)}
     </div>
   `).join('');
-  renderContrato();
 }
 
-// Pergunta "Este item possui contrato?" + campos do grupo C — mesmo fluxo
-// que o gestor de setor já tem no popup de Lançamento (mcAtualizarVisibilidadeCampos/
-// valoresContratoDoForm em pac-lancamento.js), só que direto no formulário
-// (sub-gestor não passa por "criar item em branco depois abrir popup" — ele
-// preenche tudo de uma vez só). Pedido do Alex, 2026-09-23: "não tem a
-// validação de contrato como no gestor de setor, precisa ter".
+// Pergunta "Este item possui contrato?" + campos do grupo C, dentro do modal
+// que trava o início do lançamento — mesmo fluxo que o gestor de setor já
+// tem (mcAtualizarVisibilidadeCampos/valoresContratoDoForm em
+// pac-lancamento.js). Pedido do Alex, 2026-09-23: "não tem a validação de
+// contrato para iniciar a lançar um item, precisa ter".
 function renderContrato() {
   const colunasContrato = (_dfdAtual.colunas || []).filter(c => c.grupo === 'C');
-  const wrap = document.getElementById('sg-contrato-wrap');
-  if (!colunasContrato.length) { wrap.style.display = 'none'; return; }
-  wrap.style.display = '';
   document.getElementById('sg-possui').value = 'nao';
   document.getElementById('sg-campos-contrato').innerHTML = colunasContrato.map(c => `
     <div class="form-group">
@@ -182,11 +218,9 @@ async function lancarItemSubgestor() {
       body: JSON.stringify({ setor_id: setorId, valores }), // unidade_id NUNCA vem daqui — o servidor atribui automaticamente a unidade do sub-gestor
     });
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao lançar'); }
-    msg.style.color = '#2E7D32';
-    msg.textContent = 'Item lançado — aguardando aprovação do gestor oficial do setor.';
-    renderCampos(); // limpa o formulário pro próximo lançamento
+    resetarFluxoNovoItem(); // volta pro Passo 1 — próximo lançamento passa pela trava de contrato de novo
     await renderMeusLancamentos();
-    toast('Item lançado.');
+    toast('Item lançado — aguardando aprovação do gestor oficial do setor.');
   } catch (e) {
     msg.textContent = 'Erro: ' + e.message;
   }
