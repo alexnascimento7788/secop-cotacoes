@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PAC — Lançar (Sub-gestor) — CEASA CONECTA</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#F9A800">
+  <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
+  <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');var _mc=localStorage.getItem('secop_modulo_cache');if(_mc)document.documentElement.setAttribute('data-modulo',_mc);</script>
+  <style>
+    .sg-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+    @media (max-width: 640px) { .sg-form-grid { grid-template-columns: 1fr; } }
+    .sg-form-grid .form-group { margin: 0; }
+    .sg-form-grid select, .sg-form-grid input, .sg-form-grid textarea { width: 100%; }
+  </style>
+</head>
+<body data-modulo="pac" data-rotina="pac-lancamento">
+<div class="layout">
+
+  <!-- Sidebar (só o que o sub-gestor tem acesso) -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" class="sidebar-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+      <div class="sidebar-logo-fallback" style="display:none;align-items:center;gap:10px;margin-bottom:8px;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="32" height="32" style="flex-shrink:0"><polygon points="20,1 1,20 20,20" fill="#1565C0"/><polygon points="20,1 39,20 20,20" fill="#F9A800"/><polygon points="39,20 20,39 20,20" fill="#1565C0"/><polygon points="1,20 20,39 20,20" fill="#1565C0"/></svg>
+        <div><div class="logo-title">CEASA CONECTA</div><div class="logo-sub">CEASAMINAS</div></div>
+      </div>
+      <div class="logo-divider"></div>
+    </div>
+    <nav>
+      <a href="pac-subgestor.html" class="nav-item active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        Lançar
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <span id="sidebar-username" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;">—</span>
+      <div style="display:flex;gap:2px;flex-shrink:0;">
+        <button onclick="logout()" class="sidebar-gear" title="Sair" style="background:none;border:none;cursor:pointer;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">PAC — Lançar (Sub-gestor)</div>
+        <div class="page-subtitle" id="sg-subtitulo">Carregando...</div>
+      </div>
+    </div>
+
+    <div class="card" id="sg-sem-dfd" style="display:none;">
+      <p class="text-muted">Nenhum DFD disponível pra sua unidade no momento.</p>
+    </div>
+
+    <div id="sg-conteudo" style="display:none;">
+      <div class="card" style="margin-bottom:20px;">
+        <div class="dt-form-grid sg-form-grid" style="margin-bottom:16px;">
+          <div class="form-group" id="sg-dfd-wrap" style="display:none;">
+            <label>DFD</label>
+            <select id="sg-dfd-select" onchange="carregarDfdEscolhido()"></select>
+          </div>
+          <div class="form-group">
+            <label>Setor</label>
+            <select id="sg-setor-select"></select>
+          </div>
+        </div>
+        <div class="sg-form-grid" id="sg-campos"></div>
+        <div id="sg-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin:14px 0 4px;"></div>
+        <button class="btn btn-primary" onclick="lancarItemSubgestor()">Lançar item</button>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">Meus lançamentos neste DFD</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Setor</th><th>Lançado em</th><th>Status</th></tr></thead>
+            <tbody id="sg-meus-tbody"><tr><td colspan="3" style="padding:16px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="app-footer"></div>
+  </main>
+</div>
+
+<div id="toast"></div>
+<script src="js/pwa.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/pac-subgestor.js"></script>
+</body>
+</html>

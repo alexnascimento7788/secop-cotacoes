@@ -1,4 +1,4 @@
-const CACHE_NAME = 'secop-shell-v114';
+const CACHE_NAME = 'secop-shell-v115';
 
 const SHELL_FILES = [
   '/components/footer.html',
@@ -12,6 +12,7 @@ const SHELL_FILES = [
   '/fornecedor.html',
   '/secad.html',
   '/pac-lancamento.html',
+  '/pac-subgestor.html',
   '/pac-gestao.html',
   '/pac-acompanhamento.html',
   '/pac-importacao.html',
@@ -30,6 +31,7 @@ const SHELL_FILES = [
   '/js/secad.js',
   '/js/pac-gestao.js',
   '/js/pac-lancamento.js',
+  '/js/pac-subgestor.js',
   '/js/pac-acompanhamento.js',
   '/js/pac-importacao.js',
   '/js/detin-painel.js',

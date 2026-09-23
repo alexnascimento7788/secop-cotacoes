@@ -98,6 +98,22 @@ const ROTINA_PAGINAS = {
 
 async function _aplicarRotina(user) {
   const pageRotina = document.body.dataset.rotina;
+
+  // Sub-gestor DEPLA (PAC) usa uma página própria (pac-subgestor.html) em
+  // vez da Lançamento comum, mesmo tendo "ver" concedido na MESMA rotina
+  // (pac-lancamento) — a rotina libera a API, não significa que ele usa a
+  // mesma tela do gestor de setor. Pedido explícito do Alex, 2026-09-23:
+  // sub-gestor nunca vê a lista de lançamentos do gestor oficial.
+  if (user.perfil_nome === 'Sub-gestor DEPLA') {
+    document.querySelectorAll('.sidebar nav a[href$="pac-lancamento.html"]').forEach(a => {
+      a.setAttribute('href', 'pac-subgestor.html');
+    });
+    if (pageRotina === 'pac-lancamento' && !location.pathname.endsWith('pac-subgestor.html')) {
+      window.location.replace('/pac-subgestor.html');
+      return false;
+    }
+  }
+
   if (!pageRotina) return true; // página não declara rotina — sem checagem extra
 
   let data;
