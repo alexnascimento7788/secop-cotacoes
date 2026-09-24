@@ -105,10 +105,25 @@
     .orcpac-valor-col .val.positivo { color: var(--verde, #2E7D32); }
     .orcpac-valor-col .val.negativo { color: #c0392b; }
     [data-theme="dark"] .orcpac-valor-col .val.negativo { color: #f87171; }
-    /* "Resumo por Setor e PAC" (Tela 2) — agrupado por natureza, igual
-       Consolidação agrupa por setor. */
-    tr.orcpac-grupo-header td { background: var(--surface-2); font-weight: 700; font-size: 12.5px; padding: 8px 14px; }
-    tr.orcpac-subtotal td { font-weight: 700; font-size: 12px; color: var(--text-subtle); border-bottom: 2px solid var(--cinza-b); padding-bottom: 10px; }
+    /* Relatório de Orçamento (aba DFDs) — 1 bloco por natureza (mesma
+       estrutura do PDF): nome + Orçado/Consumido/Saldo/% + itens que
+       compõem o valor (ou aviso de "nenhum item", pra natureza sem gasto
+       ainda continuar aparecendo no relatório). */
+    .orcpac-rel-natureza { padding: 12px 0; border-bottom: 1px solid var(--cinza-b); }
+    .orcpac-rel-natureza:last-child { border-bottom: none; }
+    .orcpac-rel-nome { font-size: 13.5px; font-weight: 700; margin-bottom: 4px; }
+    .orcpac-rel-nome.estourou { color: #c0392b; }
+    [data-theme="dark"] .orcpac-rel-nome.estourou { color: #f87171; }
+    .orcpac-rel-campos { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; margin-bottom: 8px; color: var(--text-subtle); }
+    .orcpac-rel-campos b { font-weight: 700; color: var(--text); }
+    .orcpac-rel-campos b.positivo { color: var(--verde, #2E7D32); }
+    .orcpac-rel-campos b.negativo { color: #c0392b; }
+    [data-theme="dark"] .orcpac-rel-campos b.negativo { color: #f87171; }
+    .orcpac-rel-vazio { font-size: 12px; color: var(--text-subtle); font-style: italic; }
+    .orcpac-rel-itens-tbl { width: 100%; font-size: 12px; border-collapse: collapse; }
+    .orcpac-rel-itens-tbl th { text-align: left; font-size: 10.5px; color: var(--text-subtle); font-weight: 600; padding: 4px 8px; }
+    .orcpac-rel-itens-tbl td { padding: 4px 8px; }
+    .orcpac-rel-itens-tbl tbody tr:nth-child(even) { background: var(--surface-2); }
 
     /* ── Consolidação / Solicitações / Acompanhamento (execução do PAC) ──────── */
     .pac-filtros { display: flex; gap: 14px; flex-wrap: wrap; align-items: end; }
@@ -258,7 +273,7 @@
             <div style="display:flex;gap:8px;align-items:center;">
               <div id="dfd-det-acoes"></div>
               <button class="btn btn-secondary btn-sm" id="dfd-det-btn-acomp" onclick="irParaAcompanhamentoDoDfd()" style="display:none;">📊 Acompanhamento</button>
-              <button class="btn btn-secondary btn-sm" onclick="abrirEscolhaOrcamentoDfd()">💰 Orçamento</button>
+              <button class="btn btn-secondary btn-sm" onclick="abrirRelatorioOrcamentoDfd(_dfdAtualId)">💰 Orçamento</button>
               <button class="btn btn-secondary btn-sm" onclick="abrirConfigDfd()">⚙️ Configurações</button>
             </div>
           </div>
@@ -810,42 +825,30 @@
         <button class="btn btn-secondary" onclick="voltarResumoOrcamentario()">← Voltar</button>
       </div>
     </div>
-    <!-- "Tela 2" (pedido do Alex, 2026-09-24, aba DFDs): todos os itens com
-         Natureza preenchida deste DFD de uma vez, agrupados por Natureza —
-         evita abrir "Quem soma" natureza por natureza. -->
-    <div id="orcpac-view-porsetor" class="orcpac-view" style="display:none;">
+    <!-- Relatório de Orçamento — botão "💰 Orçamento" na aba DFDs (pedido do
+         Alex, 2026-09-24: "esta informacao precisa ser melhorada mostrada,
+         relatorios de orcamento completo mesmo quando nao tem gasto sobre o
+         orcado" + "O detalhado nao e a aba quem consome, e um relatorio
+         proprio para analise com todo detalhamento"). Relatório próprio,
+         não um recorte da Consolidação: TODAS as naturezas do orçamento
+         (mesmo com consumido zero), cada uma com Orçado/Consumido/Saldo/%
+         e, logo abaixo, os itens que compõem o valor — tudo numa tela só,
+         e a MESMA estrutura vira o PDF (botão "Gerar PDF" no topo). -->
+    <div id="orcpac-view-relatorio" class="orcpac-view" style="display:none;">
       <div class="orcpac-cabecalho">
         <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" onerror="this.style.display='none'" />
         <div>
-          <h3>Resumo por Setor e PAC</h3>
-          <p class="text-muted" id="orcpac-porsetor-sub">—</p>
+          <h3>Relatório de Orçamento</h3>
+          <p class="text-muted" id="orcpac-relatorio-sub">—</p>
         </div>
       </div>
-      <div id="orcpac-porsetor-linhas" class="modal-box-lg-corpo"></div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;flex-shrink:0;">
+        <button type="button" class="btn btn-secondary btn-sm" id="orcpac-relatorio-btn-pdf" onclick="gerarPdfRelatorioOrcamento()">🖨️ Gerar PDF</button>
+      </div>
+      <div id="orcpac-relatorio-linhas" class="modal-box-lg-corpo"></div>
       <div style="margin-top:16px;text-align:right;flex-shrink:0;">
         <button class="btn btn-secondary" onclick="fecharModalOrcamentario()">Fechar</button>
       </div>
-    </div>
-  </div>
-</div>
-
-<!-- Escolha de tela orçamentária — botão "💰 Orçamento" na aba DFDs (pedido
-     do Alex, 2026-09-24: "trará a escolha de 2 tipo de tela"). -->
-<div class="modal-overlay" id="modal-orcamento-escolha">
-  <div class="modal-box" style="max-width:420px;">
-    <h3>Qual visão do orçamento?</h3>
-    <div style="display:flex;flex-direction:column;gap:10px;margin:14px 0;">
-      <button type="button" class="btn btn-primary" onclick="escolherTelaOrcamento('consolidado')" style="text-align:left;padding:14px 16px;">
-        <strong>Orçamento Consolidado</strong><br>
-        <span style="font-weight:400;font-size:12px;">Natureza, Orçado, Consumido, % e saldo — um resumo por natureza.</span>
-      </button>
-      <button type="button" class="btn btn-primary" onclick="escolherTelaOrcamento('porsetor')" style="text-align:left;padding:14px 16px;">
-        <strong>Resumo por Setor e PAC</strong><br>
-        <span style="font-weight:400;font-size:12px;">Todos os itens com Natureza deste DFD, agrupados, com Setor/Nº PAC/Valor.</span>
-      </button>
-    </div>
-    <div style="text-align:right;">
-      <button class="btn btn-secondary" onclick="fecharEscolhaOrcamentoDfd()">Cancelar</button>
     </div>
   </div>
 </div>
