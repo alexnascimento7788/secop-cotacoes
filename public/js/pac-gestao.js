@@ -280,7 +280,7 @@ function fecharDetalheDfd() {
   carregarDfds();
 }
 
-// Guardado à parte pro botão "📊 Orçamento" (ver abrirEscolhaOrcamentoDfd)
+// Guardado à parte pro botão "💰 Orçamento" (ver abrirRelatorioOrcamentoDfd)
 // decidir se deixa clicar sem precisar refazer o fetch.
 let _dfdAtualOrcamentoId = null;
 
@@ -1929,10 +1929,9 @@ async function finalizarConsolidacaoSetor(setorId) {
    Consolidação — precisa funcionar a partir das 2 telas). */
 let _orcpacDfdId = null;
 let _orcpacLinhas = [];
-let _orcpacTodosItens = [];
 
 function mostrarViewOrcamentario(view) {
-  ['resumo', 'detalhe', 'porsetor'].forEach(v =>
+  ['resumo', 'detalhe', 'relatorio'].forEach(v =>
     document.getElementById(`orcpac-view-${v}`).style.display = v === view ? '' : 'none');
 }
 
@@ -2015,83 +2014,94 @@ function fecharModalOrcamentario() {
   document.getElementById('modal-orcamentario').classList.remove('open');
 }
 
-// "Tela 2" — Resumo por Setor e PAC (pedido do Alex, 2026-09-24): todos os
-// itens com natureza preenchida deste DFD, de uma vez, agrupados por
-// natureza (cabeçalho por grupo, igual Consolidação agrupa por setor) —
-// evita ter que abrir "Quem soma" natureza por natureza pra ver o total.
-async function abrirResumoPorSetorOrcamento(dfdId) {
-  _orcpacDfdId = dfdId;
+/* ── Relatório de Orçamento — botão "💰 Orçamento" na aba DFDs (pedido do
+   Alex, 2026-09-24: "esta informacao precisa ser melhorada mostrada,
+   relatorios de orcamento completo mesmo quando nao tem gasto sobre o
+   orcado" + "O detalhado nao e a aba quem consome, e um relatorio proprio
+   para analise com todo detalhamento... com possibilidade de gerar ate
+   pdf"). Relatório PRÓPRIO (não um recorte de "Quem soma"): TODAS as
+   naturezas do orçamento (mesmo com consumido zero), cada uma com
+   Orçado/Consumido/Saldo/% e os itens que compõem o valor logo abaixo — a
+   MESMA estrutura que o backend usa pra montar o PDF (montarRelatorioOrcamentoDfd
+   em routes/pac.js), então tela e PDF nunca ficam divergentes. */
+let _orcpacRelatorioDfdId = null;
+
+async function abrirRelatorioOrcamentoDfd(dfdId) {
+  if (!_dfdAtualOrcamentoId) {
+    toast('Defina o orçamento deste DFD em "⚙️ Configurações" primeiro.', 'error');
+    return;
+  }
+  _orcpacRelatorioDfdId = dfdId;
   const modal = document.getElementById('modal-orcamentario');
-  const wrap = document.getElementById('orcpac-porsetor-linhas');
+  const wrap = document.getElementById('orcpac-relatorio-linhas');
   wrap.innerHTML = '<div class="text-muted" style="padding:12px;">Carregando...</div>';
-  mostrarViewOrcamentario('porsetor');
+  document.getElementById('orcpac-relatorio-btn-pdf').disabled = true;
+  mostrarViewOrcamentario('relatorio');
   modal.classList.add('open');
   try {
-    const [dfdRes, itensRes] = await Promise.all([
-      fetch(`/api/pac/dfds/${_orcpacDfdId}`),
-      fetch(`/api/pac/dfds/${_orcpacDfdId}/orcamento/itens`),
-    ]);
-    const dfd = dfdRes.ok ? await dfdRes.json() : {};
-    if (!itensRes.ok) throw new Error('Erro ao carregar itens');
-    _orcpacTodosItens = await itensRes.json();
-    document.getElementById('orcpac-porsetor-sub').textContent = `Orçamento: ${dfd.orcamento_nome || '—'}`;
-    renderPorSetorOrcamento();
+    const res = await fetch(`/api/pac/dfds/${dfdId}/orcamento/relatorio`);
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao carregar relatório'); }
+    const dados = await res.json();
+    document.getElementById('orcpac-relatorio-sub').textContent =
+      `${codigoDfd(dados.dfd)} — ${dados.dfd.titulo} · Orçamento: ${dados.orcamento_nome || '—'}`;
+    renderRelatorioOrcamento(dados.naturezas);
+    document.getElementById('orcpac-relatorio-btn-pdf').disabled = false;
   } catch (e) {
     wrap.innerHTML = `<div style="padding:12px;color:#c0392b;">${e.message}</div>`;
   }
 }
 
-function renderPorSetorOrcamento() {
-  const wrap = document.getElementById('orcpac-porsetor-linhas');
-  if (!_orcpacTodosItens.length) {
-    wrap.innerHTML = '<div class="text-muted" style="padding:12px;">Nenhum item com Natureza preenchida ainda neste DFD.</div>';
-    return;
-  }
-  const linhas = [];
-  let naturezaAtual = null;
-  let subtotal = 0;
-  const fecharGrupo = () => { if (naturezaAtual !== null) linhas.push(`<tr class="orcpac-subtotal"><td colspan="3" style="text-align:right;">Subtotal ${naturezaAtual}:</td><td style="text-align:right;">R$ ${_consolFmtMoeda(subtotal)}</td></tr>`); };
-  _orcpacTodosItens.forEach(i => {
-    if (i.natureza !== naturezaAtual) {
-      fecharGrupo();
-      naturezaAtual = i.natureza; subtotal = 0;
-      linhas.push(`<tr class="orcpac-grupo-header"><td colspan="4">${i.natureza}</td></tr>`);
-    }
-    subtotal += Number(i.valor) || 0;
-    linhas.push(`
-      <tr>
-        <td>${i.setor_nome}</td>
-        <td>${i.numero_pac ?? '—'}</td>
-        <td>${i.descricao || '—'}</td>
-        <td style="text-align:right;">R$ ${_consolFmtMoeda(i.valor)}</td>
-      </tr>`);
-  });
-  fecharGrupo();
-  wrap.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>Setor</th><th>Nº PAC</th><th>Descrição</th><th style="text-align:right;">Valor</th></tr></thead>
-    <tbody>${linhas.join('')}</tbody>
-  </table></div>`;
+function renderRelatorioOrcamento(naturezas) {
+  const wrap = document.getElementById('orcpac-relatorio-linhas');
+  wrap.innerHTML = naturezas.map(n => {
+    const estourou = n.saldo < 0;
+    const pct = n.valor_orcado > 0 ? (n.valor_usado / n.valor_orcado) * 100 : (n.valor_usado > 0 ? Infinity : 0);
+    const classeStatus = estourou ? 'negativo' : 'positivo';
+    const itensHtml = n.itens.length
+      ? `<table class="orcpac-rel-itens-tbl">
+          <thead><tr><th>Setor</th><th>Nº PAC</th><th>Descrição</th><th style="text-align:right;">Valor</th></tr></thead>
+          <tbody>${n.itens.map(i => `
+            <tr>
+              <td>${i.setor_nome}</td>
+              <td>${i.numero_pac ?? '—'}</td>
+              <td>${i.descricao || '—'}</td>
+              <td style="text-align:right;">R$ ${_consolFmtMoeda(i.valor)}</td>
+            </tr>`).join('')}</tbody>
+        </table>`
+      : `<div class="orcpac-rel-vazio">Nenhum item lançado com esta natureza neste DFD.</div>`;
+    return `
+      <div class="orcpac-rel-natureza">
+        <div class="orcpac-rel-nome${estourou ? ' estourou' : ''}">${n.natureza}</div>
+        <div class="orcpac-rel-campos">
+          <span>Orçado: <b>R$ ${_consolFmtMoeda(n.valor_orcado)}</b></span>
+          <span>Consumido: <b class="${classeStatus}">R$ ${_consolFmtMoeda(n.valor_usado)}</b></span>
+          <span>Saldo: <b class="${classeStatus}">${n.saldo < 0 ? '-R$ ' : 'R$ '}${_consolFmtMoeda(Math.abs(n.saldo))}</b></span>
+          <span>% usado: <b>${pct === Infinity ? '—' : pct.toFixed(1) + '%'}</b></span>
+        </div>
+        ${itensHtml}
+      </div>`;
+  }).join('') || '<div class="text-muted" style="padding:12px;">Este orçamento não tem nenhuma natureza cadastrada.</div>';
 }
 
-/* ── Escolha de tela orçamentária a partir da aba DFDs (pedido do Alex,
-   2026-09-24: "junto de configuração o gráfico do orçamento... trará a
-   escolha de 2 tipo de tela") — na Consolidação o ícone "📊" já vai direto
-   pro resumo (contexto de 1 item já dá a natureza); aqui, sem um item de
-   partida, pergunta qual das 2 telas abrir. */
-function abrirEscolhaOrcamentoDfd() {
-  if (!_dfdAtualOrcamentoId) {
-    toast('Defina o orçamento deste DFD em "⚙️ Configurações" primeiro.', 'error');
-    return;
-  }
-  document.getElementById('modal-orcamento-escolha').classList.add('open');
-}
-function fecharEscolhaOrcamentoDfd() {
-  document.getElementById('modal-orcamento-escolha').classList.remove('open');
-}
-function escolherTelaOrcamento(tipo) {
-  fecharEscolhaOrcamentoDfd();
-  if (tipo === 'consolidado') abrirOrcamentarioDoDfd(_dfdAtualId);
-  else abrirResumoPorSetorOrcamento(_dfdAtualId);
+function gerarPdfRelatorioOrcamento() {
+  if (!_orcpacRelatorioDfdId) return;
+  const btn = document.getElementById('orcpac-relatorio-btn-pdf');
+  const textoOriginal = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Gerando...';
+  fetch(`/api/pac/dfds/${_orcpacRelatorioDfdId}/orcamento/relatorio/pdf`)
+    .then(async res => {
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao gerar PDF'); }
+      return res.blob();
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `orcamento-dfd-${_orcpacRelatorioDfdId}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      window.open(url, '_blank');
+    })
+    .catch(e => toast('Erro: ' + e.message, 'error'))
+    .finally(() => { btn.disabled = false; btn.textContent = textoOriginal; });
 }
 
 /* ── Solicitações de contratação ─────────────────────────────────────────── */

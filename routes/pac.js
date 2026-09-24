@@ -18,6 +18,7 @@ const crypto = require('crypto');
 // aguardadas, nunca podem derrubar a rota que as disparou (enfileirar() já
 // captura qualquer erro internamente).
 const mailer = require('../mailer');
+const { gerarPdfOrcamentoDfd } = require('../pac-pdf');
 
 const router = express.Router();
 const pac = requireModulo('pac');
@@ -475,6 +476,70 @@ router.get('/api/pac/dfds/:id/orcamento/itens', pac, requireRotinaPac('ver'), (r
     ORDER BY di.natureza_consolidacao, CAST(COALESCE(vv.valor, 0) AS REAL) DESC
   `).all(...(natureza ? [valorCol, descCol, req.params.id, natureza] : [valorCol, descCol, req.params.id]));
   res.json(itens);
+});
+
+// Relatório de Orçamento do DFD (pedido do Alex, 2026-09-24: "O detalhado
+// nao e a aba quem consome, e um relatorio proprio para analise com todo
+// detalhamento" + "relatorios de orcamento completo mesmo quando nao tem
+// gasto sobre o orcado") — combina resumo (Orçado/Consumido/Saldo por
+// natureza, TODAS as linhas do orçamento, mesmo as com consumido zero) com
+// o detalhamento item a item de cada natureza, tudo numa resposta só. Usado
+// pela tela de relatório da aba DFDs e pelo PDF (mesma função monta os
+// dados pros dois).
+function montarRelatorioOrcamentoDfd(dfdId) {
+  const dfd = db.prepare(`SELECT id, titulo, ano_base, orcamento_id FROM dfds WHERE id = ?`).get(dfdId);
+  if (!dfd) return null;
+  if (!dfd.orcamento_id) return { erro: 'Este DFD não tem orçamento definido.' };
+  const orcamento = db.prepare(`SELECT nome FROM orcamentos WHERE id = ?`).get(dfd.orcamento_id);
+  const valorCol = colunaId('valor_estimado');
+  const descCol = colunaId('descricao_objeto');
+  const linhasOrcamento = db.prepare(`SELECT natureza, valor FROM orcamento_naturezas WHERE orcamento_id = ? ORDER BY natureza`).all(dfd.orcamento_id);
+  const todosItens = valorCol ? db.prepare(`
+    SELECT di.natureza_consolidacao AS natureza, di.numero_pac, di.codigo_pac, s.nome AS setor_nome,
+      COALESCE(vv.valor, 0) AS valor, vd.valor AS descricao
+    FROM dfd_itens di
+    JOIN setores s ON s.id = di.setor_id
+    LEFT JOIN dfd_itens_valores vv ON vv.item_id = di.id AND vv.coluna_id = ?
+    LEFT JOIN dfd_itens_valores vd ON vd.item_id = di.id AND vd.coluna_id = ?
+    WHERE di.dfd_id = ? AND di.excluido_em IS NULL AND di.status_consolidacao != 'cancelado' AND di.natureza_consolidacao IS NOT NULL
+    ORDER BY CAST(COALESCE(vv.valor, 0) AS REAL) DESC
+  `).all(valorCol, descCol, dfdId) : [];
+  const itensPorNatureza = {};
+  todosItens.forEach(i => { (itensPorNatureza[i.natureza] ??= []).push(i); });
+  const naturezas = linhasOrcamento.map(l => {
+    const itens = itensPorNatureza[l.natureza] || [];
+    const valor_usado = itens.reduce((s, i) => s + (Number(i.valor) || 0), 0);
+    return { natureza: l.natureza, valor_orcado: l.valor, valor_usado, saldo: l.valor - valor_usado, itens };
+  });
+  return {
+    dfd: { id: dfd.id, titulo: dfd.titulo, ano_base: dfd.ano_base },
+    orcamento_nome: orcamento?.nome || null,
+    naturezas,
+  };
+}
+
+router.get('/api/pac/dfds/:id/orcamento/relatorio', pac, requireRotinaPac('ver'), (req, res) => {
+  const dados = montarRelatorioOrcamentoDfd(req.params.id);
+  if (!dados) return res.status(404).json({ error: 'DFD não encontrado' });
+  if (dados.erro) return res.status(400).json({ error: dados.erro });
+  res.json(dados);
+});
+
+router.get('/api/pac/dfds/:id/orcamento/relatorio/pdf', pac, requireRotinaPac('ver'), async (req, res) => {
+  const dados = montarRelatorioOrcamentoDfd(req.params.id);
+  if (!dados) return res.status(404).json({ error: 'DFD não encontrado' });
+  if (dados.erro) return res.status(400).json({ error: dados.erro });
+  try {
+    const nomeGerador = req.user.nome_completo || req.user.username;
+    const pdfBuffer = await gerarPdfOrcamentoDfd(dados, nomeGerador);
+    registrarLog(req, 'PAC', 'GEROU_RELATORIO_ORCAMENTO', `Gerou o relatório de orçamento do DFD "${dados.dfd.titulo}" #${dados.dfd.id}`);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="orcamento-dfd-${dados.dfd.id}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (e) {
+    console.error('[pac] erro gerando relatório de orçamento:', e);
+    res.status(500).json({ error: 'Erro ao gerar o relatório.' });
+  }
 });
 
 // ── PAC: catálogo de colunas (fixo, só leitura) ───────────────────────────────
