@@ -68,10 +68,14 @@
     .orc-card-total { font-size: 18px; font-weight: 700; color: var(--verde, #2E7D32); }
     .orc-card-sub { font-size: 11.5px; color: var(--text-subtle); margin-top: 4px; }
     .orc-card-acoes { margin-top: 10px; display: flex; gap: 6px; }
-    .orc-naturezas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px 16px; max-height: 60vh; overflow-y: auto; padding-right: 4px; }
-    .orc-natureza-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--cinza-b); }
-    .orc-natureza-nome { font-size: 12.5px; flex: 1 1 auto; }
-    .orc-natureza-row input { width: 130px; text-align: right; flex-shrink: 0; }
+    /* Tabela limpa (pedido do Alex, 2026-09-24: "tem algo melhor?" — 3
+       direções propostas com preview, essa foi a escolhida): ordenada
+       alfabeticamente, zebrada, valor alinhado à direita — sem visual de
+       formulário. */
+    .orc-naturezas-tabela { max-height: 62vh; overflow-y: auto; }
+    .orc-naturezas-tabela tbody tr:nth-child(even) { background: var(--surface-2); }
+    .orc-naturezas-tabela td:first-child { font-size: 12.5px; }
+    .orc-valor-input { width: 150px; text-align: right; }
 
     /* ── Tela orçamentária do PAC (Consolidação) ─────────────────────────────
        comparativo natureza x orçamento por DFD. Pedido do Alex, 2026-09-24
@@ -101,6 +105,10 @@
     .orcpac-valor-col .val.positivo { color: var(--verde, #2E7D32); }
     .orcpac-valor-col .val.negativo { color: #c0392b; }
     [data-theme="dark"] .orcpac-valor-col .val.negativo { color: #f87171; }
+    /* "Resumo por Setor e PAC" (Tela 2) — agrupado por natureza, igual
+       Consolidação agrupa por setor. */
+    tr.orcpac-grupo-header td { background: var(--surface-2); font-weight: 700; font-size: 12.5px; padding: 8px 14px; }
+    tr.orcpac-subtotal td { font-weight: 700; font-size: 12px; color: var(--text-subtle); border-bottom: 2px solid var(--cinza-b); padding-bottom: 10px; }
 
     /* ── Consolidação / Solicitações / Acompanhamento (execução do PAC) ──────── */
     .pac-filtros { display: flex; gap: 14px; flex-wrap: wrap; align-items: end; }
@@ -250,6 +258,7 @@
             <div style="display:flex;gap:8px;align-items:center;">
               <div id="dfd-det-acoes"></div>
               <button class="btn btn-secondary btn-sm" id="dfd-det-btn-acomp" onclick="irParaAcompanhamentoDoDfd()" style="display:none;">📊 Acompanhamento</button>
+              <button class="btn btn-secondary btn-sm" onclick="abrirEscolhaOrcamentoDfd()">💰 Orçamento</button>
               <button class="btn btn-secondary btn-sm" onclick="abrirConfigDfd()">⚙️ Configurações</button>
             </div>
           </div>
@@ -661,7 +670,12 @@
           <div class="form-group" style="max-width:280px;margin-bottom:10px;">
             <input type="text" id="orc-filtro" placeholder="🔎 Filtrar natureza..." oninput="aplicarFiltroOrcamento()" />
           </div>
-          <div class="orc-naturezas-grid" id="orc-naturezas-grid"></div>
+          <div class="table-wrap orc-naturezas-tabela">
+            <table>
+              <thead><tr><th>Natureza</th><th style="text-align:right;width:180px;">Valor Orçado</th></tr></thead>
+              <tbody id="orc-naturezas-tbody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -796,6 +810,43 @@
         <button class="btn btn-secondary" onclick="voltarResumoOrcamentario()">← Voltar</button>
       </div>
     </div>
+    <!-- "Tela 2" (pedido do Alex, 2026-09-24, aba DFDs): todos os itens com
+         Natureza preenchida deste DFD de uma vez, agrupados por Natureza —
+         evita abrir "Quem soma" natureza por natureza. -->
+    <div id="orcpac-view-porsetor" class="orcpac-view" style="display:none;">
+      <div class="orcpac-cabecalho">
+        <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" onerror="this.style.display='none'" />
+        <div>
+          <h3>Resumo por Setor e PAC</h3>
+          <p class="text-muted" id="orcpac-porsetor-sub">—</p>
+        </div>
+      </div>
+      <div id="orcpac-porsetor-linhas" class="modal-box-lg-corpo"></div>
+      <div style="margin-top:16px;text-align:right;flex-shrink:0;">
+        <button class="btn btn-secondary" onclick="fecharModalOrcamentario()">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Escolha de tela orçamentária — botão "💰 Orçamento" na aba DFDs (pedido
+     do Alex, 2026-09-24: "trará a escolha de 2 tipo de tela"). -->
+<div class="modal-overlay" id="modal-orcamento-escolha">
+  <div class="modal-box" style="max-width:420px;">
+    <h3>Qual visão do orçamento?</h3>
+    <div style="display:flex;flex-direction:column;gap:10px;margin:14px 0;">
+      <button type="button" class="btn btn-primary" onclick="escolherTelaOrcamento('consolidado')" style="text-align:left;padding:14px 16px;">
+        <strong>Orçamento Consolidado</strong><br>
+        <span style="font-weight:400;font-size:12px;">Natureza, Orçado, Consumido, % e saldo — um resumo por natureza.</span>
+      </button>
+      <button type="button" class="btn btn-primary" onclick="escolherTelaOrcamento('porsetor')" style="text-align:left;padding:14px 16px;">
+        <strong>Resumo por Setor e PAC</strong><br>
+        <span style="font-weight:400;font-size:12px;">Todos os itens com Natureza deste DFD, agrupados, com Setor/Nº PAC/Valor.</span>
+      </button>
+    </div>
+    <div style="text-align:right;">
+      <button class="btn btn-secondary" onclick="fecharEscolhaOrcamentoDfd()">Cancelar</button>
+    </div>
   </div>
 </div>
 
@@ -825,6 +876,19 @@
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
       <button type="button" class="btn btn-secondary" onclick="fecharModalRateioFonte()">Cancelar</button>
       <button type="button" class="btn btn-primary" onclick="salvarRateioFonteConsol()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Campo de texto longo expansível (pedido do Alex, 2026-09-24) — ver
+     comentário completo em pac-lancamento.js, abrirCampoExpandido(). -->
+<div class="modal-overlay" id="modal-campo-expandido">
+  <div class="modal-box" style="max-width:560px;">
+    <h3 id="campo-expandido-titulo">Editar</h3>
+    <textarea id="campo-expandido-textarea" rows="10" style="width:100%;resize:vertical;" aria-label="Editar campo"></textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+      <button type="button" class="btn btn-secondary" onclick="fecharCampoExpandido()">Cancelar</button>
+      <button type="button" class="btn btn-primary" onclick="salvarCampoExpandido()">Aplicar</button>
     </div>
   </div>
 </div>

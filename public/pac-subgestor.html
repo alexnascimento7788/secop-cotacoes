@@ -165,6 +165,19 @@
   </main>
 </div>
 
+<!-- Campo de texto longo expansível (pedido do Alex, 2026-09-24) — ver
+     comentário completo em pac-lancamento.js, abrirCampoExpandido(). -->
+<div class="modal-overlay" id="modal-campo-expandido">
+  <div class="modal-box" style="max-width:560px;">
+    <h3 id="campo-expandido-titulo">Editar</h3>
+    <textarea id="campo-expandido-textarea" rows="10" style="width:100%;resize:vertical;" aria-label="Editar campo"></textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+      <button type="button" class="btn btn-secondary" onclick="fecharCampoExpandido()">Cancelar</button>
+      <button type="button" class="btn btn-primary" onclick="salvarCampoExpandido()">Aplicar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 <script src="js/pwa.js"></script>
 <script src="js/auth.js"></script>
