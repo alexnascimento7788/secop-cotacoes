@@ -122,9 +122,8 @@ document.getElementById('btn-step2-next').addEventListener('click', () => {
     toast('Adicione ao menos um item.', 'error');
     return;
   }
-  let num = 0;
   for (const row of rows) {
-    num++;
+    const num  = row.dataset.num;
     const qtd  = parseFloat(row.querySelector('.item-qtd').value);
     const unid = row.querySelector('.item-unid').value.trim();
     const desc = row.querySelector('.item-desc').value.trim();
@@ -152,19 +151,35 @@ document.getElementById('btn-step3-back').addEventListener('click', () => goToSt
 // ── Itens ─────────────────────────────────────────────────────────────────────
 
 // data: objeto opcional com { id, item_num, quantidade, unidade, descricao }
+//
+// O código do item (item_num) NÃO é mais recalculado pela posição na lista
+// (idx+1) — fica gravado em row.dataset.num e só muda quando: (a) o item vem
+// do banco/importação já com um número, (b) é um item novo (herda o número
+// seguinte ao do último da lista) ou (c) o usuário edita manualmente clicando
+// no número (ver editarNumeroItem). Motivo (pedido do Alex, 2026-09-24): ao
+// importar um novo TR (termo de referência) depois de excluir algum item no
+// meio, a numeração da planilha nova pode não "fechar o buraco" do jeito que
+// a exclusão fechava — precisa poder corrigir o número de 1 item e cascatear
+// a partir dali, sem que um simples excluir/adicionar embaralhe tudo nem
+// force reinício em 1.
 function addItem(data) {
   itemCount++;
-  const n = itemCount;
   const container = document.getElementById('itens-container');
+  const linhas = container.querySelectorAll('.item-row');
+  const ultimaLinha = linhas[linhas.length - 1];
+  const numero = (data && data.item_num != null && data.item_num !== '')
+    ? data.item_num
+    : (ultimaLinha ? (parseInt(ultimaLinha.dataset.num, 10) || linhas.length) + 1 : 1);
+
   const div = document.createElement('div');
   div.className = 'item-row';
-  div.dataset.itemIndex = n;
+  div.dataset.num = numero;
   if (data && data.id) div.dataset.itemId = data.id; // ID do banco (edição)
 
   div.innerHTML = `
     <div class="form-group" style="min-width:52px;max-width:52px;">
       <label>Item</label>
-      <span class="item-num-display" style="display:flex;align-items:center;justify-content:center;height:38px;background:var(--surface-2,#f0f4f8);border:1px solid var(--cinza-b,#d1d9e0);border-radius:6px;font-weight:700;font-size:14px;color:var(--text,#222);">${n}</span>
+      <span class="item-num-display" title="Clique para corrigir o código deste item" onclick="editarNumeroItem(this)" style="cursor:pointer;display:flex;align-items:center;justify-content:center;height:38px;background:var(--surface-2,#f0f4f8);border:1px solid var(--cinza-b,#d1d9e0);border-radius:6px;font-weight:700;font-size:14px;color:var(--text,#222);">${numero}</span>
     </div>
     <div class="form-group">
       <label>Qtde</label>
@@ -187,24 +202,85 @@ function addItem(data) {
 
 function removeItem(btn) {
   btn.closest('.item-row').remove();
-  renumerarItens();
+  // Não renumera o resto — excluir um item não deve embaralhar o código dos
+  // outros (ver comentário em addItem). Quem precisar fechar o número
+  // agora "errado" corrige clicando nele.
+  itemCount = document.querySelectorAll('.item-row').length;
 }
 
-function renumerarItens() {
-  document.querySelectorAll('.item-row').forEach((row, idx) => {
-    const span = row.querySelector('.item-num-display');
-    if (span) span.textContent = idx + 1;
-    row.dataset.itemIndex = idx + 1;
+// Clique no número do item: vira um campo editável. Confirmar (Enter/blur com
+// valor válido) grava o número digitado nesta linha e recalcula sequencialmente
+// TODAS as linhas abaixo dela (numero+1, numero+2, ...) — as de cima ficam como
+// estavam. Esc cancela sem mudar nada.
+function editarNumeroItem(span) {
+  if (span.tagName === 'INPUT') return;
+  const row = span.closest('.item-row');
+  const valorAtual = row.dataset.num;
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.min = '1';
+  input.step = '1';
+  input.value = valorAtual;
+  input.className = 'item-num-edit';
+  input.style.cssText = 'width:100%;height:38px;text-align:center;font-weight:700;font-size:14px;border:1px solid var(--verde,#1A6B35);border-radius:6px;';
+  span.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let concluido = false;
+  function confirmar() {
+    if (concluido) return;
+    concluido = true;
+    const novo = parseInt(input.value, 10);
+    if (!novo || novo < 1) {
+      toast('Código do item deve ser um número maior que zero.', 'error');
+      restaurarSpan(valorAtual);
+      return;
+    }
+    row.dataset.num = novo;
+    restaurarSpan(novo);
+    renumerarAPartirDe(row);
+  }
+  function cancelar() {
+    if (concluido) return;
+    concluido = true;
+    restaurarSpan(valorAtual);
+  }
+  function restaurarSpan(valor) {
+    const novoSpan = document.createElement('span');
+    novoSpan.className = 'item-num-display';
+    novoSpan.title = 'Clique para corrigir o código deste item';
+    novoSpan.onclick = () => editarNumeroItem(novoSpan);
+    novoSpan.style.cssText = 'cursor:pointer;display:flex;align-items:center;justify-content:center;height:38px;background:var(--surface-2,#f0f4f8);border:1px solid var(--cinza-b,#d1d9e0);border-radius:6px;font-weight:700;font-size:14px;color:var(--text,#222);';
+    novoSpan.textContent = valor;
+    input.replaceWith(novoSpan);
+  }
+
+  input.addEventListener('blur', confirmar);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cancelar(); }
   });
-  itemCount = document.querySelectorAll('.item-row').length;
+}
+
+function renumerarAPartirDe(row) {
+  let anterior = parseInt(row.dataset.num, 10);
+  let atual = row.nextElementSibling;
+  while (atual && atual.classList.contains('item-row')) {
+    anterior += 1;
+    atual.dataset.num = anterior;
+    const span = atual.querySelector('.item-num-display');
+    if (span) span.textContent = anterior;
+    atual = atual.nextElementSibling;
+  }
 }
 
 document.getElementById('btn-add-item').addEventListener('click', () => addItem());
 
 function coletarItens() {
-  return Array.from(document.querySelectorAll('.item-row')).map((row, idx) => ({
+  return Array.from(document.querySelectorAll('.item-row')).map(row => ({
     id:        row.dataset.itemId ? parseInt(row.dataset.itemId) : null,
-    item_num:  idx + 1,
+    item_num:  parseInt(row.dataset.num, 10),
     quantidade: parseFloat(row.querySelector('.item-qtd').value) || 0,
     unidade:   row.querySelector('.item-unid').value.trim(),
     descricao: row.querySelector('.item-desc').value.trim()
@@ -449,7 +525,6 @@ function confirmarImportacaoExcel() {
   document.getElementById('itens-container').innerHTML = '';
   itemCount = 0;
   itens.forEach(item => addItem(item));
-  renumerarItens();
 
   const aviso = document.getElementById('import-aviso');
   aviso.style.display    = 'block';
