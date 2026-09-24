@@ -152,34 +152,27 @@ document.getElementById('btn-step3-back').addEventListener('click', () => goToSt
 
 // data: objeto opcional com { id, item_num, quantidade, unidade, descricao }
 //
-// O código do item (item_num) NÃO é mais recalculado pela posição na lista
-// (idx+1) — fica gravado em row.dataset.num e só muda quando: (a) o item vem
-// do banco/importação já com um número, (b) é um item novo (herda o número
-// seguinte ao do último da lista) ou (c) o usuário edita manualmente clicando
-// no número (ver editarNumeroItem). Motivo (pedido do Alex, 2026-09-24): ao
-// importar um novo TR (termo de referência) depois de excluir algum item no
-// meio, a numeração da planilha nova pode não "fechar o buraco" do jeito que
-// a exclusão fechava — precisa poder corrigir o número de 1 item e cascatear
-// a partir dali, sem que um simples excluir/adicionar embaralhe tudo nem
-// force reinício em 1.
+// O código do item continua sendo sempre a posição na lista (1..N, sem
+// buracos) — isso nunca mudou. O que muda (pedido do Alex, 2026-09-24) é
+// que agora dá pra REORDENAR clicando no número: ao digitar um código já
+// ocupado por outro item, o item clicado assume aquela posição e todo
+// mundo a partir dali (inclusive quem tinha aquele código antes) desliza
+// uma casa pra frente — nunca fica duplicado nem cria buraco, porque no
+// fim das contas é sempre um reordenar-a-lista-e-renumerar-tudo (ver
+// moverItemParaPosicao/renumerarItens), não uma edição isolada de rótulo.
 function addItem(data) {
   itemCount++;
+  const n = itemCount;
   const container = document.getElementById('itens-container');
-  const linhas = container.querySelectorAll('.item-row');
-  const ultimaLinha = linhas[linhas.length - 1];
-  const numero = (data && data.item_num != null && data.item_num !== '')
-    ? data.item_num
-    : (ultimaLinha ? (parseInt(ultimaLinha.dataset.num, 10) || linhas.length) + 1 : 1);
-
   const div = document.createElement('div');
   div.className = 'item-row';
-  div.dataset.num = numero;
+  div.dataset.itemIndex = n;
   if (data && data.id) div.dataset.itemId = data.id; // ID do banco (edição)
 
   div.innerHTML = `
     <div class="form-group" style="min-width:52px;max-width:52px;">
       <label>Item</label>
-      <span class="item-num-display" title="Clique para corrigir o código deste item" onclick="editarNumeroItem(this)" style="cursor:pointer;display:flex;align-items:center;justify-content:center;height:38px;background:var(--surface-2,#f0f4f8);border:1px solid var(--cinza-b,#d1d9e0);border-radius:6px;font-weight:700;font-size:14px;color:var(--text,#222);">${numero}</span>
+      <span class="item-num-display" title="Clique para mover este item para outra posição" onclick="editarNumeroItem(this)" style="cursor:pointer;display:flex;align-items:center;justify-content:center;height:38px;background:var(--surface-2,#f0f4f8);border:1px solid var(--cinza-b,#d1d9e0);border-radius:6px;font-weight:700;font-size:14px;color:var(--text,#222);">${n}</span>
     </div>
     <div class="form-group">
       <label>Qtde</label>
@@ -202,20 +195,41 @@ function addItem(data) {
 
 function removeItem(btn) {
   btn.closest('.item-row').remove();
-  // Não renumera o resto — excluir um item não deve embaralhar o código dos
-  // outros (ver comentário em addItem). Quem precisar fechar o número
-  // agora "errado" corrige clicando nele.
+  renumerarItens();
+}
+
+function renumerarItens() {
+  document.querySelectorAll('.item-row').forEach((row, idx) => {
+    const span = row.querySelector('.item-num-display');
+    if (span) span.textContent = idx + 1;
+    row.dataset.itemIndex = idx + 1;
+  });
   itemCount = document.querySelectorAll('.item-row').length;
 }
 
-// Clique no número do item: vira um campo editável. Confirmar (Enter/blur com
-// valor válido) grava o número digitado nesta linha e recalcula sequencialmente
-// TODAS as linhas abaixo dela (numero+1, numero+2, ...) — as de cima ficam como
-// estavam. Esc cancela sem mudar nada.
+// Move a linha pra ocupar a posição `posicao` (1-based) dentro da lista —
+// quem estava lá (e todo mundo depois) desliza uma casa pra frente. É
+// sempre um "tirar do array e reinserir no lugar certo", nunca uma edição
+// isolada do rótulo, então nunca duplica número nem deixa buraco.
+function moverItemParaPosicao(row, posicao) {
+  const container = document.getElementById('itens-container');
+  const linhas = Array.from(container.querySelectorAll('.item-row'));
+  const indiceAtual = linhas.indexOf(row);
+  if (indiceAtual === -1) return;
+  linhas.splice(indiceAtual, 1);
+  const indiceAlvo = Math.max(0, Math.min(posicao - 1, linhas.length));
+  linhas.splice(indiceAlvo, 0, row);
+  linhas.forEach(r => container.appendChild(r)); // reordena os elementos existentes (não duplica)
+  renumerarItens();
+}
+
+// Clique no número do item: vira um campo editável. Confirmar (Enter/blur
+// com valor válido) move o item pra aquela posição, cascateando o resto da
+// lista (ver moverItemParaPosicao). Esc cancela sem mudar nada.
 function editarNumeroItem(span) {
   if (span.tagName === 'INPUT') return;
   const row = span.closest('.item-row');
-  const valorAtual = row.dataset.num;
+  const valorAtual = parseInt(row.dataset.itemIndex, 10);
   const input = document.createElement('input');
   input.type = 'number';
   input.min = '1';
@@ -237,9 +251,8 @@ function editarNumeroItem(span) {
       restaurarSpan(valorAtual);
       return;
     }
-    row.dataset.num = novo;
-    restaurarSpan(novo);
-    renumerarAPartirDe(row);
+    restaurarSpan(novo); // provisório — moverItemParaPosicao já renumera tudo em seguida
+    moverItemParaPosicao(row, novo);
   }
   function cancelar() {
     if (concluido) return;
@@ -249,7 +262,7 @@ function editarNumeroItem(span) {
   function restaurarSpan(valor) {
     const novoSpan = document.createElement('span');
     novoSpan.className = 'item-num-display';
-    novoSpan.title = 'Clique para corrigir o código deste item';
+    novoSpan.title = 'Clique para mover este item para outra posição';
     novoSpan.onclick = () => editarNumeroItem(novoSpan);
     novoSpan.style.cssText = 'cursor:pointer;display:flex;align-items:center;justify-content:center;height:38px;background:var(--surface-2,#f0f4f8);border:1px solid var(--cinza-b,#d1d9e0);border-radius:6px;font-weight:700;font-size:14px;color:var(--text,#222);';
     novoSpan.textContent = valor;
@@ -263,24 +276,12 @@ function editarNumeroItem(span) {
   });
 }
 
-function renumerarAPartirDe(row) {
-  let anterior = parseInt(row.dataset.num, 10);
-  let atual = row.nextElementSibling;
-  while (atual && atual.classList.contains('item-row')) {
-    anterior += 1;
-    atual.dataset.num = anterior;
-    const span = atual.querySelector('.item-num-display');
-    if (span) span.textContent = anterior;
-    atual = atual.nextElementSibling;
-  }
-}
-
 document.getElementById('btn-add-item').addEventListener('click', () => addItem());
 
 function coletarItens() {
-  return Array.from(document.querySelectorAll('.item-row')).map(row => ({
+  return Array.from(document.querySelectorAll('.item-row')).map((row, idx) => ({
     id:        row.dataset.itemId ? parseInt(row.dataset.itemId) : null,
-    item_num:  parseInt(row.dataset.num, 10),
+    item_num:  idx + 1,
     quantidade: parseFloat(row.querySelector('.item-qtd').value) || 0,
     unidade:   row.querySelector('.item-unid').value.trim(),
     descricao: row.querySelector('.item-desc').value.trim()
@@ -525,6 +526,7 @@ function confirmarImportacaoExcel() {
   document.getElementById('itens-container').innerHTML = '';
   itemCount = 0;
   itens.forEach(item => addItem(item));
+  renumerarItens();
 
   const aviso = document.getElementById('import-aviso');
   aviso.style.display    = 'block';
