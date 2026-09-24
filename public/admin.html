@@ -2216,6 +2216,7 @@ async function importarDepop() {
     if (!res.ok) throw new Error((await res.json()).error || 'Erro');
     status.className = 'ok'; status.textContent = 'Base do Depop importada!';
     btn.textContent = 'Importar depop.db'; btn.disabled = false;
+    carregarBackups();
   } catch(e) {
     status.className = 'erro'; status.textContent = 'Erro: ' + e.message;
     btn.disabled = false; btn.textContent = 'Importar depop.db';
@@ -2264,6 +2265,7 @@ async function importarAnexos() {
     if (!res.ok) throw new Error((await res.json()).error || 'Erro');
     status.className = 'ok'; status.textContent = 'Anexos importados!';
     btn.textContent = 'Importar anexos.db'; btn.disabled = false;
+    carregarBackups();
   } catch(e) {
     status.className = 'erro'; status.textContent = 'Erro: ' + e.message;
     btn.disabled = false; btn.textContent = 'Importar anexos.db';
