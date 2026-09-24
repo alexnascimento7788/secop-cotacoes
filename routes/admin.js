@@ -388,6 +388,31 @@ router.patch('/api/admin/users/:id', requireAdminAny, (req, res) => {
   res.json({ ok: true });
 });
 
+// Excluir um usuário não pode esbarrar em "FOREIGN KEY constraint failed" só
+// porque ele criou um DFD/contrato/orçamento/etc. em algum módulo — o dado
+// permanece no sistema, só fica sem dono (mesmo espírito de
+// "UPDATE processos SET criado_por_id = NULL" que já existia). Em vez de
+// listar cada tabela na mão (e esquecer a próxima que um módulo novo criar),
+// varre sqlite_master + PRAGMA foreign_key_list e zera toda coluna que
+// referencia users(id) sem ON DELETE CASCADE/SET NULL — mesmo padrão de
+// interpolação segura de identificador já usado no Console SQL do PAC
+// (nome de tabela/coluna vem sempre do próprio sqlite_master, nunca de
+// entrada do usuário).
+function limparReferenciasUsuario(userId) {
+  const tabelas = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all();
+  tabelas.forEach(({ name }) => {
+    const identTabela = '"' + name.replace(/"/g, '""') + '"';
+    let fks;
+    try { fks = db.prepare(`PRAGMA foreign_key_list(${identTabela})`).all(); } catch { return; }
+    fks.forEach(fk => {
+      if (fk.table !== 'users') return;
+      if (fk.on_delete === 'CASCADE' || fk.on_delete === 'SET NULL') return;
+      const identColuna = '"' + fk.from.replace(/"/g, '""') + '"';
+      try { db.prepare(`UPDATE ${identTabela} SET ${identColuna} = NULL WHERE ${identColuna} = ?`).run(userId); } catch {}
+    });
+  });
+}
+
 router.delete('/api/admin/users/:id', requireAdminAny, (req, res) => {
   const user = db.prepare("SELECT username, departamento_id FROM users WHERE id = ?").get(req.params.id);
   if (!user) return res.status(404).json({ error: 'Não encontrado' });
@@ -395,8 +420,7 @@ router.delete('/api/admin/users/:id', requireAdminAny, (req, res) => {
   if (req.user.role === 'admin_operacional' && req.user.username !== 'master' && user.departamento_id !== req.user.departamento_id) {
     return res.status(403).json({ error: 'Este usuário não pertence ao seu departamento.' });
   }
-  // As cotações do usuário excluído permanecem no sistema, apenas ficam sem dono (só admin edita)
-  db.prepare("UPDATE processos SET criado_por_id = NULL WHERE criado_por_id = ?").run(req.params.id);
+  limparReferenciasUsuario(req.params.id);
   db.prepare("DELETE FROM users WHERE id = ?").run(req.params.id);
   registrarLog(req, 'USUARIO', 'EXCLUIU', `Excluiu usuário "${user.username}"`);
   res.json({ ok: true });
