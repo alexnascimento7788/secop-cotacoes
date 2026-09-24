@@ -30,6 +30,40 @@ function parseMoeda(s) {
   return isNaN(v) ? null : v;
 }
 
+/* ── Campo de texto longo expansível (pedido do Alex, 2026-09-24: "o campo
+   especificação... precisamos de uma tecnologia para que ele continue da
+   largura que a coluna e mas quando clicarmos ele abra na sua dimensão em
+   todas as abas que este campo é usado") — todo <textarea> de coluna tipo
+   'textarea' (Especificação do Objeto, Justificativa) fica readonly na
+   largura compacta da coluna; clicar abre este modal maior pra editar com
+   conforto. "Aplicar" só copia o texto de volta pro campo original e
+   dispara os mesmos eventos que ele já escuta (input/change/blur) — cobre
+   tanto autosave por onblur (Consolidação) quanto botão "💾" manual
+   (Lançamento) sem precisar saber qual dos dois é o campo de origem.
+   Duplicado em pac-lancamento.js/pac-subgestor.js/pac-gestao.js (mesma
+   convenção do resto do módulo, sem arquivo compartilhado novo). */
+let _campoExpandidoOrigin = null;
+function abrirCampoExpandido(el, titulo) {
+  _campoExpandidoOrigin = el;
+  document.getElementById('campo-expandido-titulo').textContent = titulo || 'Editar';
+  document.getElementById('campo-expandido-textarea').value = el.value;
+  document.getElementById('modal-campo-expandido').classList.add('open');
+  setTimeout(() => document.getElementById('campo-expandido-textarea').focus(), 50);
+}
+function fecharCampoExpandido() {
+  document.getElementById('modal-campo-expandido').classList.remove('open');
+  _campoExpandidoOrigin = null;
+}
+function salvarCampoExpandido() {
+  if (_campoExpandidoOrigin) {
+    _campoExpandidoOrigin.value = document.getElementById('campo-expandido-textarea').value;
+    _campoExpandidoOrigin.dispatchEvent(new Event('input', { bubbles: true }));
+    _campoExpandidoOrigin.dispatchEvent(new Event('change', { bubbles: true }));
+    _campoExpandidoOrigin.dispatchEvent(new Event('blur', { bubbles: true }));
+  }
+  fecharCampoExpandido();
+}
+
 function badgeStatusDfd(status) {
   const icone = { aberto: '●', analise: '⚠', em_consolidacao: '📊', consolidado: '✅', fechado: '🔒' };
   const map = { aberto: 'Aberto', analise: 'Em análise', em_consolidacao: 'Em consolidação', consolidado: 'Consolidado', fechado: 'Fechado' };
@@ -890,7 +924,7 @@ function renderInputCelula(itemId, coluna, valor, comBotaoSalvar, pendente) {
     return `<select ${base} class="${classePendente.trim()}" style="width:${largura}px;max-width:${largura}px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"${tituloAtual}><option value="">${pendente ? 'Item não preenchido' : '—'}</option>${opcoes}</select>${botaoSalvar}`;
   }
   if (coluna.tipo_input === 'textarea') {
-    return `<textarea ${base} class="${classePendente.trim()}" rows="1" style="min-width:200px;" placeholder="${pendente ? 'Item não preenchido' : ''}">${valor || ''}</textarea>${botaoSalvar}`;
+    return `<textarea ${base} class="${classePendente.trim()}" rows="1" style="min-width:200px;" placeholder="${pendente ? 'Item não preenchido' : ''}" readonly onclick="abrirCampoExpandido(this,'${coluna.label.replace(/'/g, "\\'")}')">${valor || ''}</textarea>${botaoSalvar}`;
   }
   if (coluna.tipo_input === 'moeda') {
     return `<input type="text" ${base} class="${classePendente.trim()}" value="${valor != null ? fmtMoeda(valor) : ''}" style="width:110px;text-align:right;" placeholder="${pendente ? 'Item não preenchido' : '0,00'}" />${botaoSalvar}`;

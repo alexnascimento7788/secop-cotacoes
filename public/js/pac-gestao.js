@@ -14,6 +14,31 @@ function badgeStatusDfd(status) {
   return `<span class="badge badge-${status}">${map[status] || status}</span>`;
 }
 
+/* ── Campo de texto longo expansível (pedido do Alex, 2026-09-24) — ver
+   comentário completo em pac-lancamento.js. Duplicado aqui, mesma
+   convenção do resto do módulo. */
+let _campoExpandidoOrigin = null;
+function abrirCampoExpandido(el, titulo) {
+  _campoExpandidoOrigin = el;
+  document.getElementById('campo-expandido-titulo').textContent = titulo || 'Editar';
+  document.getElementById('campo-expandido-textarea').value = el.value;
+  document.getElementById('modal-campo-expandido').classList.add('open');
+  setTimeout(() => document.getElementById('campo-expandido-textarea').focus(), 50);
+}
+function fecharCampoExpandido() {
+  document.getElementById('modal-campo-expandido').classList.remove('open');
+  _campoExpandidoOrigin = null;
+}
+function salvarCampoExpandido() {
+  if (_campoExpandidoOrigin) {
+    _campoExpandidoOrigin.value = document.getElementById('campo-expandido-textarea').value;
+    _campoExpandidoOrigin.dispatchEvent(new Event('input', { bubbles: true }));
+    _campoExpandidoOrigin.dispatchEvent(new Event('change', { bubbles: true }));
+    _campoExpandidoOrigin.dispatchEvent(new Event('blur', { bubbles: true }));
+  }
+  fecharCampoExpandido();
+}
+
 // Ordem de prioridade da aba "DFDs" — pedido do Alex, 2026-09-24: quem
 // precisa de ação (aberto/análise) primeiro, seguindo o fluxo natural do
 // pipeline; "cancelado" vai por último por não fazer mais parte dele.
@@ -255,10 +280,15 @@ function fecharDetalheDfd() {
   carregarDfds();
 }
 
+// Guardado à parte pro botão "📊 Orçamento" (ver abrirEscolhaOrcamentoDfd)
+// decidir se deixa clicar sem precisar refazer o fetch.
+let _dfdAtualOrcamentoId = null;
+
 async function carregarDetalheDfd() {
   const res = await fetch(`/api/pac/dfds/${_dfdAtualId}`);
   if (!res.ok) { toast('Erro ao carregar DFD', 'error'); return; }
   const dfd = await res.json();
+  _dfdAtualOrcamentoId = dfd.orcamento_id || null;
   document.getElementById('dfd-det-titulo').textContent = `${codigoDfd(dfd)} — ${dfd.titulo}`;
   const badge = document.getElementById('dfd-det-badge');
   const map = { aberto: 'Aberto', analise: 'Em análise', em_consolidacao: 'Em consolidação', consolidado: 'Consolidado', fechado: 'Fechado' };
@@ -440,6 +470,7 @@ async function salvarOrcamentoDfd() {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orcamento_id: valor ? Number(valor) : null }),
     });
     if (!res.ok) throw new Error();
+    _dfdAtualOrcamentoId = valor ? Number(valor) : null;
     toast('Orçamento do DFD atualizado.');
   } catch {
     toast('Erro ao salvar orçamento do DFD', 'error');
@@ -1169,33 +1200,39 @@ function fecharDetalheOrcamento() {
 }
 
 async function carregarNaturezasOrcamento() {
-  const grid = document.getElementById('orc-naturezas-grid');
-  grid.innerHTML = '<div class="text-muted" style="padding:12px;">Carregando...</div>';
+  const tbody = document.getElementById('orc-naturezas-tbody');
+  tbody.innerHTML = `<tr><td colspan="2" style="padding:12px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
   try {
     const res = await fetch(`/api/pac/orcamentos/${_orcAtualId}/naturezas`);
     _orcNaturezas = res.ok ? await res.json() : [];
+    // Ordem alfabética na EXIBIÇÃO (não altera a ordem "de classificação" da
+    // lista de parâmetro, só como essa tela em particular mostra) — pedido
+    // do Alex, 2026-09-24: tabela limpa, fácil de escanear/achar um nome.
+    _orcNaturezas.sort((a, b) => a.natureza.localeCompare(b.natureza, 'pt-BR'));
     renderNaturezasOrcamento();
   } catch {
-    grid.innerHTML = '<div style="padding:12px;color:#c0392b;">Erro ao carregar.</div>';
+    tbody.innerHTML = `<tr><td colspan="2" style="padding:12px;text-align:center;color:#c0392b;">Erro ao carregar.</td></tr>`;
   }
 }
 
 // Filtro NÃO re-renderiza a partir de _orcNaturezas (perderia valores ainda
 // não salvos digitados antes de filtrar) — só esconde/mostra linhas já no DOM.
 function renderNaturezasOrcamento() {
-  const grid = document.getElementById('orc-naturezas-grid');
-  grid.innerHTML = _orcNaturezas.map(n => `
-    <div class="orc-natureza-row" data-nome="${n.natureza.toLowerCase().replace(/"/g, '&quot;')}">
-      <span class="orc-natureza-nome">${n.natureza}</span>
-      <input type="text" class="orc-valor-input" data-natureza="${n.natureza.replace(/"/g, '&quot;')}" value="${n.valor ? _consolFmtMoeda(n.valor) : ''}" placeholder="0,00" oninput="atualizarTotalOrcamento()" />
-    </div>`).join('') || '<div class="text-muted" style="padding:12px;">Nenhuma natureza cadastrada.</div>';
+  const tbody = document.getElementById('orc-naturezas-tbody');
+  tbody.innerHTML = _orcNaturezas.map(n => `
+    <tr data-nome="${n.natureza.toLowerCase().replace(/"/g, '&quot;')}">
+      <td>${n.natureza}</td>
+      <td style="text-align:right;">
+        <input type="text" class="orc-valor-input" data-natureza="${n.natureza.replace(/"/g, '&quot;')}" value="${n.valor ? _consolFmtMoeda(n.valor) : ''}" placeholder="0,00" oninput="atualizarTotalOrcamento()" />
+      </td>
+    </tr>`).join('') || `<tr><td colspan="2" style="padding:12px;text-align:center;color:var(--text-subtle);">Nenhuma natureza cadastrada.</td></tr>`;
   atualizarTotalOrcamento();
   aplicarFiltroOrcamento();
 }
 
 function aplicarFiltroOrcamento() {
   const filtro = (document.getElementById('orc-filtro').value || '').toLowerCase();
-  document.querySelectorAll('#orc-naturezas-grid .orc-natureza-row').forEach(row => {
+  document.querySelectorAll('#orc-naturezas-tbody tr[data-nome]').forEach(row => {
     row.style.display = row.dataset.nome.includes(filtro) ? '' : 'none';
   });
 }
@@ -1617,7 +1654,7 @@ async function renderConsolidadoDetalhe() {
       <td><input type="text" class="consol-obs-input" value="${(item.observacao_consolidacao || '').replace(/"/g, '&quot;')}" placeholder="—" onblur="salvarObservacaoConsolidacao(${item.id}, this.value)" /></td>
       <td style="white-space:nowrap;">
         ${String(item.natureza_consolidacao || '').trim()
-          ? `<button type="button" class="btn btn-secondary btn-xs" style="padding:2px 7px;margin-right:6px;" onclick="abrirOrcamentarioDoDfd('${item.natureza_consolidacao.replace(/'/g, "\\'")}')" title="Orçamento x gastos deste DFD">📊</button>`
+          ? `<button type="button" class="btn btn-secondary btn-xs" style="padding:2px 7px;margin-right:6px;" onclick="abrirOrcamentarioDoDfd(_consolDfdId, '${item.natureza_consolidacao.replace(/'/g, "\\'")}')" title="Orçamento x gastos deste DFD">📊</button>`
           : ''}
         ${badgeStatusConsolidacao(item.status_consolidacao)}
       </td>
@@ -1680,7 +1717,7 @@ function renderCelulaConsolEditavel(item, coluna) {
     return `<td><select ${attrs} style="min-width:110px;" onchange="salvarCampoConsolidacao(this)"><option value="">—</option>${opcoes}</select></td>`;
   }
   if (coluna.tipo_input === 'textarea') {
-    return `<td><textarea ${attrs} rows="1" style="min-width:180px;" onblur="salvarCampoConsolidacao(this)">${valor || ''}</textarea></td>`;
+    return `<td><textarea ${attrs} rows="1" style="min-width:180px;" readonly onclick="abrirCampoExpandido(this,'${coluna.label.replace(/'/g, "\\'")}')" onblur="salvarCampoConsolidacao(this)">${valor || ''}</textarea></td>`;
   }
   if (coluna.tipo_input === 'moeda') {
     return `<td><input type="text" ${attrs} value="${valor != null ? _consolFmtMoeda(valor) : ''}" style="width:100px;text-align:right;" onblur="salvarCampoConsolidacao(this)" /></td>`;
@@ -1882,29 +1919,38 @@ async function finalizarConsolidacaoSetor(setorId) {
 }
 
 /* ── Tela orçamentária do PAC (pedido do Alex, 2026-09-24) ───────────────────
-   Ícone "📊" ao lado da Natureza (só aparece com Natureza preenchida, ver
-   renderConsolidadoDetalhe acima) abre este comparativo: cada linha de
-   Natureza do orçamento do DFD x soma de dfd_itens.valor_estimado dos itens
-   DESTE DFD com aquela natureza (não cumulativo entre DFDs — confirmado
-   pelo Alex). Botão "quem soma" drilla pra detalhe (Setor/Nº PAC/Descrição/
-   Valor, maior pro menor). */
+   2 pontos de entrada: (1) ícone "📊" na Consolidação, ao lado da Natureza de
+   UM item (só depois dela preenchida) — vai direto pro resumo com aquela
+   natureza em destaque; (2) botão "📊 Orçamento" na aba DFDs (Configurações),
+   que oferece escolher entre "Orçamento Consolidado" (resumo por natureza,
+   igual o da Consolidação) e "Resumo por Setor e PAC" (todos os itens com
+   natureza, de uma vez, sem precisar abrir natureza por natureza). Ambos
+   usam o MESMO modal/estado (_orcpacDfdId, não mais preso a _consolDfdId da
+   Consolidação — precisa funcionar a partir das 2 telas). */
+let _orcpacDfdId = null;
 let _orcpacLinhas = [];
+let _orcpacTodosItens = [];
+
+function mostrarViewOrcamentario(view) {
+  ['resumo', 'detalhe', 'porsetor'].forEach(v =>
+    document.getElementById(`orcpac-view-${v}`).style.display = v === view ? '' : 'none');
+}
 
 // natureza: quando aberto a partir do ícone "📊" de UM item específico
 // (pedido do Alex, 2026-09-24: "a primeira linha sempre devera ser do pac
 // da linha da consolidação para facilitar a apuração") — essa natureza sobe
 // pro topo da lista, com destaque visual, em vez de ficar perdida na ordem
 // alfabética/de cadastro.
-async function abrirOrcamentarioDoDfd(natureza) {
+async function abrirOrcamentarioDoDfd(dfdId, natureza) {
+  _orcpacDfdId = dfdId;
   const modal = document.getElementById('modal-orcamentario');
   document.getElementById('orcpac-resumo-linhas').innerHTML = '<div class="text-muted" style="padding:12px;">Carregando...</div>';
-  document.getElementById('orcpac-view-resumo').style.display = '';
-  document.getElementById('orcpac-view-detalhe').style.display = 'none';
+  mostrarViewOrcamentario('resumo');
   modal.classList.add('open');
   try {
     const [dfdRes, orcRes] = await Promise.all([
-      fetch(`/api/pac/dfds/${_consolDfdId}`),
-      fetch(`/api/pac/dfds/${_consolDfdId}/orcamento`),
+      fetch(`/api/pac/dfds/${_orcpacDfdId}`),
+      fetch(`/api/pac/dfds/${_orcpacDfdId}/orcamento`),
     ]);
     const dfd = dfdRes.ok ? await dfdRes.json() : {};
     if (!orcRes.ok) { const e = await orcRes.json().catch(() => ({})); throw new Error(e.error || 'Erro ao carregar orçamento'); }
@@ -1945,10 +1991,9 @@ async function abrirDetalheNaturezaOrcamentaria(natureza) {
   document.getElementById('orcpac-detalhe-titulo').textContent = natureza;
   const tbody = document.getElementById('orcpac-detalhe-tbody');
   tbody.innerHTML = `<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
-  document.getElementById('orcpac-view-resumo').style.display = 'none';
-  document.getElementById('orcpac-view-detalhe').style.display = '';
+  mostrarViewOrcamentario('detalhe');
   try {
-    const res = await fetch(`/api/pac/dfds/${_consolDfdId}/orcamento/itens?natureza=${encodeURIComponent(natureza)}`);
+    const res = await fetch(`/api/pac/dfds/${_orcpacDfdId}/orcamento/itens?natureza=${encodeURIComponent(natureza)}`);
     const itens = res.ok ? await res.json() : [];
     tbody.innerHTML = itens.map(i => `
       <tr>
@@ -1963,12 +2008,90 @@ async function abrirDetalheNaturezaOrcamentaria(natureza) {
 }
 
 function voltarResumoOrcamentario() {
-  document.getElementById('orcpac-view-detalhe').style.display = 'none';
-  document.getElementById('orcpac-view-resumo').style.display = '';
+  mostrarViewOrcamentario('resumo');
 }
 
 function fecharModalOrcamentario() {
   document.getElementById('modal-orcamentario').classList.remove('open');
+}
+
+// "Tela 2" — Resumo por Setor e PAC (pedido do Alex, 2026-09-24): todos os
+// itens com natureza preenchida deste DFD, de uma vez, agrupados por
+// natureza (cabeçalho por grupo, igual Consolidação agrupa por setor) —
+// evita ter que abrir "Quem soma" natureza por natureza pra ver o total.
+async function abrirResumoPorSetorOrcamento(dfdId) {
+  _orcpacDfdId = dfdId;
+  const modal = document.getElementById('modal-orcamentario');
+  const wrap = document.getElementById('orcpac-porsetor-linhas');
+  wrap.innerHTML = '<div class="text-muted" style="padding:12px;">Carregando...</div>';
+  mostrarViewOrcamentario('porsetor');
+  modal.classList.add('open');
+  try {
+    const [dfdRes, itensRes] = await Promise.all([
+      fetch(`/api/pac/dfds/${_orcpacDfdId}`),
+      fetch(`/api/pac/dfds/${_orcpacDfdId}/orcamento/itens`),
+    ]);
+    const dfd = dfdRes.ok ? await dfdRes.json() : {};
+    if (!itensRes.ok) throw new Error('Erro ao carregar itens');
+    _orcpacTodosItens = await itensRes.json();
+    document.getElementById('orcpac-porsetor-sub').textContent = `Orçamento: ${dfd.orcamento_nome || '—'}`;
+    renderPorSetorOrcamento();
+  } catch (e) {
+    wrap.innerHTML = `<div style="padding:12px;color:#c0392b;">${e.message}</div>`;
+  }
+}
+
+function renderPorSetorOrcamento() {
+  const wrap = document.getElementById('orcpac-porsetor-linhas');
+  if (!_orcpacTodosItens.length) {
+    wrap.innerHTML = '<div class="text-muted" style="padding:12px;">Nenhum item com Natureza preenchida ainda neste DFD.</div>';
+    return;
+  }
+  const linhas = [];
+  let naturezaAtual = null;
+  let subtotal = 0;
+  const fecharGrupo = () => { if (naturezaAtual !== null) linhas.push(`<tr class="orcpac-subtotal"><td colspan="3" style="text-align:right;">Subtotal ${naturezaAtual}:</td><td style="text-align:right;">R$ ${_consolFmtMoeda(subtotal)}</td></tr>`); };
+  _orcpacTodosItens.forEach(i => {
+    if (i.natureza !== naturezaAtual) {
+      fecharGrupo();
+      naturezaAtual = i.natureza; subtotal = 0;
+      linhas.push(`<tr class="orcpac-grupo-header"><td colspan="4">${i.natureza}</td></tr>`);
+    }
+    subtotal += Number(i.valor) || 0;
+    linhas.push(`
+      <tr>
+        <td>${i.setor_nome}</td>
+        <td>${i.numero_pac ?? '—'}</td>
+        <td>${i.descricao || '—'}</td>
+        <td style="text-align:right;">R$ ${_consolFmtMoeda(i.valor)}</td>
+      </tr>`);
+  });
+  fecharGrupo();
+  wrap.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Setor</th><th>Nº PAC</th><th>Descrição</th><th style="text-align:right;">Valor</th></tr></thead>
+    <tbody>${linhas.join('')}</tbody>
+  </table></div>`;
+}
+
+/* ── Escolha de tela orçamentária a partir da aba DFDs (pedido do Alex,
+   2026-09-24: "junto de configuração o gráfico do orçamento... trará a
+   escolha de 2 tipo de tela") — na Consolidação o ícone "📊" já vai direto
+   pro resumo (contexto de 1 item já dá a natureza); aqui, sem um item de
+   partida, pergunta qual das 2 telas abrir. */
+function abrirEscolhaOrcamentoDfd() {
+  if (!_dfdAtualOrcamentoId) {
+    toast('Defina o orçamento deste DFD em "⚙️ Configurações" primeiro.', 'error');
+    return;
+  }
+  document.getElementById('modal-orcamento-escolha').classList.add('open');
+}
+function fecharEscolhaOrcamentoDfd() {
+  document.getElementById('modal-orcamento-escolha').classList.remove('open');
+}
+function escolherTelaOrcamento(tipo) {
+  fecharEscolhaOrcamentoDfd();
+  if (tipo === 'consolidado') abrirOrcamentarioDoDfd(_dfdAtualId);
+  else abrirResumoPorSetorOrcamento(_dfdAtualId);
 }
 
 /* ── Solicitações de contratação ─────────────────────────────────────────── */

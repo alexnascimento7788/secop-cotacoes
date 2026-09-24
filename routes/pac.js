@@ -455,21 +455,25 @@ router.get('/api/pac/dfds/:id/orcamento', pac, requireRotinaPac('ver'), (req, re
 });
 
 // "Quem está somando" — itens deste DFD com esta natureza, maior valor primeiro.
+// natureza opcional (pedido do Alex, 2026-09-24): sem ela, devolve TODOS os
+// itens com natureza preenchida do DFD, ordenados por natureza — usado pela
+// "Tela 2" (resumo por Setor e PAC) da aba DFDs, que mostra tudo de uma vez
+// em vez de precisar clicar "Quem soma" natureza por natureza.
 router.get('/api/pac/dfds/:id/orcamento/itens', pac, requireRotinaPac('ver'), (req, res) => {
   const natureza = req.query.natureza;
-  if (!natureza) return res.status(400).json({ error: 'Natureza é obrigatória' });
   const valorCol = colunaId('valor_estimado');
   const descCol = colunaId('descricao_objeto');
   const itens = db.prepare(`
-    SELECT di.id, di.numero_pac, di.codigo_pac, s.nome AS setor_nome,
+    SELECT di.id, di.numero_pac, di.codigo_pac, di.natureza_consolidacao AS natureza, s.nome AS setor_nome,
       COALESCE(vv.valor, 0) AS valor, vd.valor AS descricao
     FROM dfd_itens di
     JOIN setores s ON s.id = di.setor_id
     LEFT JOIN dfd_itens_valores vv ON vv.item_id = di.id AND vv.coluna_id = ?
     LEFT JOIN dfd_itens_valores vd ON vd.item_id = di.id AND vd.coluna_id = ?
-    WHERE di.dfd_id = ? AND di.excluido_em IS NULL AND di.status_consolidacao != 'cancelado' AND di.natureza_consolidacao = ?
-    ORDER BY CAST(COALESCE(vv.valor, 0) AS REAL) DESC
-  `).all(valorCol, descCol, req.params.id, natureza);
+    WHERE di.dfd_id = ? AND di.excluido_em IS NULL AND di.status_consolidacao != 'cancelado' AND di.natureza_consolidacao IS NOT NULL
+      ${natureza ? 'AND di.natureza_consolidacao = ?' : ''}
+    ORDER BY di.natureza_consolidacao, CAST(COALESCE(vv.valor, 0) AS REAL) DESC
+  `).all(...(natureza ? [valorCol, descCol, req.params.id, natureza] : [valorCol, descCol, req.params.id]));
   res.json(itens);
 });
 

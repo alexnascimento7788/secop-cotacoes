@@ -30,6 +30,31 @@ function fmtBr(iso) {
   return d.length < 3 ? '—' : `${d[2]}/${d[1]}/${d[0]}`;
 }
 
+/* ── Campo de texto longo expansível (pedido do Alex, 2026-09-24) — ver
+   comentário completo em pac-lancamento.js. Duplicado aqui, mesma
+   convenção do resto do módulo. */
+let _campoExpandidoOrigin = null;
+function abrirCampoExpandido(el, titulo) {
+  _campoExpandidoOrigin = el;
+  document.getElementById('campo-expandido-titulo').textContent = titulo || 'Editar';
+  document.getElementById('campo-expandido-textarea').value = el.value;
+  document.getElementById('modal-campo-expandido').classList.add('open');
+  setTimeout(() => document.getElementById('campo-expandido-textarea').focus(), 50);
+}
+function fecharCampoExpandido() {
+  document.getElementById('modal-campo-expandido').classList.remove('open');
+  _campoExpandidoOrigin = null;
+}
+function salvarCampoExpandido() {
+  if (_campoExpandidoOrigin) {
+    _campoExpandidoOrigin.value = document.getElementById('campo-expandido-textarea').value;
+    _campoExpandidoOrigin.dispatchEvent(new Event('input', { bubbles: true }));
+    _campoExpandidoOrigin.dispatchEvent(new Event('change', { bubbles: true }));
+    _campoExpandidoOrigin.dispatchEvent(new Event('blur', { bubbles: true }));
+  }
+  fecharCampoExpandido();
+}
+
 let _dfds = [];
 let _dfdAtual = null;
 let _listasCache = {};
@@ -260,7 +285,7 @@ function renderCampoNovo(coluna) {
     const opcoes = (_listasCache[coluna.lista] || []).map(o => `<option value="${o.valor}">${o.valor}</option>`).join('');
     return `<select ${base}><option value="">—</option>${opcoes}</select>`;
   }
-  if (coluna.tipo_input === 'textarea') return `<textarea ${base} rows="2"></textarea>`;
+  if (coluna.tipo_input === 'textarea') return `<textarea ${base} rows="2" readonly onclick="abrirCampoExpandido(this,'${coluna.label.replace(/'/g, "\\'")}')"></textarea>`;
   if (coluna.tipo_input === 'moeda') return `<input type="text" ${base} placeholder="0,00" />`;
   if (coluna.tipo_input === 'numero') return `<input type="number" ${base} step="any" />`;
   if (coluna.tipo_input === 'data') return `<input type="date" ${base} />`;
