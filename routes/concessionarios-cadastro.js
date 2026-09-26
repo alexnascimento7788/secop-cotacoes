@@ -73,6 +73,9 @@ router.get('/api/concessionarios-cadastro/dashboard', cc, ver, (req, res) => {
   }));
   const porUnidade = {};
   grupos.forEach(g => { porUnidade[g.unidade] = (porUnidade[g.unidade] || 0) + 1; });
+  // Lista de ramos distintos — usada pra popular o filtro (Pesquisar e
+  // Relatório), mesmo espírito do por_unidade acima.
+  const ramos = Array.from(new Set(grupos.flatMap(g => g.itens.map(i => i.descricao_ramo || 'Sem ramo informado')))).sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
   res.json({
     total: grupos.length,
@@ -81,6 +84,7 @@ router.get('/api/concessionarios-cadastro/dashboard', cc, ver, (req, res) => {
     total_contratos: totalContratos,
     ativos_contrato_nulo: ativosContratoNulo,
     por_unidade: porUnidade,
+    ramos,
   });
 });
 
@@ -111,32 +115,27 @@ router.get('/api/concessionarios-cadastro', cc, ver, (req, res) => {
 });
 
 router.post('/api/concessionarios-cadastro/relatorio/pdf', cc, ver, async (req, res) => {
-  const { unidade, ativo } = req.body || {};
+  const { unidade, ativo, ramo } = req.body || {};
   let linhas = linhasComUnidade();
   if (unidade) linhas = linhas.filter(l => l.unidade === unidade);
   if (String(ativo) === '1') linhas = linhas.filter(l => l.ativo === 1);
   if (String(ativo) === '0') linhas = linhas.filter(l => l.ativo !== 1);
+  // Ramo é um FILTRO opcional, não agrupamento obrigatório — quando não
+  // informado, o relatório traz todos os ramos juntos (Ramo vira só uma
+  // coluna da tabela). Pedido do Alex, 2026-09-26.
+  if (ramo) linhas = linhas.filter(l => (l.descricao_ramo || 'Sem ramo informado') === ramo);
 
-  const porRamo = new Map();
-  linhas.forEach(l => {
-    const ramo = l.descricao_ramo || 'Sem ramo informado';
-    if (!porRamo.has(ramo)) porRamo.set(ramo, []);
-    porRamo.get(ramo).push(l);
-  });
-  const ramos = Array.from(porRamo.entries())
-    .sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'))
-    .map(([ramo, itens]) => ({
-      ramo,
-      itens: itens.slice().sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR')),
-    }));
+  // Ordena por "ID da TOTVS" (codigo/CODCFO) — não mais por nome/ramo.
+  linhas.sort((a, b) => a.codigo - b.codigo);
 
   const filtrosPartes = [];
   if (unidade) filtrosPartes.push(`Unidade: ${unidade}`);
+  if (ramo) filtrosPartes.push(`Ramo: ${ramo}`);
   if (String(ativo) === '1') filtrosPartes.push('Somente ativos');
   if (String(ativo) === '0') filtrosPartes.push('Somente inativos');
 
   try {
-    const pdfBuffer = await gerarPdfConcessionarios(ramos, filtrosPartes.join(' · '), req.user.nome_completo || req.user.username);
+    const pdfBuffer = await gerarPdfConcessionarios(linhas, filtrosPartes.join(' · '), req.user.nome_completo || req.user.username);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline; filename="concessionarios-cadastro.pdf"');
     res.send(pdfBuffer);

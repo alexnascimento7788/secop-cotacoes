@@ -154,13 +154,16 @@ async function carregarLogo(pdfDoc) {
   } catch { return null; }
 }
 
-// ramos: [{ ramo, itens: [{codigo, numero_contrato, ativo (0/1), unidade,
-// nome, fantasia, cnpj, cidade, ...}] }] — 1 item por CONTRATO (não por
+// linhas: [{codigo, numero_contrato, ativo (0/1), unidade, nome, fantasia,
+// cnpj, cidade, descricao_ramo, ...}] — 1 item por CONTRATO (não por
 // empresa: uma empresa com 2 contratos ativos aparece 2 vezes, cada linha
 // com seu próprio status) — vem de linhasComUnidade() em
 // routes/concessionarios-cadastro.js, mesma função que a tela de Pesquisar
-// usa, pra tela e PDF nunca divergirem.
-async function gerarPdfConcessionarios(ramos, filtrosTexto, nomeGerador) {
+// usa, pra tela e PDF nunca divergirem. Ordem já vem definida pelo chamador
+// (por padrão, por `codigo` — o "ID da TOTVS"). Ramo de atividade é só uma
+// COLUNA aqui, não agrupamento — filtrar por ramo é opcional, feito antes de
+// chamar esta função (pedido do Alex, 2026-09-26: ramo não é mandatório).
+async function gerarPdfConcessionarios(linhas, filtrosTexto, nomeGerador) {
   const pdfDoc = await PDFDocument.create();
   const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const negrito = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -174,33 +177,27 @@ async function gerarPdfConcessionarios(ramos, filtrosTexto, nomeGerador) {
   w.paragrafo(filtrosTexto ? `Filtros aplicados: ${filtrosTexto}` : 'Sem filtros — todos os concessionários.', 9.5);
   w.paragrafo(`Gerado em ${dataHojeBr()} por ${nomeGerador}.`, 9);
 
-  const totalContratos = ramos.reduce((s, r) => s + r.itens.length, 0);
-  const totalAtivos = ramos.reduce((s, r) => s + r.itens.filter(i => i.ativo === 1).length, 0);
+  const totalAtivos = linhas.filter(i => i.ativo === 1).length;
   w.linha();
   w.camposLinha([
-    { label: 'Total de contratos:', valor: totalContratos },
+    { label: 'Total de contratos:', valor: linhas.length },
     { label: 'Ativos:', valor: totalAtivos, cor: VERDE_ATIVO },
-    { label: 'Inativos:', valor: totalContratos - totalAtivos, cor: VERMELHO_INATIVO },
+    { label: 'Inativos:', valor: linhas.length - totalAtivos, cor: VERMELHO_INATIVO },
   ]);
   w.espaco(6);
 
   const COLS = [
-    { label: 'Concessionário', w: 175 }, { label: 'CNPJ', w: 95 },
-    { label: 'Unidade', w: 90 }, { label: 'Cidade', w: 90 }, { label: 'Contrato', w: 79 },
+    { label: 'Nº TOTVS', w: 45 }, { label: 'Concessionário', w: 118 }, { label: 'CNPJ', w: 85 },
+    { label: 'Unidade', w: 68 }, { label: 'Ramo', w: 90 }, { label: 'Contrato', w: 65 },
   ];
-  ramos.forEach(r => {
-    w.garantirEspaco(40);
-    w.subtitulo(`${r.ramo} (${r.itens.length})`);
-    const linhas = r.itens.map(i => ({
-      cor: i.ativo === 1 ? VERDE_ATIVO : VERMELHO_INATIVO,
-      valores: [
-        i.fantasia || i.nome || '—', i.cnpj || '—',
-        i.unidade, i.cidade || '—', i.numero_contrato || '—',
-      ],
-    }));
-    desenharTabela(w, negrito, regular, subtituloPagina, COLS, linhas);
-    w.espaco(6);
-  });
+  const linhasTabela = linhas.map(i => ({
+    cor: i.ativo === 1 ? VERDE_ATIVO : VERMELHO_INATIVO,
+    valores: [
+      i.codigo, i.fantasia || i.nome || '—', i.cnpj || '—',
+      i.unidade, i.descricao_ramo || 'Sem ramo informado', i.numero_contrato || '—',
+    ],
+  }));
+  desenharTabela(w, negrito, regular, subtituloPagina, COLS, linhasTabela);
 
   w.page.drawText('Concessionários Cadastro. Verde = ativo, vermelho = inativo.', {
     x: MARGIN, y: MARGIN - 28, size: 8.5, font: regular, color: rgb(0.6, 0.6, 0.6),

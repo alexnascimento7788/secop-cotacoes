@@ -50,11 +50,20 @@ function preencherSelectsUnidadeCc(unidadesPresentes) {
   });
 }
 
+// Ramo é filtro OPCIONAL (não agrupamento) só no Relatório — pedido do Alex.
+function preencherSelectRamoCc(ramosDisponiveis) {
+  const sel = document.getElementById('cc-rel-ramo');
+  const atual = sel.value;
+  sel.innerHTML = '<option value="">Todos os ramos</option>' + ramosDisponiveis.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('');
+  if (ramosDisponiveis.includes(atual)) sel.value = atual;
+}
+
 async function carregarDashboardConcessionarios() {
   let d;
   try { d = await (await fetch('/api/concessionarios-cadastro/dashboard')).json(); } catch { return; }
 
   preencherSelectsUnidadeCc(Object.keys(d.por_unidade));
+  preencherSelectRamoCc(d.ramos || []);
 
   document.getElementById('cc-cards').innerHTML = `
     <div class="metric-card metric-cotacao">
@@ -151,10 +160,11 @@ function abrirModalRelatorioConcessionarios() {
 async function gerarRelatorioConcessionariosPdf() {
   const unidade = document.getElementById('cc-rel-unidade').value;
   const ativo = document.getElementById('cc-rel-ativo').value;
+  const ramo = document.getElementById('cc-rel-ramo').value;
   const janela = window.open('', '_blank');
   try {
     const res = await fetch('/api/concessionarios-cadastro/relatorio/pdf', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ unidade, ativo })
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ unidade, ativo, ramo })
     });
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
