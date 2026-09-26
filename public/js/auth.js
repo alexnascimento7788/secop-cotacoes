@@ -94,6 +94,7 @@ const ROTINA_PAGINAS = {
   'detin-painel': '/detin-painel.html',
   'detin-contratos': '/detin-contratos.html',
   'detin-analise': '/detin-analise.html',
+  'consulta': '/concessionarios-cadastro.html',
 };
 
 async function _aplicarRotina(user) {

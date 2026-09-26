@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Concessionários Cadastro — CEASA CONECTA</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#1565C0">
+  <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
+  <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');var _mc=localStorage.getItem('secop_modulo_cache');if(_mc)document.documentElement.setAttribute('data-modulo',_mc);</script>
+</head>
+<body data-modulo="concessionarios-cadastro" data-rotina="consulta">
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" class="sidebar-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+      <div class="sidebar-logo-fallback" style="display:none;align-items:center;gap:10px;margin-bottom:8px;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="32" height="32" style="flex-shrink:0"><polygon points="20,1 1,20 20,20" fill="#1565C0"/><polygon points="20,1 39,20 20,20" fill="#F9A800"/><polygon points="39,20 20,39 20,20" fill="#1565C0"/><polygon points="1,20 20,39 20,20" fill="#1565C0"/></svg>
+        <div><div class="logo-title">CEASA CONECTA</div><div class="logo-sub">CEASAMINAS</div></div>
+      </div>
+      <div class="logo-divider"></div>
+    </div>
+    <nav>
+      <a href="concessionarios-cadastro.html" class="nav-item active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+        Concessionários Cadastro
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <span id="sidebar-username" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;">—</span>
+      <div style="display:flex;gap:2px;flex-shrink:0;">
+        <a href="admin.html" class="sidebar-gear" title="Administração">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </a>
+        <button onclick="logout()" class="sidebar-gear" title="Sair" style="background:none;border:none;cursor:pointer;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Concessionários Cadastro</div>
+        <div class="page-subtitle">Cadastro sincronizado do ERP TOTVS (CORPORE) · CEASAMINAS</div>
+      </div>
+    </div>
+
+    <div class="page-tabs" id="cc-tabs">
+      <button class="page-tab active" data-cctab="dashboard">Dashboard</button>
+      <button class="page-tab" data-cctab="pesquisar">Pesquisar</button>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="pane-cc-dashboard" class="dp-pane active">
+      <div class="cards-grid" id="cc-cards"></div>
+      <div class="card" style="margin-top:16px;">
+        <div class="card-header"><span class="card-title">📍 Concessionários por Unidade</span></div>
+        <div id="cc-por-unidade" style="padding:16px 20px;"></div>
+      </div>
+    </div>
+
+    <!-- Pesquisar -->
+    <div id="pane-cc-pesquisar" class="dp-pane">
+      <div class="card" style="margin-bottom:16px;">
+        <div style="padding:14px 16px;">
+          <div class="filters">
+            <select id="cc-filtro-unidade" class="filter-select"><option value="">Todas as unidades</option></select>
+            <select id="cc-filtro-ativo" class="filter-select">
+              <option value="">Ativos e inativos</option>
+              <option value="1">Somente ativos</option>
+              <option value="0">Somente inativos</option>
+            </select>
+            <input id="cc-busca" class="filter-input" placeholder="Buscar por nome, fantasia ou CNPJ..." />
+            <button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="abrirModalRelatorioConcessionarios()">🖨️ Relatório</button>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="table-wrap"><table>
+          <thead><tr><th>Status</th><th>Concessionário</th><th>CNPJ</th><th>Unidade</th><th>Ramo</th><th>Contrato</th></tr></thead>
+          <tbody id="cc-tbody"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div id="app-footer"></div>
+  </main>
+</div>
+
+<!-- Modal: detalhe do concessionário -->
+<div class="modal-overlay" id="modal-cc-detalhe">
+  <div class="modal-box" style="width:640px;max-height:82vh;overflow:auto;">
+    <h3 id="cc-det-titulo">Concessionário</h3>
+    <div id="cc-det-corpo"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary" onclick="fecharModal('modal-cc-detalhe')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: filtro do relatório -->
+<div class="modal-overlay" id="modal-cc-relatorio">
+  <div class="modal-box" style="width:420px;">
+    <h3>Relatório — Concessionários Cadastro</h3>
+    <div class="form-group" style="margin-top:10px;">
+      <label>Unidade</label>
+      <select id="cc-rel-unidade" class="filter-select" style="width:100%;"><option value="">Todas as unidades</option></select>
+    </div>
+    <div class="form-group" style="margin-top:10px;">
+      <label>Situação</label>
+      <select id="cc-rel-ativo" class="filter-select" style="width:100%;">
+        <option value="">Ativos e inativos</option>
+        <option value="1">Somente ativos</option>
+        <option value="0">Somente inativos</option>
+      </select>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px;">
+      <button class="btn btn-secondary" onclick="fecharModal('modal-cc-relatorio')">Cancelar</button>
+      <button class="btn btn-primary" onclick="gerarRelatorioConcessionariosPdf()">🖨️ Gerar PDF</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="js/pwa.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/concessionarios-cadastro.js"></script>
+</body>
+</html>

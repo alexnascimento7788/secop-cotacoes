@@ -424,12 +424,23 @@ function setupDb() {
       .run('detin', 'Gestão de Contratos', '#1A3F6B', '/detin-painel.html', 4);
   } catch {}
 
+  // Módulo Concessionários Cadastro (pedido do Alex, 2026-09-26) — mesmo
+  // departamento (Depop) do secad, mas MÓDULO PRÓPRIO (não rotina dentro do
+  // secad): aparece como 2º card na "Seção SECAD" da tela de seleção (ver
+  // SECAO_POR_MODULO em selecionar-modulo.html). Dado vem 100% da sincronização
+  // do CeasaConecta-Gateway (ver secad-gateway-sync.js) — cor igual à do secad
+  // (mesma família visual), sem módulo/página própria de administração ainda.
+  try {
+    _db.prepare(`INSERT INTO modulos (slug, nome, cor, home, ordem) VALUES (?, ?, ?, ?, ?)`)
+      .run('concessionarios-cadastro', 'Concessionários Cadastro', '#1565C0', '/concessionarios-cadastro.html', 5);
+  } catch {}
+
   // (rename depop→secad já rodou mais acima, antes do seed de módulos)
 
   // departamento_id por módulo (idempotente: só preenche quem ainda está NULL)
   try {
     const depIds = Object.fromEntries(_db.prepare(`SELECT slug, id FROM departamentos`).all().map(d => [d.slug, d.id]));
-    [['secop', 'depad'], ['secad', 'depop'], ['pac', 'depla'], ['detin', 'detin']].forEach(([modSlug, depSlug]) => {
+    [['secop', 'depad'], ['secad', 'depop'], ['pac', 'depla'], ['detin', 'detin'], ['concessionarios-cadastro', 'depop']].forEach(([modSlug, depSlug]) => {
       if (depIds[depSlug]) {
         _db.prepare(`UPDATE modulos SET departamento_id = ? WHERE slug = ? AND departamento_id IS NULL`).run(depIds[depSlug], modSlug);
       }
@@ -458,10 +469,9 @@ function setupDb() {
       ['secop', 'fornecedores',   'Fornecedores', 4, 'ver,incluir,alterar,excluir'],
       ['secad', 'validacao',      'Concessionários Renovação', 1, 'ver,incluir,alterar'],
       ['secad', 'comunicados',    'Comunicados',               2, 'ver,incluir,alterar'],
-      // Cadastro (nome/CNPJ/endereço/contrato) sincronizado do CeasaConecta-Gateway
-      // (ver secad-gateway-sync.js) — só leitura, não tem incluir/alterar/excluir
-      // porque não existe edição manual de campo nenhum aqui.
-      ['secad', 'concessionarios-cadastro', 'Concessionários Cadastro', 3, 'ver'],
+      // "Concessionários Cadastro" NÃO é rotina do secad — é um MÓDULO próprio
+      // (ver seed logo abaixo, junto de pac/detin), mesmo departamento (Depop).
+      ['concessionarios-cadastro', 'consulta', 'Consulta', 1, 'ver'],
       ['pac',   'pac-lancamento',     'Lançamento',     1, 'ver,incluir,alterar,excluir'],
       ['pac',   'pac-gestao',         'Gestão',         2, 'ver,incluir,alterar,excluir'],
       ['pac',   'pac-solicitacoes',   'Solicitações',   3, 'ver,incluir,alterar,excluir'],
@@ -482,6 +492,12 @@ function setupDb() {
     // acima só roda na 1ª vez). Slug/permissões já concedidas continuam intactas.
     if (modIds.secad) {
       _db.prepare(`UPDATE rotinas SET nome = 'Concessionários Renovação' WHERE modulo_id = ? AND slug = 'validacao'`).run(modIds.secad);
+      // Limpeza de uma versão de horas atrás (2026-09-26): "Concessionários
+      // Cadastro" chegou a nascer por engano como ROTINA do secad antes do
+      // Alex corrigir pra MÓDULO próprio — apaga essa linha órfã se existir
+      // (ON DELETE CASCADE em perfil_rotinas cobre qualquer grant pendurado,
+      // mas não deveria haver nenhum — ninguém teve tempo de configurar).
+      _db.prepare(`DELETE FROM rotinas WHERE modulo_id = ? AND slug = 'concessionarios-cadastro'`).run(modIds.secad);
     }
   }
 
@@ -545,6 +561,12 @@ function setupDb() {
     [['validacao', RW], ['comunicados', RW]]);
   seedPerfil('secad', 'Supervisor', 'Acompanha validação e comunicados, somente leitura.',
     [['validacao', SOVER], ['comunicados', SOVER]]);
+
+  // Módulo próprio (não rotina do secad) — perfil nasce sem ninguém concedido
+  // por padrão, de propósito (dado novo, liberação fica 100% a critério do
+  // Alex em Admin → Perfis/Usuários).
+  seedPerfil('concessionarios-cadastro', 'Consulta', 'Consulta o cadastro de concessionários (dashboard, pesquisa e relatório).',
+    [['consulta', SOVER]]);
 
   seedPerfil('pac', 'Gestor de Área', 'Lança dados do PAC da própria área.',
     [['pac-lancamento', RW], ['pac-acompanhamento', SOVER]]);

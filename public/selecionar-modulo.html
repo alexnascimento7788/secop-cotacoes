@@ -151,13 +151,14 @@
 // pedido do Alex, 2026-09-18: "só visual por enquanto", sem tabela nova no
 // banco. modulos.nome continua "SECOP - Cotações" etc. no banco/admin, pra
 // quem já reconhece o codinome nas telas de administração.
-const NOME_AMIGAVEL = { secop: 'Cotações', secad: 'Concessionários', pac: 'DFD', detin: 'Gestão de Contratos' };
-const SECAO_POR_MODULO = { secop: 'SECOP', secad: 'SECAD', pac: 'PAC' }; // detin: sem seção
+const NOME_AMIGAVEL = { secop: 'Cotações', secad: 'Concessionários Renovação', pac: 'DFD', detin: 'Gestão de Contratos' };
+const SECAO_POR_MODULO = { secop: 'SECOP', secad: 'SECAD', pac: 'PAC', 'concessionarios-cadastro': 'SECAD' }; // detin: sem seção
 const DESCRICAO_MODULO = {
   secop: 'Pesquisa de preços e cotação de fornecedores',
-  secad: 'Contratos de concessão e comunicados oficiais',
+  secad: 'Avaliação e renovação de área dos concessionários',
   pac: 'Documento de Formalização de Demanda — planejamento anual',
   detin: 'Contratos de TI: vigência, aditivos e vencimentos',
+  'concessionarios-cadastro': 'Cadastro sincronizado do ERP TOTVS (CORPORE)',
 };
 
 let _grupos = []; // [{ nome, cor, itens: [modulo,...] }] — 1 por departamento
