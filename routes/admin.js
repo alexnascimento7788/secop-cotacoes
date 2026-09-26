@@ -168,7 +168,7 @@ router.put('/api/admin/usuarios/:id/secad-cidades', requireAdminAny, (req, res) 
 
 // Chaves de config que NUNCA podem ir pro frontend (segredos). Este endpoint é
 // consumido por qualquer usuário logado (auth.js), então segredos ficam de fora.
-const CONFIG_SECRETA = new Set(['cpfhub_api_key', 'pac_senha_mestra_hash', 'pac_senha_mestra_salt']);
+const CONFIG_SECRETA = new Set(['cpfhub_api_key', 'pac_senha_mestra_hash', 'pac_senha_mestra_salt', 'secad_gateway_api_key']);
 
 router.get('/api/config', (req, res) => {
   const rows = db.prepare(`SELECT chave, valor FROM config`).all();
@@ -859,6 +859,29 @@ router.get('/api/admin/cpfhub', requireAdminAny, (req, res) => {
   const row = db.prepare(`SELECT valor FROM config WHERE chave = 'cpfhub_api_key'`).get();
   const v = row && row.valor ? String(row.valor).trim() : '';
   res.json({ configurada: !!v, mascara: v ? (v.slice(0, 4) + '••••••' + v.slice(-2)) : '' });
+});
+
+// ── CeasaConecta-Gateway (sincronização de concessionários, ver
+// secad-gateway-sync.js) — URL não é segredo, só a chave é. ────────────────
+router.get('/api/admin/secad-gateway', requireAdminAny, (req, res) => {
+  const url = db.prepare(`SELECT valor FROM config WHERE chave = 'secad_gateway_url'`).get()?.valor || '';
+  const keyRow = db.prepare(`SELECT valor FROM config WHERE chave = 'secad_gateway_api_key'`).get();
+  const key = keyRow && keyRow.valor ? String(keyRow.valor).trim() : '';
+  const ultimaSync = db.prepare(`SELECT valor FROM config WHERE chave = 'secad_gateway_ultima_sync'`).get()?.valor || null;
+  res.json({
+    url,
+    configurada: !!key,
+    mascara: key ? (key.slice(0, 4) + '••••••' + key.slice(-2)) : '',
+    ultima_sincronizacao: ultimaSync,
+  });
+});
+
+router.post('/api/admin/secad-gateway/sincronizar', requireAdminAny, async (req, res) => {
+  const { sincronizarConcessionarios } = require('../secad-gateway-sync');
+  const resultado = await sincronizarConcessionarios();
+  if (!resultado.ok) return res.status(400).json(resultado);
+  registrarLog(req, 'SECAD', 'GATEWAY_SYNC', `Sincronizou concessionários via Gateway (${resultado.gravados}/${resultado.total})`);
+  res.json(resultado);
 });
 
 // ── Homolog: migrações a rodar manualmente na produção (DBeaver) ──────────────

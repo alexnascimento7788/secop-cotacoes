@@ -1919,6 +1919,48 @@ let _depop;
 function setupDepop() {
   _depop = new DatabaseSync(depopFilePath);
   _depop.exec('PRAGMA journal_mode = WAL');
+
+  // Cadastro de concessionário (nome/CNPJ/endereço/contrato) — diferente do
+  // resto do depop.db, ESTA tabela é NOSSA (mesma exceção de comprovante_entrega
+  // em anexos.db): sincronizada por secad-gateway-sync.js a partir do
+  // CeasaConecta-Gateway (que consulta FCFO/ZTERMO/ZRAMOATIVIDADE no CORPORE
+  // via SQL Server), não pelo conversor externo. Precisa ser IF NOT EXISTS
+  // porque uma reimportação do depop.db (conversor) recria o arquivo do zero e
+  // apagaria esta tabela também — ela reaparece sozinha no próximo boot/sync.
+  // Ligada às tabelas do conversor (AvaliacaoAreaRenovacao etc.) só por
+  // `codigo` (= CODCFO), nunca por FK — são fontes de dados independentes.
+  // Base pro "novo módulo no Depop" que o Alex vai construir na 3ª etapa
+  // (Gateway → sync → módulo), 2026-09-26.
+  // codigo (CODCFO) NÃO é único nesta tabela de propósito: a consulta do
+  // Gateway junta FCFO×ZTERMO, então uma empresa com N contratos aparece N
+  // vezes (mesmo codigo, numero_contrato diferente) — descoberto testando
+  // com dado real (2586 linhas da API viravam só 1709 se a chave fosse só
+  // 'codigo', perdendo contrato de quem tem mais de um). Chave real é
+  // (codigo, numero_contrato).
+  _depop.exec(`
+    CREATE TABLE IF NOT EXISTS concessionario_cadastro (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      codigo             INTEGER NOT NULL,
+      numero_contrato    TEXT,
+      nome               TEXT,
+      fantasia           TEXT,
+      cnpj               TEXT,
+      ie                 TEXT,
+      cod_ramo           INTEGER,
+      descricao_ramo     TEXT,
+      endereco           TEXT,
+      numero             TEXT,
+      bairro             TEXT,
+      cidade             TEXT,
+      telefone           TEXT,
+      cep                TEXT,
+      ativo              INTEGER,
+      contrato_juridico  TEXT,
+      atualizado_em      DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (codigo, numero_contrato)
+    );
+    CREATE INDEX IF NOT EXISTS idx_concessionario_cadastro_codigo ON concessionario_cadastro(codigo);
+  `);
 }
 
 setupDepop();

@@ -473,6 +473,27 @@
           </div>
           <div id="cpfhub-status" style="margin-top:10px;font-size:12.5px;color:var(--text-muted);"></div>
         </div>
+        <div class="admin-section" style="margin-top:24px;">
+          <div class="admin-section-title">CeasaConecta-Gateway (concessionários)</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Sincroniza o cadastro de concessionários (nome/CNPJ/endereço/contrato) a
+            partir do CeasaConecta-Gateway, que consulta o SQL Server do ERP TOTVS
+            (CORPORE). A chave fica só no servidor. Roda sozinho a cada 6h.
+          </p>
+          <div class="add-user-form" style="display:flex;flex-wrap:wrap;gap:10px;align-items:end;">
+            <div class="form-group" style="flex:1 1 280px;">
+              <label>URL do Gateway</label>
+              <input type="text" id="cfg-gateway-url" placeholder="http://10.18.120.18:3099" />
+            </div>
+            <div class="form-group" style="flex:1 1 280px;">
+              <label>Chave da API (X-API-Key)</label>
+              <input type="password" id="cfg-gateway-key" placeholder="cole a chave aqui" autocomplete="off" />
+            </div>
+            <button class="btn btn-primary" onclick="salvarGatewayConfig()" style="white-space:nowrap;">Salvar</button>
+            <button class="btn btn-secondary" onclick="sincronizarGatewayAgora()" style="white-space:nowrap;">Sincronizar agora</button>
+          </div>
+          <div id="gateway-status" style="margin-top:10px;font-size:12.5px;color:var(--text-muted);"></div>
+        </div>
       </div>
     </div>
 
@@ -1436,6 +1457,52 @@ async function carregarParametros() {
         : 'Nenhuma chave configurada — usando validação offline dos dígitos.';
     }
   } catch {}
+  // Status do CeasaConecta-Gateway (URL não é segredo, chave é mascarada)
+  try {
+    const r = await fetch('/api/admin/secad-gateway');
+    if (r.ok) {
+      const s = await r.json();
+      const inpUrl = document.getElementById('cfg-gateway-url');
+      if (inpUrl && !inpUrl.value) inpUrl.value = s.url || '';
+      const el = document.getElementById('gateway-status');
+      if (el) {
+        const chaveTxt = s.configurada ? `chave ${s.mascara}` : 'sem chave configurada';
+        const syncTxt = s.ultima_sincronizacao ? `última sincronização: ${fmtDataHoraBackup(s.ultima_sincronizacao)}` : 'ainda não sincronizou';
+        el.textContent = `${chaveTxt} — ${syncTxt}.`;
+      }
+    }
+  } catch {}
+}
+
+async function salvarGatewayConfig() {
+  const url = document.getElementById('cfg-gateway-url').value.trim();
+  const key = document.getElementById('cfg-gateway-key').value.trim();
+  if (!url && !key) { toast('Preencha a URL e/ou a chave antes de salvar.', 'error'); return; }
+  try {
+    const body = {};
+    if (url) body.secad_gateway_url = url;
+    if (key) body.secad_gateway_api_key = key;
+    const res = await fetch('/api/admin/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error();
+    document.getElementById('cfg-gateway-key').value = '';
+    toast('Configuração do Gateway salva!', 'success');
+    carregarParametros();
+  } catch { toast('Erro ao salvar a configuração do Gateway.', 'error'); }
+}
+
+async function sincronizarGatewayAgora() {
+  const el = document.getElementById('gateway-status');
+  if (el) el.textContent = 'Sincronizando...';
+  try {
+    const res = await fetch('/api/admin/secad-gateway/sincronizar', { method: 'POST' });
+    const s = await res.json();
+    if (!res.ok) throw new Error(s.erro || 'Erro desconhecido');
+    toast(`Sincronizado: ${s.gravados}/${s.total} concessionários.`, 'success');
+    carregarParametros();
+  } catch (e) { toast('Erro ao sincronizar: ' + e.message, 'error'); }
 }
 
 async function salvarChaveCpf() {

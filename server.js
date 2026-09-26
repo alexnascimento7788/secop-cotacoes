@@ -327,4 +327,7 @@ app.listen(PORT, '0.0.0.0', () => {
   // Só depois que o servidor já está de pé — motor roda em background
   // (setInterval de 60s + job diário), nunca bloqueia o startup.
   require('./mailer').iniciarMotor();
+  // Sincronização de concessionários via CeasaConecta-Gateway (ver
+  // secad-gateway-sync.js) — mesmo padrão de motor em background do mailer.
+  require('./secad-gateway-sync').iniciarSincronizacao();
 });
