@@ -99,21 +99,15 @@ router.get('/api/concessionarios-cadastro', cc, ver, (req, res) => {
     );
   }
   linhas.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR') || (a.numero_contrato || '').localeCompare(b.numero_contrato || ''));
+  // Devolve TODOS os campos da linha/contrato — a tela de detalhe abre a
+  // partir do próprio item clicado na lista (sem 2ª requisição), então não
+  // pode faltar nada nem misturar dado de outro contrato do mesmo código.
   res.json(linhas.map(l => ({
-    codigo: l.codigo, numero_contrato: l.numero_contrato, ativo: l.ativo === 1, unidade: l.unidade,
-    nome: l.nome, fantasia: l.fantasia, cnpj: l.cnpj, cidade: l.cidade, descricao_ramo: l.descricao_ramo,
+    codigo: l.codigo, numero_contrato: l.numero_contrato, contrato_juridico: l.contrato_juridico,
+    ativo: l.ativo === 1, unidade: l.unidade,
+    nome: l.nome, fantasia: l.fantasia, cnpj: l.cnpj, ie: l.ie, descricao_ramo: l.descricao_ramo,
+    endereco: l.endereco, numero: l.numero, bairro: l.bairro, cidade: l.cidade, cep: l.cep, telefone: l.telefone,
   })));
-});
-
-router.get('/api/concessionarios-cadastro/:codigo', cc, ver, (req, res) => {
-  const codigo = parseInt(req.params.codigo, 10);
-  const itens = depopDb.prepare(`SELECT * FROM concessionario_cadastro WHERE codigo = ? ORDER BY ativo DESC, numero_contrato`).all(codigo);
-  if (!itens.length) return res.status(404).json({ error: 'Concessionário não encontrado.' });
-  const principal = itens.find(i => i.ativo === 1) || itens[0];
-  res.json({
-    codigo, ativo: itens.some(i => i.ativo === 1), unidade: unidadeDaCidade(principal.cidade),
-    principal, contratos: itens,
-  });
 });
 
 router.post('/api/concessionarios-cadastro/relatorio/pdf', cc, ver, async (req, res) => {
