@@ -18,16 +18,17 @@ function fecharModal(id) { document.getElementById(id).classList.remove('open');
 // ordem em todo lugar que lista Unidade, pra não ficar embaralhando a cada
 // carregamento (o back devolve um objeto, sem ordem garantida).
 const ORDEM_UNIDADES_CC = ['Contagem', 'Uberlândia', 'Juiz de Fora', 'Barbacena', 'Caratinga', 'Fora das Unidades'];
-let ccFiltros = { busca: '', unidade: '', ativo: '' };
 let ccListaCarregada = false;
+let _ccLinhas = []; // última lista carregada — usada pro detalhe abrir sem 2ª requisição
 
 function init() {
   document.querySelectorAll('#cc-tabs .page-tab').forEach(t => {
     t.addEventListener('click', () => trocarCcTab(t.dataset.cctab));
   });
-  document.getElementById('cc-filtro-unidade').addEventListener('change', e => { ccFiltros.unidade = e.target.value; carregarListaConcessionarios(); });
-  document.getElementById('cc-filtro-ativo').addEventListener('change', e => { ccFiltros.ativo = e.target.value; carregarListaConcessionarios(); });
-  document.getElementById('cc-busca').addEventListener('input', e => { ccFiltros.busca = e.target.value.trim(); carregarListaConcessionarios(); });
+  // Fecha o modal clicando fora da caixa (no overlay), além do botão Fechar.
+  document.querySelectorAll('.modal-overlay').forEach(ov => {
+    ov.addEventListener('click', e => { if (e.target === ov) ov.classList.remove('open'); });
+  });
   carregarDashboardConcessionarios();
 }
 
@@ -89,22 +90,26 @@ async function carregarDashboardConcessionarios() {
     </div>`).join('');
 }
 
+// Filtro só roda quando o usuário clica em "Filtrar" (ou Enter na busca) —
+// pedido do Alex: nada de refazer a consulta a cada tecla/troca de select.
 async function carregarListaConcessionarios() {
   const tbody = document.getElementById('cc-tbody');
   tbody.innerHTML = `<tr><td colspan="6" style="padding:16px;color:var(--text-muted);">Carregando...</td></tr>`;
   const params = new URLSearchParams();
-  if (ccFiltros.busca) params.set('busca', ccFiltros.busca);
-  if (ccFiltros.unidade) params.set('unidade', ccFiltros.unidade);
-  if (ccFiltros.ativo) params.set('ativo', ccFiltros.ativo);
-  let linhas;
-  try { linhas = await (await fetch('/api/concessionarios-cadastro?' + params.toString())).json(); } catch { linhas = []; }
+  const busca = document.getElementById('cc-busca').value.trim();
+  const unidade = document.getElementById('cc-filtro-unidade').value;
+  const ativo = document.getElementById('cc-filtro-ativo').value;
+  if (busca) params.set('busca', busca);
+  if (unidade) params.set('unidade', unidade);
+  if (ativo) params.set('ativo', ativo);
+  try { _ccLinhas = await (await fetch('/api/concessionarios-cadastro?' + params.toString())).json(); } catch { _ccLinhas = []; }
 
-  if (!linhas.length) {
+  if (!_ccLinhas.length) {
     tbody.innerHTML = `<tr><td colspan="6" style="padding:16px;color:var(--text-muted);">Nenhum concessionário encontrado.</td></tr>`;
     return;
   }
-  tbody.innerHTML = linhas.map(l => `
-    <tr class="cc-row" data-codigo="${l.codigo}" style="cursor:pointer;">
+  tbody.innerHTML = _ccLinhas.map((l, i) => `
+    <tr class="cc-row" data-i="${i}" style="cursor:pointer;">
       <td><span class="badge ${l.ativo ? 'badge-concluido' : 'badge-parado'}">${l.ativo ? 'Ativo' : 'Inativo'}</span></td>
       <td>${esc(l.fantasia || l.nome || '—')}</td>
       <td>${esc(l.cnpj || '—')}</td>
@@ -112,45 +117,34 @@ async function carregarListaConcessionarios() {
       <td>${esc(l.descricao_ramo || '—')}</td>
       <td>${esc(l.numero_contrato || '—')}</td>
     </tr>`).join('');
-  tbody.querySelectorAll('.cc-row').forEach(tr => tr.addEventListener('click', () => abrirDetalheConcessionario(tr.dataset.codigo)));
+  tbody.querySelectorAll('.cc-row').forEach(tr => tr.addEventListener('click', () => abrirDetalheConcessionario(_ccLinhas[tr.dataset.i])));
 }
 
-async function abrirDetalheConcessionario(codigo) {
-  let d;
-  try {
-    const res = await fetch(`/api/concessionarios-cadastro/${codigo}`);
-    if (!res.ok) throw new Error();
-    d = await res.json();
-  } catch { toast('Erro ao carregar o concessionário.', 'error'); return; }
-
-  document.getElementById('cc-det-titulo').textContent = d.principal.fantasia || d.principal.nome || `Concessionário ${codigo}`;
-  const statusBadge = `<span class="badge ${d.ativo ? 'badge-concluido' : 'badge-parado'}">${d.ativo ? 'Ativo' : 'Inativo'}</span>`;
+// Mostra SÓ os dados da linha/contrato clicado — nada de outras linhas do
+// mesmo concessionário (pedido do Alex, achava que estava misturando
+// contrato de outra linha). Usa o objeto já carregado na lista, sem 2ª
+// requisição — mais rápido e garante que é exatamente o que está na tela.
+function abrirDetalheConcessionario(l) {
+  document.getElementById('cc-det-titulo').textContent = l.fantasia || l.nome || `Concessionário ${l.codigo}`;
+  const statusBadge = `<span class="badge ${l.ativo ? 'badge-concluido' : 'badge-parado'}">${l.ativo ? 'Ativo' : 'Inativo'}</span>`;
   document.getElementById('cc-det-corpo').innerHTML = `
-    <div style="margin-bottom:14px;">${statusBadge} <span style="margin-left:8px;color:var(--text-muted);font-size:13px;">Unidade: ${esc(d.unidade)}</span></div>
-    <div class="dp-field full"><label>Razão Social</label><span>${esc(d.principal.nome || '—')}</span></div>
-    <div class="dp-field full"><label>Nome Fantasia</label><span>${esc(d.principal.fantasia || '—')}</span></div>
-    <div class="dp-field full"><label>CNPJ</label><span>${esc(d.principal.cnpj || '—')}</span></div>
-    <div class="dp-field full"><label>Inscrição Estadual</label><span>${esc(d.principal.ie || '—')}</span></div>
-    <div class="dp-field full"><label>Ramo de Atividade</label><span>${esc(d.principal.descricao_ramo || '—')}</span></div>
-    <div class="dp-field full"><label>Endereço</label><span>${esc(d.principal.endereco || '—')}${d.principal.numero ? ', ' + esc(d.principal.numero) : ''}${d.principal.bairro ? ' — ' + esc(d.principal.bairro) : ''}</span></div>
-    <div class="dp-field full"><label>Cidade / CEP</label><span>${esc(d.principal.cidade || '—')}${d.principal.cep ? ' — ' + esc(d.principal.cep) : ''}</span></div>
-    <div class="dp-field full"><label>Telefone</label><span>${esc(d.principal.telefone || '—')}</span></div>
-    <h4 style="margin:18px 0 8px;">Contratos (${d.contratos.length})</h4>
-    <div class="table-wrap"><table>
-      <thead><tr><th>Status</th><th>Nº Contrato</th><th>Contrato Jurídico</th></tr></thead>
-      <tbody>${d.contratos.map(c => `
-        <tr>
-          <td><span class="badge ${c.ativo === 1 ? 'badge-concluido' : 'badge-parado'}">${c.ativo === 1 ? 'Ativo' : 'Inativo'}</span></td>
-          <td>${esc(c.numero_contrato || '—')}</td>
-          <td>${esc(c.contrato_juridico || '—')}</td>
-        </tr>`).join('')}</tbody>
-    </table></div>`;
+    <div style="margin-bottom:14px;">${statusBadge} <span style="margin-left:8px;color:var(--text-muted);font-size:13px;">Unidade: ${esc(l.unidade)}</span></div>
+    <div class="dp-field"><label>Razão Social</label><span>${esc(l.nome || '—')}</span></div>
+    <div class="dp-field"><label>Nome Fantasia</label><span>${esc(l.fantasia || '—')}</span></div>
+    <div class="dp-field"><label>CNPJ</label><span>${esc(l.cnpj || '—')}</span></div>
+    <div class="dp-field"><label>Inscrição Estadual</label><span>${esc(l.ie || '—')}</span></div>
+    <div class="dp-field"><label>Ramo de Atividade</label><span>${esc(l.descricao_ramo || '—')}</span></div>
+    <div class="dp-field"><label>Endereço</label><span>${esc(l.endereco || '—')}${l.numero ? ', ' + esc(l.numero) : ''}${l.bairro ? ' — ' + esc(l.bairro) : ''}</span></div>
+    <div class="dp-field"><label>Cidade / CEP</label><span>${esc(l.cidade || '—')}${l.cep ? ' — ' + esc(l.cep) : ''}</span></div>
+    <div class="dp-field"><label>Telefone</label><span>${esc(l.telefone || '—')}</span></div>
+    <div class="dp-field"><label>Nº do Contrato</label><span>${esc(l.numero_contrato || '—')}</span></div>
+    <div class="dp-field"><label>Contrato Jurídico</label><span>${esc(l.contrato_juridico || '—')}</span></div>`;
   document.getElementById('modal-cc-detalhe').classList.add('open');
 }
 
 function abrirModalRelatorioConcessionarios() {
-  document.getElementById('cc-rel-unidade').value = ccFiltros.unidade || '';
-  document.getElementById('cc-rel-ativo').value = ccFiltros.ativo || '';
+  document.getElementById('cc-rel-unidade').value = document.getElementById('cc-filtro-unidade').value || '';
+  document.getElementById('cc-rel-ativo').value = document.getElementById('cc-filtro-ativo').value || '';
   document.getElementById('modal-cc-relatorio').classList.add('open');
 }
 

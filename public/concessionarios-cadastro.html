@@ -10,6 +10,21 @@
   <meta name="theme-color" content="#1565C0">
   <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
   <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');var _mc=localStorage.getItem('secop_modulo_cache');if(_mc)document.documentElement.setAttribute('data-modulo',_mc);</script>
+  <style>
+    /* ── Concessionários Cadastro ─────────────────────────────────────────── */
+    .dp-pane { display: none; }
+    .dp-pane.active { display: block; }
+    .dp-bar-row { display: grid; grid-template-columns: 130px 1fr; gap: 10px; align-items: center; margin-bottom: 10px; }
+    .dp-bar-city { font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dp-bar { display: flex; align-items: center; gap: 8px; }
+    .dp-bar-track { flex: 1; height: 12px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+    .dp-bar-fill { height: 100%; border-radius: 4px; transition: width .4s ease; }
+    .dp-bar-fill.contratos { background: var(--verde); }
+    .dp-bar-val { font-size: 11.5px; font-weight: 700; color: var(--text); width: 34px; text-align: right; flex-shrink: 0; }
+    .dp-field { margin-bottom: 10px; }
+    .dp-field label { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: .3px; color: #64748b; font-weight: 600; }
+    .dp-field span { font-size: 13.5px; color: var(--text); }
+  </style>
 </head>
 <body data-modulo="concessionarios-cadastro" data-rotina="consulta">
 <div class="layout">
@@ -77,7 +92,8 @@
               <option value="1">Somente ativos</option>
               <option value="0">Somente inativos</option>
             </select>
-            <input id="cc-busca" class="filter-input" placeholder="Buscar por nome, fantasia ou CNPJ..." />
+            <input id="cc-busca" class="filter-input" placeholder="Buscar por nome, fantasia ou CNPJ..." onkeydown="if(event.key==='Enter')carregarListaConcessionarios();" />
+            <button class="btn btn-primary btn-sm" onclick="carregarListaConcessionarios()">Filtrar</button>
             <button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="abrirModalRelatorioConcessionarios()">🖨️ Relatório</button>
           </div>
         </div>
