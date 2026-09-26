@@ -456,8 +456,12 @@ function setupDb() {
       ['secop', 'processos',      'Processos',    2, 'ver,incluir,alterar,excluir'],
       ['secop', 'cotacao',        'Cotação',      3, 'ver,incluir,alterar,excluir'],
       ['secop', 'fornecedores',   'Fornecedores', 4, 'ver,incluir,alterar,excluir'],
-      ['secad', 'validacao',      'Validação',    1, 'ver,incluir,alterar'],
-      ['secad', 'comunicados',    'Comunicados',  2, 'ver,incluir,alterar'],
+      ['secad', 'validacao',      'Concessionários Renovação', 1, 'ver,incluir,alterar'],
+      ['secad', 'comunicados',    'Comunicados',               2, 'ver,incluir,alterar'],
+      // Cadastro (nome/CNPJ/endereço/contrato) sincronizado do CeasaConecta-Gateway
+      // (ver secad-gateway-sync.js) — só leitura, não tem incluir/alterar/excluir
+      // porque não existe edição manual de campo nenhum aqui.
+      ['secad', 'concessionarios-cadastro', 'Concessionários Cadastro', 3, 'ver'],
       ['pac',   'pac-lancamento',     'Lançamento',     1, 'ver,incluir,alterar,excluir'],
       ['pac',   'pac-gestao',         'Gestão',         2, 'ver,incluir,alterar,excluir'],
       ['pac',   'pac-solicitacoes',   'Solicitações',   3, 'ver,incluir,alterar,excluir'],
@@ -473,6 +477,12 @@ function setupDb() {
           .run(modIds[modSlug], slug, nome, ordem, flags);
       } catch {}
     });
+    // Rótulo mudou de "Validação" pra "Concessionários Renovação" (2026-09-26)
+    // — banco que já rodou o seed antigo tem a linha com o nome velho (o INSERT
+    // acima só roda na 1ª vez). Slug/permissões já concedidas continuam intactas.
+    if (modIds.secad) {
+      _db.prepare(`UPDATE rotinas SET nome = 'Concessionários Renovação' WHERE modulo_id = ? AND slug = 'validacao'`).run(modIds.secad);
+    }
   }
 
   _db.exec(`
