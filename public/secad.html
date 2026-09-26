@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Validação de Contratos — CEASA CONECTA</title>
+  <title>Concessionários Renovação — CEASA CONECTA</title>
   <link rel="stylesheet" href="css/style.css" />
   <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
   <link rel="manifest" href="manifest.webmanifest">
@@ -212,10 +212,6 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H5.17L4 17.17z"/><path d="M8 9h8"/><path d="M8 12h5"/></svg>
         Comunicados
       </a>
-      <a href="#" id="nav-concessionarios-cadastro" class="nav-item" onclick="mostrarView('concessionarios-cadastro');return false;" style="display:none;">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
-        Concessionários Cadastro
-      </a>
     </nav>
     <div class="sidebar-footer">
       <span id="sidebar-username" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;">—</span>
@@ -234,7 +230,7 @@
   <main class="main">
     <div class="page-header">
       <div>
-        <div class="page-title" id="dp-page-title">Validação de Contratos</div>
+        <div class="page-title" id="dp-page-title">Concessionários Renovação</div>
         <div class="page-subtitle" id="dp-page-subtitle">Conferência do Setor de Cadastro · CEASAMINAS</div>
       </div>
     </div>
@@ -358,83 +354,8 @@
       </div>
      </div><!-- /view-comunicados -->
 
-     <!-- ═══ VIEW: Concessionários Cadastro ═══ -->
-     <div id="view-concessionarios-cadastro" style="display:none;">
-      <div class="page-tabs" id="cc-tabs">
-        <button class="page-tab active" data-cctab="dashboard">Dashboard</button>
-        <button class="page-tab" data-cctab="pesquisar">Pesquisar</button>
-      </div>
-
-      <!-- Dashboard -->
-      <div id="pane-cc-dashboard" class="dp-pane active">
-        <div class="cards-grid" id="cc-cards"></div>
-        <div class="card" style="margin-top:16px;">
-          <div class="card-header"><span class="card-title">📍 Concessionários por Unidade</span></div>
-          <div id="cc-por-unidade" style="padding:16px 20px;"></div>
-        </div>
-      </div>
-
-      <!-- Pesquisar -->
-      <div id="pane-cc-pesquisar" class="dp-pane">
-        <div class="card" style="margin-bottom:16px;">
-          <div style="padding:14px 16px;">
-            <div class="filters">
-              <select id="cc-filtro-unidade" class="filter-select"><option value="">Todas as unidades</option></select>
-              <select id="cc-filtro-ativo" class="filter-select">
-                <option value="">Ativos e inativos</option>
-                <option value="1">Somente ativos</option>
-                <option value="0">Somente inativos</option>
-              </select>
-              <input id="cc-busca" class="filter-input" placeholder="Buscar por nome, fantasia ou CNPJ..." />
-              <button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="abrirModalRelatorioConcessionarios()">🖨️ Relatório</button>
-            </div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="table-wrap"><table>
-            <thead><tr><th>Status</th><th>Concessionário</th><th>CNPJ</th><th>Unidade</th><th>Ramo</th><th>Contrato</th></tr></thead>
-            <tbody id="cc-tbody"></tbody>
-          </table></div>
-        </div>
-      </div>
-     </div><!-- /view-concessionarios-cadastro -->
-
     </div>
     <div id="app-footer"></div>
-
-    <!-- Modal: detalhe do concessionário (Cadastro) -->
-    <div class="modal-overlay" id="modal-cc-detalhe">
-      <div class="modal-box" style="width:640px;max-height:82vh;overflow:auto;">
-        <h3 id="cc-det-titulo">Concessionário</h3>
-        <div id="cc-det-corpo"></div>
-        <div style="display:flex;justify-content:flex-end;margin-top:16px;">
-          <button class="btn btn-secondary" onclick="fecharModal('modal-cc-detalhe')">Fechar</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Modal: filtro do relatório de Concessionários Cadastro -->
-    <div class="modal-overlay" id="modal-cc-relatorio">
-      <div class="modal-box" style="width:420px;">
-        <h3>Relatório — Concessionários Cadastro</h3>
-        <div class="form-group" style="margin-top:10px;">
-          <label>Unidade</label>
-          <select id="cc-rel-unidade" class="filter-select" style="width:100%;"><option value="">Todas as unidades</option></select>
-        </div>
-        <div class="form-group" style="margin-top:10px;">
-          <label>Situação</label>
-          <select id="cc-rel-ativo" class="filter-select" style="width:100%;">
-            <option value="">Ativos e inativos</option>
-            <option value="1">Somente ativos</option>
-            <option value="0">Somente inativos</option>
-          </select>
-        </div>
-        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px;">
-          <button class="btn btn-secondary" onclick="fecharModal('modal-cc-relatorio')">Cancelar</button>
-          <button class="btn btn-primary" onclick="gerarRelatorioConcessionariosPdf()">🖨️ Gerar PDF</button>
-        </div>
-      </div>
-    </div>
   </main>
 </div>
 

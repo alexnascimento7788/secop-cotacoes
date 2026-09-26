@@ -264,6 +264,9 @@ app.use(require('./routes/pac-importacao'));
 // Rotas do DETIN (Gestão de Contratos) — ver routes/detin.js
 app.use(require('./routes/detin'));
 
+// Rotas do módulo Concessionários Cadastro — ver routes/concessionarios-cadastro.js
+app.use(require('./routes/concessionarios-cadastro'));
+
 // Rotas de Admin (usuários/departamentos/rotinas/perfis/módulos/backup/logs +
 // catálogos transversais) — ver routes/admin.js. Exporta IS_HOMOLOG também
 // (só esse arquivo precisa saber se está em homolog, mas /api/version — logo

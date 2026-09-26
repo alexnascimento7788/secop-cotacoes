@@ -1,4 +1,4 @@
-const CACHE_NAME = 'secop-shell-v129';
+const CACHE_NAME = 'secop-shell-v130';
 
 const SHELL_FILES = [
   '/components/footer.html',
@@ -19,6 +19,7 @@ const SHELL_FILES = [
   '/detin-painel.html',
   '/detin-contratos.html',
   '/detin-analise.html',
+  '/concessionarios-cadastro.html',
   '/admin.html',
   '/css/style.css',
   '/js/auth.js',
@@ -37,6 +38,7 @@ const SHELL_FILES = [
   '/js/detin-painel.js',
   '/js/detin-contratos.js',
   '/js/detin-analise.js',
+  '/js/concessionarios-cadastro.js',
   '/js/pwa.js',
   '/js/autocomplete.js',
   '/manifest.webmanifest',
