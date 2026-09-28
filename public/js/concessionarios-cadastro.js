@@ -175,11 +175,23 @@ async function carregarListaConcessionarios() {
 }
 
 // Modal de múltipla seleção — abre com contexto ('pesquisar' ou 'relatorio')
-// pra saber em qual estado gravar quando confirmar.
-function abrirSeletorTipoCliente(contexto) {
+// pra saber em qual estado gravar quando confirmar. `_ccTiposClienteDisponiveis`
+// normalmente já vem preenchido pelo carregarDashboardConcessionarios() do
+// carregamento da página, mas se essa chamada ainda não tiver terminado (ou
+// tiver falhado) quando o usuário clica, busca de novo aqui em vez de mostrar
+// "nenhum tipo disponível" por uma corrida de carregamento.
+async function abrirSeletorTipoCliente(contexto) {
   _ccTipoClienteContexto = contexto;
-  const selecionados = contexto === 'pesquisar' ? _ccTiposClienteSelPesquisar : _ccTiposClienteSelRelatorio;
   const lista = document.getElementById('cc-tipocliente-lista');
+  if (!_ccTiposClienteDisponiveis.length) {
+    lista.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">Carregando...</div>';
+    document.getElementById('modal-cc-tipocliente').classList.add('open');
+    try {
+      const d = await (await fetch('/api/concessionarios-cadastro/dashboard')).json();
+      _ccTiposClienteDisponiveis = d.tipos_cliente || [];
+    } catch { /* mantém vazio, cai no fallback abaixo */ }
+  }
+  const selecionados = contexto === 'pesquisar' ? _ccTiposClienteSelPesquisar : _ccTiposClienteSelRelatorio;
   lista.innerHTML = _ccTiposClienteDisponiveis.map(t => `
     <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:400;">
       <input type="checkbox" value="${esc(t)}" ${selecionados.includes(t) ? 'checked' : ''} /> ${esc(t)}
