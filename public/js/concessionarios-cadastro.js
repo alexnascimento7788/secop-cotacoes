@@ -36,6 +36,14 @@ const ORDEM_UNIDADES_CC = ['Contagem', 'Uberlândia', 'Uberaba', 'Juiz de Fora',
 let ccListaCarregada = false;
 let _ccLinhas = []; // última lista carregada — usada pro detalhe abrir sem 2ª requisição
 
+// Tipo de Cliente (2026-09-28): filtro de múltipla seleção (marca vários,
+// clica OK, aí sim clica Filtrar) — modal compartilhado entre Pesquisar e
+// Relatório, cada um com sua própria seleção guardada aqui.
+let _ccTiposClienteDisponiveis = [];
+let _ccTiposClienteSelPesquisar = [];
+let _ccTiposClienteSelRelatorio = [];
+let _ccTipoClienteContexto = 'pesquisar';
+
 function init() {
   document.querySelectorAll('#cc-tabs .page-tab').forEach(t => {
     t.addEventListener('click', () => trocarCcTab(t.dataset.cctab));
@@ -79,6 +87,7 @@ async function carregarDashboardConcessionarios() {
 
   preencherSelectsUnidadeCc(Object.keys(d.por_unidade));
   preencherSelectRamoCc(d.ramos || []);
+  _ccTiposClienteDisponiveis = d.tipos_cliente || [];
   renderSincronizacaoCc(d.sincronizacao);
 
   document.getElementById('cc-cards').innerHTML = `
@@ -135,7 +144,7 @@ function renderSincronizacaoCc(s) {
 // pedido do Alex: nada de refazer a consulta a cada tecla/troca de select.
 async function carregarListaConcessionarios() {
   const tbody = document.getElementById('cc-tbody');
-  tbody.innerHTML = `<tr><td colspan="6" style="padding:16px;color:var(--text-muted);">Carregando...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="7" style="padding:16px;color:var(--text-muted);">Carregando...</td></tr>`;
   const params = new URLSearchParams();
   const busca = document.getElementById('cc-busca').value.trim();
   const unidade = document.getElementById('cc-filtro-unidade').value;
@@ -145,10 +154,11 @@ async function carregarListaConcessionarios() {
   if (unidade) params.set('unidade', unidade);
   if (ativo) params.set('ativo', ativo);
   if (ocultarMl) params.set('ocultar_ml', '1');
+  if (_ccTiposClienteSelPesquisar.length) params.set('tipos_cliente', _ccTiposClienteSelPesquisar.join('|'));
   try { _ccLinhas = await (await fetch('/api/concessionarios-cadastro?' + params.toString())).json(); } catch { _ccLinhas = []; }
 
   if (!_ccLinhas.length) {
-    tbody.innerHTML = `<tr><td colspan="6" style="padding:16px;color:var(--text-muted);">Nenhum concessionário encontrado.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="padding:16px;color:var(--text-muted);">Nenhum concessionário encontrado.</td></tr>`;
     return;
   }
   tbody.innerHTML = _ccLinhas.map((l, i) => `
@@ -158,9 +168,39 @@ async function carregarListaConcessionarios() {
       <td>${esc(l.cnpj || '—')}</td>
       <td>${esc(l.unidade)}</td>
       <td>${esc(l.descricao_ramo || '—')}</td>
+      <td>${esc(l.tipo_cliente || '—')}</td>
       <td>${esc(l.numero_contrato || '—')}</td>
     </tr>`).join('');
   tbody.querySelectorAll('.cc-row').forEach(tr => tr.addEventListener('click', () => abrirDetalheConcessionario(_ccLinhas[tr.dataset.i])));
+}
+
+// Modal de múltipla seleção — abre com contexto ('pesquisar' ou 'relatorio')
+// pra saber em qual estado gravar quando confirmar.
+function abrirSeletorTipoCliente(contexto) {
+  _ccTipoClienteContexto = contexto;
+  const selecionados = contexto === 'pesquisar' ? _ccTiposClienteSelPesquisar : _ccTiposClienteSelRelatorio;
+  const lista = document.getElementById('cc-tipocliente-lista');
+  lista.innerHTML = _ccTiposClienteDisponiveis.map(t => `
+    <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:400;">
+      <input type="checkbox" value="${esc(t)}" ${selecionados.includes(t) ? 'checked' : ''} /> ${esc(t)}
+    </label>`).join('') || '<div style="color:var(--text-muted);font-size:13px;">Nenhum tipo de cliente disponível.</div>';
+  document.getElementById('modal-cc-tipocliente').classList.add('open');
+}
+
+function atualizarBotaoTipoCliente(id, selecionados) {
+  document.getElementById(id).textContent = selecionados.length ? `Tipo de Cliente (${selecionados.length})` : 'Tipo de Cliente';
+}
+
+function confirmarSeletorTipoCliente() {
+  const marcados = Array.from(document.querySelectorAll('#cc-tipocliente-lista input[type=checkbox]:checked')).map(cb => cb.value);
+  if (_ccTipoClienteContexto === 'pesquisar') {
+    _ccTiposClienteSelPesquisar = marcados;
+    atualizarBotaoTipoCliente('cc-btn-tipo-cliente', marcados);
+  } else {
+    _ccTiposClienteSelRelatorio = marcados;
+    atualizarBotaoTipoCliente('cc-rel-btn-tipo-cliente', marcados);
+  }
+  fecharModal('modal-cc-tipocliente');
 }
 
 // Mostra SÓ os dados da linha/contrato clicado — nada de outras linhas do
@@ -177,6 +217,7 @@ function abrirDetalheConcessionario(l) {
     <div class="dp-field"><label>CNPJ</label><span>${esc(l.cnpj || '—')}</span></div>
     <div class="dp-field"><label>Inscrição Estadual</label><span>${esc(l.ie || '—')}</span></div>
     <div class="dp-field"><label>Ramo de Atividade</label><span>${esc(l.descricao_ramo || '—')}</span></div>
+    <div class="dp-field"><label>Tipo de Cliente</label><span>${esc(l.tipo_cliente || '—')}</span></div>
     <div class="dp-field"><label>Endereço</label><span>${esc(l.endereco || '—')}${l.numero ? ', ' + esc(l.numero) : ''}${l.bairro ? ' — ' + esc(l.bairro) : ''}</span></div>
     <div class="dp-field"><label>Cidade / CEP</label><span>${esc(l.cidade || '—')}${l.cep ? ' — ' + esc(l.cep) : ''}</span></div>
     <div class="dp-field"><label>Telefone</label><span>${esc(l.telefone || '—')}</span></div>
@@ -189,6 +230,8 @@ function abrirModalRelatorioConcessionarios() {
   document.getElementById('cc-rel-unidade').value = document.getElementById('cc-filtro-unidade').value || '';
   document.getElementById('cc-rel-ativo').value = document.getElementById('cc-filtro-ativo').value || '';
   document.getElementById('cc-rel-ocultar-ml').checked = document.getElementById('cc-filtro-ocultar-ml').checked;
+  _ccTiposClienteSelRelatorio = [..._ccTiposClienteSelPesquisar];
+  atualizarBotaoTipoCliente('cc-rel-btn-tipo-cliente', _ccTiposClienteSelRelatorio);
   document.getElementById('modal-cc-relatorio').classList.add('open');
 }
 
@@ -197,10 +240,11 @@ async function gerarRelatorioConcessionariosPdf() {
   const ativo = document.getElementById('cc-rel-ativo').value;
   const ramo = document.getElementById('cc-rel-ramo').value;
   const ocultar_ml = document.getElementById('cc-rel-ocultar-ml').checked ? '1' : '';
+  const tipos_cliente = _ccTiposClienteSelRelatorio.join('|');
   const janela = window.open('', '_blank');
   try {
     const res = await fetch('/api/concessionarios-cadastro/relatorio/pdf', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ unidade, ativo, ramo, ocultar_ml })
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ unidade, ativo, ramo, ocultar_ml, tipos_cliente })
     });
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));

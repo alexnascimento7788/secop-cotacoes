@@ -160,7 +160,7 @@ async function carregarLogo(pdfDoc) {
 }
 
 // linhas: [{codigo, numero_contrato, ativo (0/1), unidade, nome, fantasia,
-// cnpj, cidade, descricao_ramo, ...}] — 1 item por CONTRATO (não por
+// cnpj, cidade, descricao_ramo, tipo_cliente, ...}] — 1 item por CONTRATO (não por
 // empresa: uma empresa com 2 contratos ativos aparece 2 vezes, cada linha
 // com seu próprio status) — vem de linhasComUnidade() em
 // routes/concessionarios-cadastro.js, mesma função que a tela de Pesquisar
@@ -192,15 +192,15 @@ async function gerarPdfConcessionarios(linhas, filtrosTexto, nomeGerador) {
   w.espaco(6);
 
   const COLS = [
-    { label: 'Nº TOTVS', w: 45 }, { label: 'Concessionário', w: 118 }, { label: 'CNPJ', w: 85 },
-    { label: 'Unidade', w: 68 }, { label: 'Ramo', w: 90 }, { label: 'Contrato', w: 65 },
+    { label: 'Nº TOTVS', w: 38 }, { label: 'Concessionário', w: 95 }, { label: 'CNPJ', w: 75 },
+    { label: 'Unidade', w: 58 }, { label: 'Ramo', w: 70 }, { label: 'Tipo Cliente', w: 80 }, { label: 'Contrato', w: 55 },
   ];
   const linhasTabela = linhas.map((i, idx) => ({
     cor: i.ativo === 1 ? VERDE_ATIVO : VERMELHO_INATIVO,
     separador: idx > 0 && linhas[idx - 1].codigo !== i.codigo,
     valores: [
       i.codigo, i.fantasia || i.nome || '—', i.cnpj || '—',
-      i.unidade, i.descricao_ramo || 'Sem ramo informado', i.numero_contrato || '—',
+      i.unidade, i.descricao_ramo || 'Sem ramo informado', i.tipo_cliente || 'Sem tipo informado', i.numero_contrato || '—',
     ],
   }));
   desenharTabela(w, negrito, regular, subtituloPagina, COLS, linhasTabela);

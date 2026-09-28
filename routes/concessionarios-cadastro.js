@@ -34,6 +34,17 @@ function ehContratoMl(numeroContrato) {
   return PREFIXOS_ML_ISENTOS.includes(String(numeroContrato || '').substring(4, 7));
 }
 
+// Tipo de cliente (2026-09-28): FCFO.CODTCF + FTCF.DESCRICAO, vindos prontos
+// do Gateway (LEFT JOIN lá — 6 registros reais não têm par em FTCF, ficam
+// com `descricao_tipo_cliente` null aqui, caem no fallback abaixo). Exibido
+// como "código - descrição" numa linha só (pedido do Alex) — esse mesmo
+// texto é o valor usado tanto na lista de opções do filtro (multi-seleção)
+// quanto na comparação do IN, pra tela/filtro nunca divergirem.
+function tipoClienteExibicao(l) {
+  const desc = l.descricao_tipo_cliente || 'Sem tipo informado';
+  return l.cod_tipo_cliente ? `${l.cod_tipo_cliente} - ${desc}` : desc;
+}
+
 // Agrupa as linhas de contrato por concessionário (codigo) — usado só no
 // Dashboard (Total/Ativos/Inativos fazem sentido como contagem de EMPRESA).
 // `principal` = a linha ativa (ou a 1ª, se nenhuma ativa).
@@ -86,9 +97,10 @@ router.get('/api/concessionarios-cadastro/dashboard', cc, ver, (req, res) => {
   }));
   const porUnidade = {};
   grupos.forEach(g => { porUnidade[g.unidade] = (porUnidade[g.unidade] || 0) + 1; });
-  // Lista de ramos distintos — usada pra popular o filtro (Pesquisar e
-  // Relatório), mesmo espírito do por_unidade acima.
+  // Lista de ramos/tipos de cliente distintos — usada pra popular os filtros
+  // (Pesquisar e Relatório), mesmo espírito do por_unidade acima.
   const ramos = Array.from(new Set(grupos.flatMap(g => g.itens.map(i => i.descricao_ramo || 'Sem ramo informado')))).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const tiposCliente = Array.from(new Set(grupos.flatMap(g => g.itens.map(tipoClienteExibicao)))).sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
   res.json({
     total: grupos.length,
@@ -98,17 +110,23 @@ router.get('/api/concessionarios-cadastro/dashboard', cc, ver, (req, res) => {
     ativos_contrato_nulo: ativosContratoNulo,
     por_unidade: porUnidade,
     ramos,
+    tipos_cliente: tiposCliente,
     sincronizacao: statusSincronizacao(),
   });
 });
 
 router.get('/api/concessionarios-cadastro', cc, ver, (req, res) => {
-  const { busca, unidade, ativo, ocultar_ml } = req.query;
+  const { busca, unidade, ativo, ocultar_ml, tipos_cliente } = req.query;
   let linhas = linhasComUnidade();
   if (unidade) linhas = linhas.filter(l => l.unidade === unidade);
   if (ativo === '1') linhas = linhas.filter(l => l.ativo === 1);
   if (ativo === '0') linhas = linhas.filter(l => l.ativo !== 1);
   if (String(ocultar_ml) === '1') linhas = linhas.filter(l => !ehContratoMl(l.numero_contrato));
+  // Multi-seleção (lista com checkbox → IN) — pedido do Alex, 2026-09-28.
+  if (tipos_cliente) {
+    const selecionados = String(tipos_cliente).split('|').filter(Boolean);
+    if (selecionados.length) linhas = linhas.filter(l => selecionados.includes(tipoClienteExibicao(l)));
+  }
   if (busca && busca.trim()) {
     const termo = busca.trim().toLowerCase();
     linhas = linhas.filter(l =>
@@ -125,12 +143,13 @@ router.get('/api/concessionarios-cadastro', cc, ver, (req, res) => {
     codigo: l.codigo, numero_contrato: l.numero_contrato, contrato_juridico: l.contrato_juridico,
     ativo: l.ativo === 1, unidade: l.unidade,
     nome: l.nome, fantasia: l.fantasia, cnpj: l.cnpj, ie: l.ie, descricao_ramo: l.descricao_ramo,
+    tipo_cliente: tipoClienteExibicao(l),
     endereco: l.endereco, numero: l.numero, bairro: l.bairro, cidade: l.cidade, cep: l.cep, telefone: l.telefone,
   })));
 });
 
 router.post('/api/concessionarios-cadastro/relatorio/pdf', cc, ver, async (req, res) => {
-  const { unidade, ativo, ramo, ocultar_ml } = req.body || {};
+  const { unidade, ativo, ramo, ocultar_ml, tipos_cliente } = req.body || {};
   let linhas = linhasComUnidade();
   if (unidade) linhas = linhas.filter(l => l.unidade === unidade);
   if (String(ativo) === '1') linhas = linhas.filter(l => l.ativo === 1);
@@ -142,9 +161,14 @@ router.post('/api/concessionarios-cadastro/relatorio/pdf', cc, ver, async (req, 
   // Mesmo filtro (e mesmo default "visível") da tela de Pesquisar, pra nunca
   // divergir do que o relatório mostra. Pedido do Alex, 2026-09-28.
   if (String(ocultar_ml) === '1') linhas = linhas.filter(l => !ehContratoMl(l.numero_contrato));
+  const tiposSelecionados = String(tipos_cliente || '').split('|').filter(Boolean);
+  if (tiposSelecionados.length) linhas = linhas.filter(l => tiposSelecionados.includes(tipoClienteExibicao(l)));
 
   // Ordena por "ID da TOTVS" (codigo/CODCFO) — não mais por nome/ramo.
   linhas.sort((a, b) => a.codigo - b.codigo);
+  // Anexa o rótulo já pronto (código - descrição) que o gerador de PDF usa
+  // como coluna — evita duplicar a lógica de formatação lá.
+  linhas = linhas.map(l => ({ ...l, tipo_cliente: tipoClienteExibicao(l) }));
 
   const filtrosPartes = [];
   if (unidade) filtrosPartes.push(`Unidade: ${unidade}`);
@@ -152,6 +176,7 @@ router.post('/api/concessionarios-cadastro/relatorio/pdf', cc, ver, async (req, 
   if (String(ativo) === '1') filtrosPartes.push('Somente ativos');
   if (String(ativo) === '0') filtrosPartes.push('Somente inativos');
   if (String(ocultar_ml) === '1') filtrosPartes.push('Contratos ML ocultos');
+  if (tiposSelecionados.length) filtrosPartes.push(`Tipo de Cliente: ${tiposSelecionados.length === 1 ? tiposSelecionados[0] : tiposSelecionados.length + ' selecionados'}`);
 
   try {
     const pdfBuffer = await gerarPdfConcessionarios(linhas, filtrosPartes.join(' · '), req.user.nome_completo || req.user.username);
