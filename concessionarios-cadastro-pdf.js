@@ -125,7 +125,7 @@ function desenharTabela(w, negrito, regular, subtituloPagina, cols, linhas, dotW
     // Linha fina separando um concessionário do próximo (mesmo `codigo` pode
     // ter várias linhas/contratos seguidas) — pedido do Alex, 2026-09-28.
     if (linha.separador) {
-      w.page.drawLine({ start: { x: MARGIN, y: w.y + 11 }, end: { x: PAGE_W - MARGIN, y: w.y + 11 }, thickness: 0.5, color: rgb(0.85, 0.85, 0.85) });
+      w.page.drawLine({ start: { x: MARGIN, y: w.y + 11 }, end: { x: PAGE_W - MARGIN, y: w.y + 11 }, thickness: 0.75, color: rgb(0.7, 0.7, 0.7) });
     }
     if (linha.cor) w.page.drawEllipse({ x: MARGIN + dotW / 2 - 2, y: w.y + 3, xScale: 3, yScale: 3, color: linha.cor });
     let x = MARGIN + dotW;
