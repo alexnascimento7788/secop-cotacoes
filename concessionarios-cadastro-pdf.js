@@ -115,7 +115,13 @@ function desenharTabela(w, negrito, regular, subtituloPagina, cols, linhas, dotW
   function cabecalhoTabela() {
     w.garantirEspaco(20);
     let x = MARGIN + dotW;
-    cols.forEach(c => { w.page.drawText(c.label, { x, y: w.y, size: 9, font: negrito, color: rgb(0.3, 0.3, 0.3) }); x += c.w; });
+    // Trunca o rótulo do cabeçalho igual às células de dado — sem isso, um
+    // rótulo mais largo que a coluna invade o texto da coluna seguinte.
+    cols.forEach(c => {
+      const texto = truncar(c.label, negrito, 9, c.w - 4);
+      w.page.drawText(texto, { x, y: w.y, size: 9, font: negrito, color: rgb(0.3, 0.3, 0.3) });
+      x += c.w;
+    });
     w.y -= 14;
     w.linha();
   }
@@ -192,7 +198,7 @@ async function gerarPdfConcessionarios(linhas, filtrosTexto, nomeGerador) {
   w.espaco(6);
 
   const COLS = [
-    { label: 'Nº TOTVS', w: 38 }, { label: 'Concessionário', w: 95 }, { label: 'CNPJ', w: 75 },
+    { label: 'CodCli', w: 38 }, { label: 'Concessionário', w: 95 }, { label: 'CNPJ', w: 75 },
     { label: 'Unidade', w: 58 }, { label: 'Ramo', w: 70 }, { label: 'Tipo Cliente', w: 80 }, { label: 'Contrato', w: 55 },
   ];
   const linhasTabela = linhas.map((i, idx) => ({
