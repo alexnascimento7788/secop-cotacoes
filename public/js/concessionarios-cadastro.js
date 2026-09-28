@@ -25,10 +25,14 @@ function fmtDataHoraBr(iso) {
   return `${d[2]}/${d[1]}/${d[0]}${hora ? ' às ' + hora.slice(0, 5) : ''}`;
 }
 
-// Ordem fixa de exibição das Unidades (as 5 filiais + o balde de fora) — mesma
-// ordem em todo lugar que lista Unidade, pra não ficar embaralhando a cada
-// carregamento (o back devolve um objeto, sem ordem garantida).
-const ORDEM_UNIDADES_CC = ['Contagem', 'Uberlândia', 'Juiz de Fora', 'Barbacena', 'Caratinga', 'Fora das Unidades'];
+// Ordem fixa de exibição das Unidades (as 7 unidades reais do CORPORE + o
+// balde de fora) — mesma ordem em todo lugar que lista Unidade, pra não ficar
+// embaralhando a cada carregamento (o back devolve um objeto, sem ordem
+// garantida). Unidade agora vem pronta da API (ver routes/concessionarios-
+// cadastro.js) — Governador Valadares e Uberaba entraram em 2026-09-28,
+// antes viviam escondidas dentro de Caratinga/Uberlândia por uma heurística
+// de cidade que não existe mais.
+const ORDEM_UNIDADES_CC = ['Contagem', 'Uberlândia', 'Uberaba', 'Juiz de Fora', 'Barbacena', 'Caratinga', 'Governador Valadares', 'Fora das Unidades'];
 let ccListaCarregada = false;
 let _ccLinhas = []; // última lista carregada — usada pro detalhe abrir sem 2ª requisição
 
@@ -136,9 +140,11 @@ async function carregarListaConcessionarios() {
   const busca = document.getElementById('cc-busca').value.trim();
   const unidade = document.getElementById('cc-filtro-unidade').value;
   const ativo = document.getElementById('cc-filtro-ativo').value;
+  const ocultarMl = document.getElementById('cc-filtro-ocultar-ml').checked;
   if (busca) params.set('busca', busca);
   if (unidade) params.set('unidade', unidade);
   if (ativo) params.set('ativo', ativo);
+  if (ocultarMl) params.set('ocultar_ml', '1');
   try { _ccLinhas = await (await fetch('/api/concessionarios-cadastro?' + params.toString())).json(); } catch { _ccLinhas = []; }
 
   if (!_ccLinhas.length) {
@@ -182,6 +188,7 @@ function abrirDetalheConcessionario(l) {
 function abrirModalRelatorioConcessionarios() {
   document.getElementById('cc-rel-unidade').value = document.getElementById('cc-filtro-unidade').value || '';
   document.getElementById('cc-rel-ativo').value = document.getElementById('cc-filtro-ativo').value || '';
+  document.getElementById('cc-rel-ocultar-ml').checked = document.getElementById('cc-filtro-ocultar-ml').checked;
   document.getElementById('modal-cc-relatorio').classList.add('open');
 }
 
@@ -189,10 +196,11 @@ async function gerarRelatorioConcessionariosPdf() {
   const unidade = document.getElementById('cc-rel-unidade').value;
   const ativo = document.getElementById('cc-rel-ativo').value;
   const ramo = document.getElementById('cc-rel-ramo').value;
+  const ocultar_ml = document.getElementById('cc-rel-ocultar-ml').checked ? '1' : '';
   const janela = window.open('', '_blank');
   try {
     const res = await fetch('/api/concessionarios-cadastro/relatorio/pdf', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ unidade, ativo, ramo })
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ unidade, ativo, ramo, ocultar_ml })
     });
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));

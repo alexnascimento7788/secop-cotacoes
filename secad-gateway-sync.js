@@ -83,8 +83,8 @@ async function sincronizarConcessionarios() {
   // o que o Gateway retornou agora, sem lixo acumulado.
   const insert = depopDb.prepare(`
     INSERT INTO concessionario_cadastro
-      (codigo, numero_contrato, nome, fantasia, cnpj, ie, cod_ramo, descricao_ramo, endereco, numero, bairro, cidade, telefone, cep, ativo, contrato_juridico, atualizado_em)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      (codigo, numero_contrato, nome, fantasia, cnpj, ie, cod_ramo, descricao_ramo, endereco, numero, bairro, cidade, unidade, telefone, cep, ativo, contrato_juridico, atualizado_em)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `);
 
   let gravados = 0;
@@ -96,8 +96,10 @@ async function sincronizarConcessionarios() {
       if (!codigo) continue;
       insert.run(
         codigo, c.NUMEROCONTRATO || null, c.CLIENTE || null, c.FANTASIA || null, c.CNPJ || null, c.IE || null,
-        c.CODRAMO ?? null, c.DESCRICAORAMO || null, c.ENDERECO || null, c.NUMERO || null,
-        c.BAIRRO || null, c.CIDADE || null, c.TELEFONE || null, c.CEP || null,
+        // RAMO_ATIVIDADE: nome novo do campo que era CODRAMO (Gateway
+        // renomeado em 2026-09-28) — mesmo valor.
+        c.RAMO_ATIVIDADE ?? null, c.DESCRICAORAMO || null, c.ENDERECO || null, c.NUMERO || null,
+        c.BAIRRO || null, c.CIDADE || null, c.UNIDADE || null, c.TELEFONE || null, c.CEP || null,
         c.ATIVO ?? null, c.CONTRATO_JURIDICO || null
       );
       gravados++;
