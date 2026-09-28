@@ -14,6 +14,17 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&am
 
 function fecharModal(id) { document.getElementById(id).classList.remove('open'); }
 
+// DATETIME do SQLite ('YYYY-MM-DD HH:MM:SS', sem timezone) — mesmo padrão de
+// exibição "como está gravado" que o resto do projeto usa pra esses campos
+// (sem conversão de fuso), só que aqui mostrando também a hora.
+function fmtDataHoraBr(iso) {
+  if (!iso) return null;
+  const [data, hora] = String(iso).split(/[T ]/);
+  const d = (data || '').split('-');
+  if (d.length < 3) return null;
+  return `${d[2]}/${d[1]}/${d[0]}${hora ? ' às ' + hora.slice(0, 5) : ''}`;
+}
+
 // Ordem fixa de exibição das Unidades (as 5 filiais + o balde de fora) — mesma
 // ordem em todo lugar que lista Unidade, pra não ficar embaralhando a cada
 // carregamento (o back devolve um objeto, sem ordem garantida).
@@ -64,6 +75,7 @@ async function carregarDashboardConcessionarios() {
 
   preencherSelectsUnidadeCc(Object.keys(d.por_unidade));
   preencherSelectRamoCc(d.ramos || []);
+  renderSincronizacaoCc(d.sincronizacao);
 
   document.getElementById('cc-cards').innerHTML = `
     <div class="metric-card metric-cotacao">
@@ -97,6 +109,22 @@ async function carregarDashboardConcessionarios() {
         <div class="dp-bar-val">${d.por_unidade[u]}</div>
       </div>
     </div>`).join('');
+}
+
+function renderSincronizacaoCc(s) {
+  const el = document.getElementById('cc-sync-info');
+  if (!el || !s) return;
+  const partes = [];
+  if (s.ultima_sync) {
+    partes.push(`<div><strong>Última sincronização:</strong> ${esc(fmtDataHoraBr(s.ultima_sync))} · ${Number(s.total || 0).toLocaleString('pt-BR')} registro(s) recebido(s) do Gateway, ${Number(s.gravados || 0).toLocaleString('pt-BR')} gravado(s).</div>`);
+  } else {
+    partes.push(`<div>Ainda não houve nenhuma sincronização bem-sucedida com o CeasaConecta-Gateway.</div>`);
+  }
+  if (s.status === 'erro') {
+    const quando = s.ultima_tentativa ? ` (${esc(fmtDataHoraBr(s.ultima_tentativa))})` : '';
+    partes.push(`<div style="margin-top:6px;color:#dc2626;">⚠️ A tentativa mais recente${quando} falhou: ${esc(s.erro || 'erro desconhecido')}.</div>`);
+  }
+  el.innerHTML = partes.join('');
 }
 
 // Filtro só roda quando o usuário clica em "Filtrar" (ou Enter na busca) —
