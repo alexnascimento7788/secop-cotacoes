@@ -6,7 +6,7 @@
 // CODCFO) pode ter mais de 1 linha (1 por contrato/termo, confirmado com
 // dado real) — "Ativo" = tem PELO MENOS 1 linha com ativo=1.
 const express = require('express');
-const { depopDb } = require('../database');
+const { db, depopDb } = require('../database');
 const { requireModulo, requireRotina } = require('../middleware');
 const { gerarPdfConcessionarios } = require('../concessionarios-cadastro-pdf');
 
@@ -64,6 +64,23 @@ function linhasComUnidade() {
     .map(l => ({ ...l, unidade: unidadeDaCidade(l.cidade) }));
 }
 
+// Detalhes da última sincronização com o CeasaConecta-Gateway (gravados em
+// `config` por secad-gateway-sync.js) — pedido do Alex, 2026-09-28, pra dar
+// visibilidade no dashboard do módulo de quando/como foi a última rodada.
+function configVal(chave) {
+  return db.prepare(`SELECT valor FROM config WHERE chave = ?`).get(chave)?.valor || null;
+}
+function statusSincronizacao() {
+  return {
+    ultima_sync: configVal('secad_gateway_ultima_sync'),
+    ultima_tentativa: configVal('secad_gateway_ultima_tentativa'),
+    status: configVal('secad_gateway_ultimo_status'),
+    total: configVal('secad_gateway_ultimo_total'),
+    gravados: configVal('secad_gateway_ultimo_gravados'),
+    erro: configVal('secad_gateway_ultimo_erro') || null,
+  };
+}
+
 router.get('/api/concessionarios-cadastro/dashboard', cc, ver, (req, res) => {
   const grupos = concessionariosAgrupados();
   const totalContratos = grupos.reduce((s, g) => s + g.itens.length, 0);
@@ -85,6 +102,7 @@ router.get('/api/concessionarios-cadastro/dashboard', cc, ver, (req, res) => {
     ativos_contrato_nulo: ativosContratoNulo,
     por_unidade: porUnidade,
     ramos,
+    sincronizacao: statusSincronizacao(),
   });
 });
 

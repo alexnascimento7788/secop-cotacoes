@@ -18,6 +18,32 @@ function getConfigGateway() {
   return { url: url.trim(), apiKey: apiKey.trim() };
 }
 
+function setConfig(chave, valor) {
+  db.prepare(`INSERT INTO config (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor`).run(chave, valor);
+}
+function setConfigAgora(chave) {
+  db.prepare(`INSERT INTO config (chave, valor) VALUES (?, datetime('now')) ON CONFLICT(chave) DO UPDATE SET valor = datetime('now')`).run(chave);
+}
+
+// Grava detalhes de CADA tentativa (sucesso ou falha) em `config`, pro
+// dashboard do módulo mostrar "última sincronização" pro Alex — pedido dele,
+// 2026-09-28. `secad_gateway_ultima_sync` só avança em sucesso (é "a última
+// vez que funcionou"); `secad_gateway_ultima_tentativa` avança sempre, pra
+// dar pra perceber que está tentando e falhando repetidamente.
+function registrarFalha(erro) {
+  setConfigAgora('secad_gateway_ultima_tentativa');
+  setConfig('secad_gateway_ultimo_status', 'erro');
+  setConfig('secad_gateway_ultimo_erro', erro);
+}
+function registrarSucesso(total, gravados) {
+  setConfigAgora('secad_gateway_ultima_sync');
+  setConfigAgora('secad_gateway_ultima_tentativa');
+  setConfig('secad_gateway_ultimo_status', 'ok');
+  setConfig('secad_gateway_ultimo_total', String(total));
+  setConfig('secad_gateway_ultimo_gravados', String(gravados));
+  setConfig('secad_gateway_ultimo_erro', '');
+}
+
 async function sincronizarConcessionarios() {
   const { url, apiKey } = getConfigGateway();
   if (!url || !apiKey) {
@@ -29,14 +55,22 @@ async function sincronizarConcessionarios() {
   try {
     resposta = await fetch(endpoint, { headers: { 'X-API-Key': apiKey } });
   } catch (e) {
-    return { ok: false, erro: `Falha de rede ao chamar o Gateway: ${e.message}` };
+    const erro = `Falha de rede ao chamar o Gateway: ${e.message}`;
+    registrarFalha(erro);
+    return { ok: false, erro };
   }
   if (!resposta.ok) {
-    return { ok: false, erro: `Gateway respondeu ${resposta.status}` };
+    const erro = `Gateway respondeu ${resposta.status}`;
+    registrarFalha(erro);
+    return { ok: false, erro };
   }
 
   let corpo;
-  try { corpo = await resposta.json(); } catch { return { ok: false, erro: 'Resposta do Gateway não é JSON válido.' }; }
+  try { corpo = await resposta.json(); } catch {
+    const erro = 'Resposta do Gateway não é JSON válido.';
+    registrarFalha(erro);
+    return { ok: false, erro };
+  }
   const linhas = Array.isArray(corpo.dados) ? corpo.dados : [];
 
   // Substituição completa (DELETE + INSERT), não upsert incremental — 2
@@ -71,10 +105,12 @@ async function sincronizarConcessionarios() {
     depopDb.exec('COMMIT');
   } catch (e) {
     try { depopDb.exec('ROLLBACK'); } catch {}
-    return { ok: false, erro: `Falha gravando no depop.db: ${e.message}` };
+    const erro = `Falha gravando no depop.db: ${e.message}`;
+    registrarFalha(erro);
+    return { ok: false, erro };
   }
 
-  db.prepare(`INSERT INTO config (chave, valor) VALUES ('secad_gateway_ultima_sync', datetime('now')) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor`).run();
+  registrarSucesso(linhas.length, gravados);
   return { ok: true, total: linhas.length, gravados };
 }
 
