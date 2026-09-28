@@ -83,8 +83,8 @@ async function sincronizarConcessionarios() {
   // o que o Gateway retornou agora, sem lixo acumulado.
   const insert = depopDb.prepare(`
     INSERT INTO concessionario_cadastro
-      (codigo, numero_contrato, nome, fantasia, cnpj, ie, cod_ramo, descricao_ramo, endereco, numero, bairro, cidade, unidade, telefone, cep, ativo, contrato_juridico, atualizado_em)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      (codigo, numero_contrato, nome, fantasia, cnpj, ie, cod_ramo, descricao_ramo, cod_tipo_cliente, descricao_tipo_cliente, endereco, numero, bairro, cidade, unidade, telefone, cep, ativo, contrato_juridico, atualizado_em)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `);
 
   let gravados = 0;
@@ -98,7 +98,11 @@ async function sincronizarConcessionarios() {
         codigo, c.NUMEROCONTRATO || null, c.CLIENTE || null, c.FANTASIA || null, c.CNPJ || null, c.IE || null,
         // RAMO_ATIVIDADE: nome novo do campo que era CODRAMO (Gateway
         // renomeado em 2026-09-28) — mesmo valor.
-        c.RAMO_ATIVIDADE ?? null, c.DESCRICAORAMO || null, c.ENDERECO || null, c.NUMERO || null,
+        c.RAMO_ATIVIDADE ?? null, c.DESCRICAORAMO || null,
+        // TIPO_CLIENTE/DESCRICAO_TIPO_CLIENTE: FCFO.CODTCF + FTCF.DESCRICAO
+        // (LEFT JOIN no Gateway — 6 registros reais não têm par, vêm null).
+        c.TIPO_CLIENTE || null, c.DESCRICAO_TIPO_CLIENTE || null,
+        c.ENDERECO || null, c.NUMERO || null,
         c.BAIRRO || null, c.CIDADE || null, c.UNIDADE || null, c.TELEFONE || null, c.CEP || null,
         c.ATIVO ?? null, c.CONTRATO_JURIDICO || null
       );

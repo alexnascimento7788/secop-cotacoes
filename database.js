@@ -1998,6 +1998,10 @@ function setupDepop() {
   // cidade que o módulo fazia sozinho antes. ADD COLUMN idempotente (banco
   // que já tinha a tabela sem essa coluna ganha ela aqui).
   try { _depop.exec(`ALTER TABLE concessionario_cadastro ADD COLUMN unidade TEXT`); } catch {}
+  // cod_tipo_cliente/descricao_tipo_cliente (2026-09-28): FCFO.CODTCF +
+  // FTCF.DESCRICAO — tipo de cliente (Concessionário, Produtor, Varejão...).
+  try { _depop.exec(`ALTER TABLE concessionario_cadastro ADD COLUMN cod_tipo_cliente TEXT`); } catch {}
+  try { _depop.exec(`ALTER TABLE concessionario_cadastro ADD COLUMN descricao_tipo_cliente TEXT`); } catch {}
 }
 
 setupDepop();

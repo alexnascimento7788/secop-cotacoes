@@ -100,6 +100,7 @@
             <label style="font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:6px;white-space:nowrap;">
               <input type="checkbox" id="cc-filtro-ocultar-ml" /> Ocultar contratos ML
             </label>
+            <button class="btn btn-secondary btn-sm" id="cc-btn-tipo-cliente" onclick="abrirSeletorTipoCliente('pesquisar')">Tipo de Cliente</button>
             <button class="btn btn-primary btn-sm" onclick="carregarListaConcessionarios()">Filtrar</button>
             <button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="abrirModalRelatorioConcessionarios()">🖨️ Relatório</button>
           </div>
@@ -107,7 +108,7 @@
       </div>
       <div class="card">
         <div class="table-wrap"><table>
-          <thead><tr><th>Status</th><th>Concessionário</th><th>CNPJ</th><th>Unidade</th><th>Ramo</th><th>Contrato</th></tr></thead>
+          <thead><tr><th>Status</th><th>Concessionário</th><th>CNPJ</th><th>Unidade</th><th>Ramo</th><th>Tipo Cliente</th><th>Contrato</th></tr></thead>
           <tbody id="cc-tbody"></tbody>
         </table></div>
       </div>
@@ -153,9 +154,25 @@
         <input type="checkbox" id="cc-rel-ocultar-ml" /> Ocultar contratos ML
       </label>
     </div>
+    <div class="form-group" style="margin-top:10px;">
+      <label>Tipo de Cliente</label><br>
+      <button type="button" class="btn btn-secondary btn-sm" id="cc-rel-btn-tipo-cliente" onclick="abrirSeletorTipoCliente('relatorio')" style="width:100%;">Tipo de Cliente</button>
+    </div>
     <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px;">
       <button class="btn btn-secondary" onclick="fecharModal('modal-cc-relatorio')">Cancelar</button>
       <button class="btn btn-primary" onclick="gerarRelatorioConcessionariosPdf()">🖨️ Gerar PDF</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: seleção múltipla de Tipo de Cliente (compartilhado por Pesquisar e Relatório) -->
+<div class="modal-overlay" id="modal-cc-tipocliente">
+  <div class="modal-box" style="width:380px;max-height:70vh;overflow:auto;">
+    <h3>Tipo de Cliente</h3>
+    <div id="cc-tipocliente-lista" style="margin-top:12px;display:flex;flex-direction:column;gap:10px;"></div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px;">
+      <button class="btn btn-secondary" onclick="fecharModal('modal-cc-tipocliente')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarSeletorTipoCliente()">OK</button>
     </div>
   </div>
 </div>
