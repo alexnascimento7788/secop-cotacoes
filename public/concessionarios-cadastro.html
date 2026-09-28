@@ -97,6 +97,9 @@
               <option value="0">Somente inativos</option>
             </select>
             <input id="cc-busca" class="filter-input" placeholder="Buscar por nome, fantasia ou CNPJ..." onkeydown="if(event.key==='Enter')carregarListaConcessionarios();" />
+            <label style="font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:6px;white-space:nowrap;">
+              <input type="checkbox" id="cc-filtro-ocultar-ml" /> Ocultar contratos ML
+            </label>
             <button class="btn btn-primary btn-sm" onclick="carregarListaConcessionarios()">Filtrar</button>
             <button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="abrirModalRelatorioConcessionarios()">🖨️ Relatório</button>
           </div>
@@ -144,6 +147,11 @@
     <div class="form-group" style="margin-top:10px;">
       <label>Ramo de Atividade</label>
       <select id="cc-rel-ramo" class="filter-select" style="width:100%;"><option value="">Todos os ramos</option></select>
+    </div>
+    <div class="form-group" style="margin-top:10px;">
+      <label style="display:flex;align-items:center;gap:6px;font-weight:400;">
+        <input type="checkbox" id="cc-rel-ocultar-ml" /> Ocultar contratos ML
+      </label>
     </div>
     <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px;">
       <button class="btn btn-secondary" onclick="fecharModal('modal-cc-relatorio')">Cancelar</button>

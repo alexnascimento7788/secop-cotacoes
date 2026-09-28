@@ -1993,6 +1993,11 @@ function setupDepop() {
     );
     CREATE INDEX IF NOT EXISTS idx_concessionario_cadastro_codigo ON concessionario_cadastro(codigo);
   `);
+  // unidade (2026-09-28): agora vem pronta do Gateway (mapeada de
+  // ZTERMO.UNIDADE no CORPORE, autoritativa) — substitui a heurística por
+  // cidade que o módulo fazia sozinho antes. ADD COLUMN idempotente (banco
+  // que já tinha a tabela sem essa coluna ganha ela aqui).
+  try { _depop.exec(`ALTER TABLE concessionario_cadastro ADD COLUMN unidade TEXT`); } catch {}
 }
 
 setupDepop();

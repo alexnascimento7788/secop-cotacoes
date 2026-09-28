@@ -14,28 +14,24 @@ const router = express.Router();
 const cc = requireModulo('concessionarios-cadastro');
 const ver = requireRotina('consulta', 'ver');
 
-// Mapeamento cidade (texto livre do CORPORE) → Unidade (mesma tabela
-// `unidades` do PAC, reaproveitada aqui por pedido do Alex — as 5 unidades
-// batem exatamente com as 5 cidades mais frequentes no cadastro real).
-// Constante fixa de propósito (Alex confirmou que não precisa de tela de
-// edição) — cidade fora daqui cai no balde "Fora das Unidades". Pra
-// estender, é só adicionar uma entrada.
-const CIDADE_UNIDADE = {
-  'Contagem': 'Contagem',
-  'Belo Horizonte': 'Contagem', 'Betim': 'Contagem', 'Ibirité': 'Contagem',
-  'Nova Lima': 'Contagem', 'Ribeirão das Neves': 'Contagem', 'Confins': 'Contagem',
-  'São Joaquim de Bicas': 'Contagem', 'Igarapé': 'Contagem', 'Mateus Leme': 'Contagem',
-  'Esmeraldas': 'Contagem',
-  'Uberlândia': 'Uberlândia', 'Uberaba': 'Uberlândia', 'Araguari': 'Uberlândia',
-  'Monte Alegre de Minas': 'Uberlândia',
-  'Juiz de Fora': 'Juiz de Fora',
-  'Barbacena': 'Barbacena', 'Carandaí': 'Barbacena', 'Conselheiro Lafaiete': 'Barbacena',
-  'Caratinga': 'Caratinga', 'Ipatinga': 'Caratinga', 'Governador Valadares': 'Caratinga',
-  'Santa Bárbara do Leste': 'Caratinga', 'São João do Oriente': 'Caratinga',
-};
+// Unidade (2026-09-28): vem pronta do Gateway, mapeada lá a partir do código
+// ZTERMO.UNIDADE (autoritativo do ERP) — substituiu a heurística por cidade
+// que existia aqui antes (que nem cobria Governador Valadares/Uberaba como
+// unidades próprias). `unidade` vem null quando o código do CORPORE não bate
+// com nenhuma das 7 conhecidas — cai no balde "Fora das Unidades".
 const FORA_DAS_UNIDADES = 'Fora das Unidades';
-function unidadeDaCidade(cidade) {
-  return CIDADE_UNIDADE[String(cidade || '').trim()] || FORA_DAS_UNIDADES;
+function unidadeDaLinha(l) {
+  return l.unidade || FORA_DAS_UNIDADES;
+}
+
+// Contratos "ML*" (SUBSTRING(NUMEROCONTRATO,5,3) IN MLA..MLH) — regra de
+// negócio que antes vinha embutida no SQL do Gateway excluindo essas linhas
+// sempre; por pedido do Alex (2026-09-28) isso não fica mais na API, vira um
+// filtro OPCIONAL aqui (visível por padrão, some quando o usuário liga o
+// filtro), aplicado igual em Pesquisar e no Relatório PDF pra nunca divergir.
+const PREFIXOS_ML_ISENTOS = ['MLA', 'MLB', 'MLC', 'MLD', 'MLE', 'MLF', 'MLG', 'MLH'];
+function ehContratoMl(numeroContrato) {
+  return PREFIXOS_ML_ISENTOS.includes(String(numeroContrato || '').substring(4, 7));
 }
 
 // Agrupa as linhas de contrato por concessionário (codigo) — usado só no
@@ -51,7 +47,7 @@ function concessionariosAgrupados() {
   return Array.from(porCodigo.values()).map(itens => {
     const ativo = itens.some(i => i.ativo === 1);
     const principal = itens.find(i => i.ativo === 1) || itens[0];
-    return { codigo: principal.codigo, ativo, unidade: unidadeDaCidade(principal.cidade), itens, principal };
+    return { codigo: principal.codigo, ativo, unidade: unidadeDaLinha(principal), itens, principal };
   });
 }
 
@@ -61,7 +57,7 @@ function concessionariosAgrupados() {
 // escondia contrato de verdade. Aqui cada contrato é sua própria linha.
 function linhasComUnidade() {
   return depopDb.prepare(`SELECT * FROM concessionario_cadastro ORDER BY codigo, numero_contrato`).all()
-    .map(l => ({ ...l, unidade: unidadeDaCidade(l.cidade) }));
+    .map(l => ({ ...l, unidade: unidadeDaLinha(l) }));
 }
 
 // Detalhes da última sincronização com o CeasaConecta-Gateway (gravados em
@@ -107,11 +103,12 @@ router.get('/api/concessionarios-cadastro/dashboard', cc, ver, (req, res) => {
 });
 
 router.get('/api/concessionarios-cadastro', cc, ver, (req, res) => {
-  const { busca, unidade, ativo } = req.query;
+  const { busca, unidade, ativo, ocultar_ml } = req.query;
   let linhas = linhasComUnidade();
   if (unidade) linhas = linhas.filter(l => l.unidade === unidade);
   if (ativo === '1') linhas = linhas.filter(l => l.ativo === 1);
   if (ativo === '0') linhas = linhas.filter(l => l.ativo !== 1);
+  if (String(ocultar_ml) === '1') linhas = linhas.filter(l => !ehContratoMl(l.numero_contrato));
   if (busca && busca.trim()) {
     const termo = busca.trim().toLowerCase();
     linhas = linhas.filter(l =>
@@ -133,7 +130,7 @@ router.get('/api/concessionarios-cadastro', cc, ver, (req, res) => {
 });
 
 router.post('/api/concessionarios-cadastro/relatorio/pdf', cc, ver, async (req, res) => {
-  const { unidade, ativo, ramo } = req.body || {};
+  const { unidade, ativo, ramo, ocultar_ml } = req.body || {};
   let linhas = linhasComUnidade();
   if (unidade) linhas = linhas.filter(l => l.unidade === unidade);
   if (String(ativo) === '1') linhas = linhas.filter(l => l.ativo === 1);
@@ -142,6 +139,9 @@ router.post('/api/concessionarios-cadastro/relatorio/pdf', cc, ver, async (req, 
   // informado, o relatório traz todos os ramos juntos (Ramo vira só uma
   // coluna da tabela). Pedido do Alex, 2026-09-26.
   if (ramo) linhas = linhas.filter(l => (l.descricao_ramo || 'Sem ramo informado') === ramo);
+  // Mesmo filtro (e mesmo default "visível") da tela de Pesquisar, pra nunca
+  // divergir do que o relatório mostra. Pedido do Alex, 2026-09-28.
+  if (String(ocultar_ml) === '1') linhas = linhas.filter(l => !ehContratoMl(l.numero_contrato));
 
   // Ordena por "ID da TOTVS" (codigo/CODCFO) — não mais por nome/ramo.
   linhas.sort((a, b) => a.codigo - b.codigo);
@@ -151,6 +151,7 @@ router.post('/api/concessionarios-cadastro/relatorio/pdf', cc, ver, async (req, 
   if (ramo) filtrosPartes.push(`Ramo: ${ramo}`);
   if (String(ativo) === '1') filtrosPartes.push('Somente ativos');
   if (String(ativo) === '0') filtrosPartes.push('Somente inativos');
+  if (String(ocultar_ml) === '1') filtrosPartes.push('Contratos ML ocultos');
 
   try {
     const pdfBuffer = await gerarPdfConcessionarios(linhas, filtrosPartes.join(' · '), req.user.nome_completo || req.user.username);

@@ -122,6 +122,11 @@ function desenharTabela(w, negrito, regular, subtituloPagina, cols, linhas, dotW
   cabecalhoTabela();
   linhas.forEach(linha => {
     if (w.y - 16 < MARGIN + 20) { w.novaPagina(); w.cabecalho(subtituloPagina); cabecalhoTabela(); }
+    // Linha fina separando um concessionário do próximo (mesmo `codigo` pode
+    // ter várias linhas/contratos seguidas) — pedido do Alex, 2026-09-28.
+    if (linha.separador) {
+      w.page.drawLine({ start: { x: MARGIN, y: w.y + 11 }, end: { x: PAGE_W - MARGIN, y: w.y + 11 }, thickness: 0.5, color: rgb(0.85, 0.85, 0.85) });
+    }
     if (linha.cor) w.page.drawEllipse({ x: MARGIN + dotW / 2 - 2, y: w.y + 3, xScale: 3, yScale: 3, color: linha.cor });
     let x = MARGIN + dotW;
     cols.forEach((c, i) => {
@@ -190,8 +195,9 @@ async function gerarPdfConcessionarios(linhas, filtrosTexto, nomeGerador) {
     { label: 'Nº TOTVS', w: 45 }, { label: 'Concessionário', w: 118 }, { label: 'CNPJ', w: 85 },
     { label: 'Unidade', w: 68 }, { label: 'Ramo', w: 90 }, { label: 'Contrato', w: 65 },
   ];
-  const linhasTabela = linhas.map(i => ({
+  const linhasTabela = linhas.map((i, idx) => ({
     cor: i.ativo === 1 ? VERDE_ATIVO : VERMELHO_INATIVO,
+    separador: idx > 0 && linhas[idx - 1].codigo !== i.codigo,
     valores: [
       i.codigo, i.fantasia || i.nome || '—', i.cnpj || '—',
       i.unidade, i.descricao_ramo || 'Sem ramo informado', i.numero_contrato || '—',
