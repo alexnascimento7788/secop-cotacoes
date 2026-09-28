@@ -8,7 +8,10 @@ const fs = require('fs');
 const path = require('path');
 const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
 
-const PAGE_W = 595.28, PAGE_H = 841.89; // A4 em pontos (72dpi)
+// A4 em pontos (72dpi), PAISAGEM — retrato não dava largura suficiente pras
+// 7 colunas do relatório sem truncar (pedido do Alex, 2026-09-28: nenhuma
+// informação pode vir cortada com "...").
+const PAGE_W = 841.89, PAGE_H = 595.28;
 const MARGIN = 56;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 const AZUL_CC = rgb(0x15 / 255, 0x65 / 255, 0xC0 / 255);
@@ -26,6 +29,15 @@ function wrapText(texto, font, size, maxWidth) {
       atual = p;
     } else {
       atual = tentativa;
+    }
+    // Uma palavra sozinha mais larga que a coluna (raro, mas acontece) —
+    // quebra por caractere em vez de deixar vazar pra coluna vizinha, pra
+    // garantir que nenhuma informação fica de fora mesmo nesse caso extremo.
+    while (font.widthOfTextAtSize(atual, size) > maxWidth && atual.length > 1) {
+      let corte = atual.length;
+      while (corte > 1 && font.widthOfTextAtSize(atual.slice(0, corte), size) > maxWidth) corte--;
+      linhas.push(atual.slice(0, corte));
+      atual = atual.slice(corte);
     }
   }
   if (atual) linhas.push(atual);
@@ -110,13 +122,18 @@ class Escritor {
 }
 
 // Tabela com bolinha colorida na 1ª posição (verde/vermelho = ativo/inativo)
-// — mesma técnica de detin-pdf.js.
+// — mesma técnica de detin-pdf.js. Células quebram linha (wrapText) em vez
+// de truncar (pedido do Alex, 2026-09-28: relatório não pode cortar
+// informação com "...") — a altura de cada linha da tabela se ajusta pro
+// maior número de linhas entre as colunas daquela linha.
 function desenharTabela(w, negrito, regular, subtituloPagina, cols, linhas, dotW = 12) {
+  const ALTURA_LINHA_TEXTO = 10.5;
   function cabecalhoTabela() {
     w.garantirEspaco(20);
     let x = MARGIN + dotW;
-    // Trunca o rótulo do cabeçalho igual às células de dado — sem isso, um
-    // rótulo mais largo que a coluna invade o texto da coluna seguinte.
+    // Trunca só o rótulo do cabeçalho (são palavras curtas fixas, nunca o
+    // dado real) — sem isso, um rótulo mais largo que a coluna invade o
+    // texto da coluna seguinte.
     cols.forEach(c => {
       const texto = truncar(c.label, negrito, 9, c.w - 4);
       w.page.drawText(texto, { x, y: w.y, size: 9, font: negrito, color: rgb(0.3, 0.3, 0.3) });
@@ -127,7 +144,11 @@ function desenharTabela(w, negrito, regular, subtituloPagina, cols, linhas, dotW
   }
   cabecalhoTabela();
   linhas.forEach(linha => {
-    if (w.y - 16 < MARGIN + 20) { w.novaPagina(); w.cabecalho(subtituloPagina); cabecalhoTabela(); }
+    const colunas = cols.map((c, i) => wrapText(String(linha.valores[i] ?? '—'), regular, 8.5, c.w - 4));
+    const nLinhas = Math.max(1, ...colunas.map(l => l.length));
+    const alturaLinha = nLinhas * ALTURA_LINHA_TEXTO + 5;
+
+    if (w.y - alturaLinha < MARGIN + 20) { w.novaPagina(); w.cabecalho(subtituloPagina); cabecalhoTabela(); }
     // Linha fina separando um concessionário do próximo (mesmo `codigo` pode
     // ter várias linhas/contratos seguidas) — pedido do Alex, 2026-09-28.
     if (linha.separador) {
@@ -136,11 +157,12 @@ function desenharTabela(w, negrito, regular, subtituloPagina, cols, linhas, dotW
     if (linha.cor) w.page.drawEllipse({ x: MARGIN + dotW / 2 - 2, y: w.y + 3, xScale: 3, yScale: 3, color: linha.cor });
     let x = MARGIN + dotW;
     cols.forEach((c, i) => {
-      const texto = truncar(String(linha.valores[i] ?? '—'), regular, 8.5, c.w - 4);
-      w.page.drawText(texto, { x, y: w.y, size: 8.5, font: regular });
+      colunas[i].forEach((texto, li) => {
+        w.page.drawText(texto, { x, y: w.y - li * ALTURA_LINHA_TEXTO, size: 8.5, font: regular });
+      });
       x += c.w;
     });
-    w.y -= 15;
+    w.y -= alturaLinha;
   });
 }
 
@@ -197,9 +219,13 @@ async function gerarPdfConcessionarios(linhas, filtrosTexto, nomeGerador) {
   ]);
   w.espaco(6);
 
+  // Larguras calibradas com o MAIOR valor real de cada coluna (medido contra
+  // os 2586 registros de produção) — cobrem a esmagadora maioria numa linha
+  // só; qualquer valor mais raro e mais longo ainda assim nunca é cortado,
+  // só quebra pra 2ª linha (ver wrapText em desenharTabela).
   const COLS = [
-    { label: 'CodCli', w: 38 }, { label: 'Concessionário', w: 95 }, { label: 'CNPJ', w: 75 },
-    { label: 'Unidade', w: 58 }, { label: 'Ramo', w: 70 }, { label: 'Tipo Cliente', w: 80 }, { label: 'Contrato', w: 55 },
+    { label: 'CodCli', w: 34 }, { label: 'Concessionário', w: 150 }, { label: 'CNPJ', w: 94 },
+    { label: 'Unidade', w: 92 }, { label: 'Ramo', w: 112 }, { label: 'Tipo Cliente', w: 150 }, { label: 'Contrato', w: 75 },
   ];
   const linhasTabela = linhas.map((i, idx) => ({
     cor: i.ativo === 1 ? VERDE_ATIVO : VERMELHO_INATIVO,
