@@ -568,12 +568,31 @@
           <div class="pac-fin-badges" id="acomp-fin-badges"></div>
           <div id="acomp-gerar-consolidacao-wrap"></div>
         </div>
-        <div class="pac-card">
-          <div class="table-wrap dfd-table-wrap"><table id="acomp-table" class="dfd-table">
-            <thead id="acomp-thead"></thead>
-            <tbody id="acomp-tbody"><tr><td colspan="14" style="padding:20px;text-align:center;color:var(--text-subtle);">Selecione um DFD.</td></tr></tbody>
-            <tfoot id="acomp-tfoot"></tfoot>
-          </table></div>
+        <!-- Ativos/Cancelados — mesma separação que a Consolidação já faz.
+             Achado do Alex, 2026-09-30: um item cancelado mantém o numero_pac
+             congelado e pode colidir com o de um item ativo renumerado por
+             cima dele; sem separar, os dois apareciam juntos com o mesmo
+             "Número PAC", parecendo duplicidade. -->
+        <div class="consol-subtabs">
+          <button class="consol-subtab acomp-subtab active" data-subtab="ativos" onclick="mudarAcompSubtab('ativos')">Ativos</button>
+          <button class="consol-subtab acomp-subtab" data-subtab="cancelados" onclick="mudarAcompSubtab('cancelados')">Cancelados</button>
+        </div>
+        <div id="acomp-subtab-ativos">
+          <div class="pac-card">
+            <div class="table-wrap dfd-table-wrap"><table id="acomp-table" class="dfd-table">
+              <thead id="acomp-thead"></thead>
+              <tbody id="acomp-tbody"><tr><td colspan="14" style="padding:20px;text-align:center;color:var(--text-subtle);">Selecione um DFD.</td></tr></tbody>
+              <tfoot id="acomp-tfoot"></tfoot>
+            </table></div>
+          </div>
+        </div>
+        <div id="acomp-subtab-cancelados" style="display:none;">
+          <div class="pac-card">
+            <div class="table-wrap"><table>
+              <thead><tr><th>ID PAC</th><th>Nº PAC (histórico)</th><th>Setor</th><th>Descrição</th><th>Justificativa</th><th>Cancelado por</th><th>Cancelado em</th></tr></thead>
+              <tbody id="acomp-cancelados-tbody"></tbody>
+            </table></div>
+          </div>
         </div>
         <div class="pac-card" id="acomp-sem-pac-card" style="display:none;">
           <div class="pac-card-title">Contratações não planejadas</div>
