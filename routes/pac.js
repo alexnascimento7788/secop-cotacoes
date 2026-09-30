@@ -431,27 +431,40 @@ router.put('/api/pac/orcamentos/:id/naturezas', pac, requireRotina('pac-gestao',
 // coluna monetária do item) agrupado por natureza_consolidacao, só entre os
 // itens DESTE DFD (não cumulativo, ver comentário no topo da seção). Item
 // cancelado/excluído não entra na soma (não representa mais gasto real).
+//
+// Pedido do Alex, 2026-09-30: só a parcela TU+MLP do item entra no "Usado"
+// comparado contra o Orçado — RDC é rateio de outra natureza de despesa e
+// fica de fora do cálculo, aparecendo só como total informativo
+// (valor_rdc). Reaproveita splitPorFonte() (mesma função que já faz essa
+// separação pra tela de Acompanhamento, ver linha ~1762) em vez de inventar
+// lógica de rateio nova.
 router.get('/api/pac/dfds/:id/orcamento', pac, requireRotinaPac('ver'), (req, res) => {
   const dfd = db.prepare(`SELECT id, orcamento_id FROM dfds WHERE id = ?`).get(req.params.id);
   if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
   if (!dfd.orcamento_id) return res.status(400).json({ error: 'Este DFD não tem orçamento definido.' });
   const valorCol = colunaId('valor_estimado');
+  const fonteCol = colunaId('fonte_pagadora');
   const linhas = db.prepare(`SELECT natureza, valor FROM orcamento_naturezas WHERE orcamento_id = ?`).all(dfd.orcamento_id);
   const usadoPorNatureza = {};
+  const rdcPorNatureza = {};
   if (valorCol) {
     db.prepare(`
-      SELECT di.natureza_consolidacao AS natureza, COALESCE(v.valor, 0) AS valor
+      SELECT di.natureza_consolidacao AS natureza, COALESCE(v.valor, 0) AS valor, f.valor AS fonte
       FROM dfd_itens di
       LEFT JOIN dfd_itens_valores v ON v.item_id = di.id AND v.coluna_id = ?
+      LEFT JOIN dfd_itens_valores f ON f.item_id = di.id AND f.coluna_id = ?
       WHERE di.dfd_id = ? AND di.excluido_em IS NULL AND di.status_consolidacao != 'cancelado' AND di.natureza_consolidacao IS NOT NULL
-    `).all(valorCol, req.params.id).forEach(r => {
-      usadoPorNatureza[r.natureza] = (usadoPorNatureza[r.natureza] || 0) + (Number(r.valor) || 0);
+    `).all(valorCol, fonteCol, req.params.id).forEach(r => {
+      const { tuMlp, rdc } = splitPorFonte(r.fonte, Number(r.valor) || 0);
+      usadoPorNatureza[r.natureza] = (usadoPorNatureza[r.natureza] || 0) + tuMlp;
+      rdcPorNatureza[r.natureza] = (rdcPorNatureza[r.natureza] || 0) + rdc;
     });
   }
   res.json(linhas.map(l => ({
     natureza: l.natureza,
     valor_orcado: l.valor,
     valor_usado: usadoPorNatureza[l.natureza] || 0,
+    valor_rdc: rdcPorNatureza[l.natureza] || 0,
   })));
 });
 
@@ -464,18 +477,27 @@ router.get('/api/pac/dfds/:id/orcamento/itens', pac, requireRotinaPac('ver'), (r
   const natureza = req.query.natureza;
   const valorCol = colunaId('valor_estimado');
   const descCol = colunaId('descricao_objeto');
+  const fonteCol = colunaId('fonte_pagadora');
   const itens = db.prepare(`
     SELECT di.id, di.numero_pac, di.codigo_pac, di.natureza_consolidacao AS natureza, s.nome AS setor_nome,
-      COALESCE(vv.valor, 0) AS valor, vd.valor AS descricao
+      COALESCE(vv.valor, 0) AS valor, vd.valor AS descricao, vf.valor AS fonte_pagadora
     FROM dfd_itens di
     JOIN setores s ON s.id = di.setor_id
     LEFT JOIN dfd_itens_valores vv ON vv.item_id = di.id AND vv.coluna_id = ?
     LEFT JOIN dfd_itens_valores vd ON vd.item_id = di.id AND vd.coluna_id = ?
+    LEFT JOIN dfd_itens_valores vf ON vf.item_id = di.id AND vf.coluna_id = ?
     WHERE di.dfd_id = ? AND di.excluido_em IS NULL AND di.status_consolidacao != 'cancelado' AND di.natureza_consolidacao IS NOT NULL
       ${natureza ? 'AND di.natureza_consolidacao = ?' : ''}
     ORDER BY di.natureza_consolidacao, CAST(COALESCE(vv.valor, 0) AS REAL) DESC
-  `).all(...(natureza ? [valorCol, descCol, req.params.id, natureza] : [valorCol, descCol, req.params.id]));
-  res.json(itens);
+  `).all(...(natureza ? [valorCol, descCol, fonteCol, req.params.id, natureza] : [valorCol, descCol, fonteCol, req.params.id]));
+  // Fonte Pagadora (TU/RDC/MLP, ou rateio {"TU":50,"MLP":30,"RDC":20}) decide
+  // quanto do valor do item conta pra orçamento (TU+MLP) x quanto é RDC —
+  // mesma regra de negócio do Alex, 2026-09-30, aplicada com splitPorFonte()
+  // (já usada em Acompanhamento) pra não duplicar a lógica de rateio.
+  res.json(itens.map(i => {
+    const { tuMlp, rdc } = splitPorFonte(i.fonte_pagadora, Number(i.valor) || 0);
+    return { ...i, valor_tu_mlp: tuMlp, valor_rdc: rdc };
+  }));
 });
 
 // Relatório de Orçamento do DFD (pedido do Alex, 2026-09-24: "O detalhado
@@ -493,23 +515,35 @@ function montarRelatorioOrcamentoDfd(dfdId) {
   const orcamento = db.prepare(`SELECT nome FROM orcamentos WHERE id = ?`).get(dfd.orcamento_id);
   const valorCol = colunaId('valor_estimado');
   const descCol = colunaId('descricao_objeto');
+  const fonteCol = colunaId('fonte_pagadora');
   const linhasOrcamento = db.prepare(`SELECT natureza, valor FROM orcamento_naturezas WHERE orcamento_id = ? ORDER BY natureza`).all(dfd.orcamento_id);
   const todosItens = valorCol ? db.prepare(`
     SELECT di.natureza_consolidacao AS natureza, di.numero_pac, di.codigo_pac, s.nome AS setor_nome,
-      COALESCE(vv.valor, 0) AS valor, vd.valor AS descricao
+      COALESCE(vv.valor, 0) AS valor, vd.valor AS descricao, vf.valor AS fonte_pagadora
     FROM dfd_itens di
     JOIN setores s ON s.id = di.setor_id
     LEFT JOIN dfd_itens_valores vv ON vv.item_id = di.id AND vv.coluna_id = ?
     LEFT JOIN dfd_itens_valores vd ON vd.item_id = di.id AND vd.coluna_id = ?
+    LEFT JOIN dfd_itens_valores vf ON vf.item_id = di.id AND vf.coluna_id = ?
     WHERE di.dfd_id = ? AND di.excluido_em IS NULL AND di.status_consolidacao != 'cancelado' AND di.natureza_consolidacao IS NOT NULL
     ORDER BY CAST(COALESCE(vv.valor, 0) AS REAL) DESC
-  `).all(valorCol, descCol, dfdId) : [];
+  `).all(valorCol, descCol, fonteCol, dfdId) : [];
+  // Fonte Pagadora do item separa TU+MLP (conta pro Usado/Saldo do
+  // orçamento) de RDC (fica de fora do cálculo, só informativo) — pedido do
+  // Alex, 2026-09-30, mesma regra de splitPorFonte() já usada em
+  // Acompanhamento.
+  todosItens.forEach(i => {
+    const { tuMlp, rdc } = splitPorFonte(i.fonte_pagadora, Number(i.valor) || 0);
+    i.valor_tu_mlp = tuMlp;
+    i.valor_rdc = rdc;
+  });
   const itensPorNatureza = {};
   todosItens.forEach(i => { (itensPorNatureza[i.natureza] ??= []).push(i); });
   const naturezas = linhasOrcamento.map(l => {
     const itens = itensPorNatureza[l.natureza] || [];
-    const valor_usado = itens.reduce((s, i) => s + (Number(i.valor) || 0), 0);
-    return { natureza: l.natureza, valor_orcado: l.valor, valor_usado, saldo: l.valor - valor_usado, itens };
+    const valor_usado = itens.reduce((s, i) => s + i.valor_tu_mlp, 0);
+    const valor_rdc = itens.reduce((s, i) => s + i.valor_rdc, 0);
+    return { natureza: l.natureza, valor_orcado: l.valor, valor_usado, valor_rdc, saldo: l.valor - valor_usado, itens };
   });
   return {
     dfd: { id: dfd.id, titulo: dfd.titulo, ano_base: dfd.ano_base },
@@ -531,7 +565,8 @@ router.get('/api/pac/dfds/:id/orcamento/relatorio/pdf', pac, requireRotinaPac('v
   if (dados.erro) return res.status(400).json({ error: dados.erro });
   try {
     const nomeGerador = req.user.nome_completo || req.user.username;
-    const pdfBuffer = await gerarPdfOrcamentoDfd(dados, nomeGerador);
+    const tipo = ['tu_mlp', 'rdc', 'combinado'].includes(req.query.tipo) ? req.query.tipo : 'combinado';
+    const pdfBuffer = await gerarPdfOrcamentoDfd(dados, nomeGerador, tipo);
     registrarLog(req, 'PAC', 'GEROU_RELATORIO_ORCAMENTO', `Gerou o relatório de orçamento do DFD "${dados.dfd.titulo}" #${dados.dfd.id}`);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="orcamento-dfd-${dados.dfd.id}.pdf"`);

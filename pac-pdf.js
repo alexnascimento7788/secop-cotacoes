@@ -170,57 +170,102 @@ async function carregarLogo(pdfDoc) {
   } catch { return null; }
 }
 
+const TITULOS_TIPO = {
+  tu_mlp: 'Orçamento — TU e MLP',
+  rdc: 'Orçamento — RDC',
+  combinado: 'Orçamento — TU+MLP e RDC',
+};
+
 // dados: { dfd: {id, titulo, ano_base}, orcamento_nome, naturezas: [{natureza,
-// valor_orcado, valor_usado, saldo, itens: [{setor_nome, numero_pac,
-// codigo_pac, descricao, valor}]}] } — vem de montarRelatorioOrcamentoDfd()
-// em routes/pac.js (mesma função monta os dados pra tela E pro PDF).
-async function gerarPdfOrcamentoDfd(dados, nomeGerador) {
+// valor_orcado, valor_usado (TU+MLP), valor_rdc, saldo, itens: [{setor_nome,
+// numero_pac, codigo_pac, descricao, valor_tu_mlp, valor_rdc}]}] } — vem de
+// montarRelatorioOrcamentoDfd() em routes/pac.js (mesma função monta os
+// dados pra tela E pro PDF).
+//
+// tipo (pedido do Alex, 2026-09-30 — só TU+MLP entra no cálculo comparado ao
+// Orçado, RDC é rateio de outra natureza de despesa e fica só informativo):
+// 'tu_mlp' (padrão de análise) mostra Orçado/Consumido/Saldo/% normalmente e
+// acrescenta o total de RDC como informação à parte no cabeçalho de cada
+// conta; 'rdc' mostra só o total RDC, sem teto/saldo/%; 'combinado' junta os
+// dois num relatório só, com as duas colunas de valor lado a lado na tabela
+// de itens.
+async function gerarPdfOrcamentoDfd(dados, nomeGerador, tipo = 'combinado') {
   const pdfDoc = await PDFDocument.create();
   const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const negrito = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const logoImg = await carregarLogo(pdfDoc);
   const w = new Escritor(pdfDoc, regular, negrito, logoImg);
-  const subtituloPagina = `Orçamento — ${codigoDfd(dados.dfd)}`;
+  const subtituloPagina = `${TITULOS_TIPO[tipo]} — ${codigoDfd(dados.dfd)}`;
 
   w.novaPagina();
   w.cabecalho(subtituloPagina);
-  w.titulo(`Relatório de Orçamento — ${codigoDfd(dados.dfd)} — ${dados.dfd.titulo}`);
+  w.titulo(`Relatório de ${TITULOS_TIPO[tipo]} — ${codigoDfd(dados.dfd)} — ${dados.dfd.titulo}`);
   w.paragrafo(`Orçamento: ${dados.orcamento_nome || '—'}`, 10);
   w.paragrafo(`Gerado em ${dataHojeBr()} por ${nomeGerador}.`, 9);
   w.espaco(4);
 
   const totalOrcado = dados.naturezas.reduce((s, n) => s + (Number(n.valor_orcado) || 0), 0);
   const totalUsado = dados.naturezas.reduce((s, n) => s + (Number(n.valor_usado) || 0), 0);
+  const totalRdc = dados.naturezas.reduce((s, n) => s + (Number(n.valor_rdc) || 0), 0);
   const saldoGeral = totalOrcado - totalUsado;
   w.linha();
-  w.camposLinha([
-    { label: 'Total Orçado:', valor: fmtMoeda(totalOrcado) },
-    { label: 'Total Consumido:', valor: fmtMoeda(totalUsado) },
-    { label: 'Saldo Geral:', valor: fmtMoeda(saldoGeral), cor: saldoGeral >= 0 ? VERDE_OK : VERMELHO_ESTOUROU },
-  ]);
+  if (tipo === 'rdc') {
+    w.camposLinha([{ label: 'Total RDC:', valor: fmtMoeda(totalRdc) }]);
+  } else {
+    w.camposLinha([
+      { label: 'Total Orçado:', valor: fmtMoeda(totalOrcado) },
+      { label: 'Total Consumido:', valor: fmtMoeda(totalUsado) },
+      { label: 'Saldo Geral:', valor: fmtMoeda(saldoGeral), cor: saldoGeral >= 0 ? VERDE_OK : VERMELHO_ESTOUROU },
+      { label: 'Total RDC:', valor: fmtMoeda(totalRdc) },
+    ]);
+  }
   w.espaco(10);
 
-  const COLS = [
+  const COLS_TU_MLP = [
     { label: 'Setor', w: 90 }, { label: 'Nº PAC', w: 55 }, { label: 'Descrição', w: 290 }, { label: 'Valor', w: 79 },
   ];
+  const COLS_RDC = COLS_TU_MLP;
+  const COLS_COMBINADO = [
+    { label: 'Setor', w: 70 }, { label: 'Nº PAC', w: 45 }, { label: 'Descrição', w: 200 },
+    { label: 'TU+MLP', w: 78 }, { label: 'RDC', w: 78 },
+  ];
+
   dados.naturezas.forEach(n => {
     w.garantirEspaco(60);
     const estourou = n.saldo < 0;
     const pct = n.valor_orcado > 0 ? (n.valor_usado / n.valor_orcado) * 100 : (n.valor_usado > 0 ? Infinity : 0);
-    w.subtitulo(n.natureza, estourou ? VERMELHO_ESTOUROU : undefined);
-    w.camposLinha([
-      { label: 'Orçado:', valor: fmtMoeda(n.valor_orcado) },
-      { label: 'Consumido:', valor: fmtMoeda(n.valor_usado) },
-      { label: 'Saldo:', valor: fmtMoeda(n.saldo), cor: estourou ? VERMELHO_ESTOUROU : VERDE_OK },
-      { label: '% usado:', valor: pct === Infinity ? '—' : `${pct.toFixed(1)}%` },
-    ]);
-    if (n.itens.length) {
-      const linhas = n.itens.map(i => ({
-        valores: [i.setor_nome, i.numero_pac ?? '—', i.descricao || '—', fmtMoeda(i.valor)],
-      }));
-      desenharTabela(w, negrito, regular, `${subtituloPagina} (continuação)`, COLS, linhas);
+    w.subtitulo(n.natureza, tipo !== 'rdc' && estourou ? VERMELHO_ESTOUROU : undefined);
+
+    if (tipo === 'rdc') {
+      w.camposLinha([{ label: 'RDC:', valor: fmtMoeda(n.valor_rdc) }]);
+      const itensRdc = n.itens.filter(i => i.valor_rdc > 0);
+      if (itensRdc.length) {
+        const linhas = itensRdc.map(i => ({
+          valores: [i.setor_nome, i.numero_pac ?? '—', i.descricao || '—', fmtMoeda(i.valor_rdc)],
+        }));
+        desenharTabela(w, negrito, regular, `${subtituloPagina} (continuação)`, COLS_RDC, linhas);
+      } else {
+        w.paragrafo('Nenhum item com rateio RDC nesta natureza.', 9, rgb(0.5, 0.5, 0.5));
+      }
     } else {
-      w.paragrafo('Nenhum item lançado com esta natureza neste DFD.', 9, rgb(0.5, 0.5, 0.5));
+      // 'tu_mlp' e 'combinado' comparam Usado x Orçado do mesmo jeito — RDC
+      // entra só como informação à parte, sempre depois do % usado (pedido
+      // literal do Alex).
+      w.camposLinha([
+        { label: 'Orçado:', valor: fmtMoeda(n.valor_orcado) },
+        { label: 'Consumido:', valor: fmtMoeda(n.valor_usado) },
+        { label: 'Saldo:', valor: fmtMoeda(n.saldo), cor: estourou ? VERMELHO_ESTOUROU : VERDE_OK },
+        { label: '% usado:', valor: pct === Infinity ? '—' : `${pct.toFixed(1)}%` },
+        { label: 'RDC:', valor: fmtMoeda(n.valor_rdc) },
+      ]);
+      if (n.itens.length) {
+        const linhas = tipo === 'combinado'
+          ? n.itens.map(i => ({ valores: [i.setor_nome, i.numero_pac ?? '—', i.descricao || '—', fmtMoeda(i.valor_tu_mlp), fmtMoeda(i.valor_rdc)] }))
+          : n.itens.map(i => ({ valores: [i.setor_nome, i.numero_pac ?? '—', i.descricao || '—', fmtMoeda(i.valor_tu_mlp)] }));
+        desenharTabela(w, negrito, regular, `${subtituloPagina} (continuação)`, tipo === 'combinado' ? COLS_COMBINADO : COLS_TU_MLP, linhas);
+      } else {
+        w.paragrafo('Nenhum item lançado com esta natureza neste DFD.', 9, rgb(0.5, 0.5, 0.5));
+      }
     }
     w.linha();
   });
