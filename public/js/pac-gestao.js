@@ -2313,6 +2313,7 @@ async function carregarAcompanhamento() {
   const dfdId = document.getElementById('acomp-dfd-select').value;
   if (!dfdId) return;
   iniciarAutoRefreshAcompanhamento();
+  mudarAcompSubtab('ativos'); // sempre volta pra "Ativos" ao trocar de DFD
   document.getElementById('acomp-tbody').innerHTML = `<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
   // Vencimento do DFD selecionado — pedido do Alex, 2026-09-07, ver criarDfd()/
   // POST /api/pac/dfds. _dfds já vem carregado por carregarDfds() no boot.
@@ -2327,6 +2328,7 @@ async function carregarAcompanhamento() {
     if (!res.ok) throw new Error();
     _acompDados = await res.json();
     renderTabelaAcompanhamento();
+    renderAcompCancelados();
     renderFinalizacaoAcompanhamento(dfdId);
   } catch {
     toast('Erro ao carregar acompanhamento', 'error');
@@ -2650,4 +2652,31 @@ function renderTabelaAcompanhamento() {
 
 function toggleAcompLinha(itemId) {
   document.getElementById(`acomp-sub-${itemId}`)?.classList.toggle('hidden');
+}
+
+// Ativos/Cancelados no Acompanhamento — mesma separação da Consolidação
+// (ver mudarConsolSubtab). Achado do Alex, 2026-09-30: item cancelado
+// mantém numero_pac congelado e pode colidir com o de um ativo renumerado
+// por cima dele; sem separar as duas listas, pareciam duplicidade.
+function mudarAcompSubtab(tab) {
+  document.querySelectorAll('.acomp-subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === tab));
+  ['ativos', 'cancelados'].forEach(t =>
+    document.getElementById(`acomp-subtab-${t}`).style.display = t === tab ? '' : 'none');
+  if (tab === 'cancelados') renderAcompCancelados();
+}
+
+function renderAcompCancelados() {
+  if (!_acompDados) return;
+  const cancelados = _acompDados.cancelados || [];
+  document.getElementById('acomp-cancelados-tbody').innerHTML = cancelados.map(item => `
+    <tr>
+      <td>${item.codigo_pac || '—'}</td>
+      <td><strong>${item.numero_pac ?? '—'}</strong></td>
+      <td>${item.setor_nome}</td>
+      <td>${item.descricao_objeto || '—'}</td>
+      <td>${item.justificativa_cancelamento || '—'}</td>
+      <td>${item.cancelado_por_username || '—'}</td>
+      <td>${fmtBrData(item.cancelado_em)}</td>
+    </tr>
+  `).join('') || `<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item cancelado.</td></tr>`;
 }

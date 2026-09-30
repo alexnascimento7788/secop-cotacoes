@@ -30,6 +30,9 @@
     tr.acomp-sub-row.hidden { display: none; }
     .acomp-toggle { cursor: pointer; -webkit-user-select: none; user-select: none; }
     tfoot td { font-weight: 700; border-top: 2px solid var(--cinza-b); }
+    .consol-subtabs { display: flex; gap: 6px; margin-bottom: 14px; border-bottom: 1px solid var(--cinza-b); }
+    .consol-subtab { padding: 8px 14px; border: none; background: none; font-size: 13px; font-weight: 600; color: var(--text-subtle); cursor: pointer; border-bottom: 2px solid transparent; }
+    .consol-subtab.active { color: var(--verde); border-bottom-color: var(--verde); }
   </style>
 </head>
 <body data-modulo="pac" data-rotina="pac-acompanhamento">
@@ -111,16 +114,34 @@
         </div>
       </div>
     </div>
-    <div class="pac-card">
-      <div class="table-wrap"><table id="acomp-table">
-        <thead><tr>
-          <th></th><th>Nº PAC</th><th>Código PAC</th><th>Descrição</th><th>Tipo</th>
-          <th>Est. TU+MLP</th><th>Est. RDC</th><th>Status</th><th>Solic.</th>
-          <th>Real. TU+MLP</th><th>Real. RDC</th><th>Saldo TU+MLP</th><th>Saldo RDC</th>
-        </tr></thead>
-        <tbody id="acomp-tbody"><tr><td colspan="13" style="padding:20px;text-align:center;color:var(--text-subtle);">Selecione um DFD.</td></tr></tbody>
-        <tfoot id="acomp-tfoot"></tfoot>
-      </table></div>
+    <!-- Ativos/Cancelados — mesma separação da tela de Acompanhamento do
+         DEPLA (pac-gestao.html): item cancelado mantém o numero_pac
+         congelado e pode colidir com o de um ativo renumerado por cima
+         dele. Achado do Alex, 2026-09-30. -->
+    <div class="consol-subtabs">
+      <button class="consol-subtab acomp-subtab active" data-subtab="ativos" onclick="mudarAcompSubtab('ativos')">Ativos</button>
+      <button class="consol-subtab acomp-subtab" data-subtab="cancelados" onclick="mudarAcompSubtab('cancelados')">Cancelados</button>
+    </div>
+    <div id="acomp-subtab-ativos">
+      <div class="pac-card">
+        <div class="table-wrap"><table id="acomp-table">
+          <thead><tr>
+            <th></th><th>Nº PAC</th><th>Código PAC</th><th>Descrição</th><th>Tipo</th>
+            <th>Est. TU+MLP</th><th>Est. RDC</th><th>Status</th><th>Solic.</th>
+            <th>Real. TU+MLP</th><th>Real. RDC</th><th>Saldo TU+MLP</th><th>Saldo RDC</th>
+          </tr></thead>
+          <tbody id="acomp-tbody"><tr><td colspan="13" style="padding:20px;text-align:center;color:var(--text-subtle);">Selecione um DFD.</td></tr></tbody>
+          <tfoot id="acomp-tfoot"></tfoot>
+        </table></div>
+      </div>
+    </div>
+    <div id="acomp-subtab-cancelados" style="display:none;">
+      <div class="pac-card">
+        <div class="table-wrap"><table>
+          <thead><tr><th>Código PAC</th><th>Nº PAC (histórico)</th><th>Descrição</th><th>Justificativa</th><th>Cancelado por</th><th>Cancelado em</th></tr></thead>
+          <tbody id="acomp-cancelados-tbody"></tbody>
+        </table></div>
+      </div>
     </div>
 
     <div id="app-footer"></div>

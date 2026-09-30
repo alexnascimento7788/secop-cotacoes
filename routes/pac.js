@@ -1777,9 +1777,20 @@ function splitPorFonte(fonteValor, valorEstimado) {
 function montarAcompanhamento(dfdId, setorIds) {
   const filtroSetor = setorIds ? ` AND di.setor_id IN (${setorIds.map(() => '?').join(',')})` : '';
   const params = setorIds ? [dfdId, ...setorIds] : [dfdId];
+  // status_consolidacao/justificativa/cancelado_* vêm junto pra separar
+  // ativos de cancelados abaixo — achado do Alex, 2026-09-30: um item
+  // cancelado mantém o numero_pac congelado (índice único só vale pra
+  // ativos, ver database.js), então ele pode colidir com o numero_pac novo
+  // de um item ativo depois que a consolidação reordena. Na tela de
+  // Consolidação isso não aparece porque ativos/cancelados já ficam em
+  // abas separadas — aqui em Acompanhamento tinha que ser igual.
   const itens = db.prepare(`
-    SELECT di.id, di.numero_pac, di.codigo_pac, di.numero_item, di.setor_id, di.status_execucao, s.nome AS setor_nome
-    FROM dfd_itens di JOIN setores s ON s.id = di.setor_id
+    SELECT di.id, di.numero_pac, di.codigo_pac, di.numero_item, di.setor_id, di.status_execucao,
+           di.status_consolidacao, di.justificativa_cancelamento, di.cancelado_em,
+           s.nome AS setor_nome, u.username AS cancelado_por_username
+    FROM dfd_itens di
+      JOIN setores s ON s.id = di.setor_id
+      LEFT JOIN users u ON u.id = di.cancelado_por
     WHERE di.dfd_id = ? AND di.excluido_em IS NULL${filtroSetor}
     ORDER BY di.numero_pac IS NULL, CAST(di.numero_pac AS INTEGER)
   `).all(...params);
@@ -1814,6 +1825,9 @@ function montarAcompanhamento(dfdId, setorIds) {
     return {
       item_id: item.id, numero_pac: item.numero_pac, codigo_pac: item.codigo_pac, numero_item: item.numero_item,
       setor_id: item.setor_id, setor_nome: item.setor_nome, status_execucao: item.status_execucao,
+      status_consolidacao: item.status_consolidacao,
+      justificativa_cancelamento: item.justificativa_cancelamento,
+      cancelado_em: item.cancelado_em, cancelado_por_username: item.cancelado_por_username,
       descricao_objeto: v[idDescricao] ?? null, tipo: v[idTipo] ?? null, fonte_pagadora: fonte,
       valor_estimado: valorEstimado,
       estimado_tu_mlp: estimadoTuMlp, estimado_rdc: estimadoRdc,
@@ -1829,7 +1843,16 @@ function montarAcompanhamento(dfdId, setorIds) {
     };
   });
 
-  const totais = itensMontados.reduce((acc, i) => ({
+  // Item cancelado na Consolidação mantém o numero_pac CONGELADO mesmo
+  // depois dos ativos serem renumerados por cima dele (índice único só vale
+  // pra ativos — ver database.js) — pode colidir com o numero_pac novo de um
+  // item ativo. Mesma separação ativos/cancelados que a tela de Consolidação
+  // já faz, achado do Alex, 2026-09-30: sem isso os dois apareciam juntos
+  // aqui com o mesmo "Número PAC", parecendo um bug de duplicidade.
+  const ativos = itensMontados.filter(i => i.status_consolidacao !== 'cancelado');
+  const cancelados = itensMontados.filter(i => i.status_consolidacao === 'cancelado');
+
+  const totais = ativos.reduce((acc, i) => ({
     estimado_tu_mlp: acc.estimado_tu_mlp + i.estimado_tu_mlp,
     estimado_rdc: acc.estimado_rdc + i.estimado_rdc,
     realizado_tu_mlp: acc.realizado_tu_mlp + i.realizado_tu_mlp,
@@ -1838,7 +1861,7 @@ function montarAcompanhamento(dfdId, setorIds) {
   totais.saldo_tu_mlp = totais.estimado_tu_mlp - totais.realizado_tu_mlp;
   totais.saldo_rdc = totais.estimado_rdc - totais.realizado_rdc;
 
-  return { itens: itensMontados, totais };
+  return { itens: ativos, cancelados, totais };
 }
 
 router.get('/api/pac/dfds/:id/acompanhamento', pac, requireRotina('pac-gestao', 'ver'), (req, res) => {

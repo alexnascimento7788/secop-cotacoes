@@ -87,15 +87,43 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function carregarAcompanhamento() {
   const dfdId = document.getElementById('acomp-dfd-select').value;
   if (!dfdId) return;
+  mudarAcompSubtab('ativos'); // sempre volta pra "Ativos" ao trocar de DFD/setor
   document.getElementById('acomp-tbody').innerHTML = `<tr><td colspan="13" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
   try {
     const res = await fetch(`/api/pac/dfds/${dfdId}/acompanhamento/meu-setor`);
     if (!res.ok) throw new Error();
     _acompDados = await res.json();
     renderTabelaAcompanhamento();
+    renderAcompCancelados();
   } catch {
     toast('Erro ao carregar acompanhamento', 'error');
   }
+}
+
+// Ativos/Cancelados — mesma separação da tela de Acompanhamento do DEPLA
+// (ver pac-gestao.js). Achado do Alex, 2026-09-30: item cancelado mantém
+// numero_pac congelado e pode colidir com o de um ativo renumerado por
+// cima dele; sem separar as duas listas, pareciam duplicidade.
+function mudarAcompSubtab(tab) {
+  document.querySelectorAll('.acomp-subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === tab));
+  ['ativos', 'cancelados'].forEach(t =>
+    document.getElementById(`acomp-subtab-${t}`).style.display = t === tab ? '' : 'none');
+  if (tab === 'cancelados') renderAcompCancelados();
+}
+
+function renderAcompCancelados() {
+  if (!_acompDados) return;
+  const cancelados = _acompDados.cancelados || [];
+  document.getElementById('acomp-cancelados-tbody').innerHTML = cancelados.map(item => `
+    <tr>
+      <td>${item.codigo_pac || '—'}</td>
+      <td><strong>${item.numero_pac ?? '—'}</strong></td>
+      <td>${item.descricao_objeto || '—'}</td>
+      <td>${item.justificativa_cancelamento || '—'}</td>
+      <td>${item.cancelado_por_username || '—'}</td>
+      <td>${fmtBrData(item.cancelado_em)}</td>
+    </tr>
+  `).join('') || `<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item cancelado.</td></tr>`;
 }
 
 function renderTabelaAcompanhamento() {
