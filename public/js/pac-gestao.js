@@ -604,9 +604,17 @@ async function renderItensDfd(colunasParam) {
     fetch(`/api/pac/dfds/${_dfdAtualId}/itens`),
     fetch('/api/pac/setores'),
   ]);
-  const itens = itensRes.ok ? await itensRes.json() : [];
+  const todosItens = itensRes.ok ? await itensRes.json() : [];
   const setores = setoresRes.ok ? await setoresRes.json() : [];
   const nomeSetor = id => (setores.find(s => s.id === id) || {}).nome || `#${id}`;
+
+  // Ativos/Cancelados — mesma separação de Consolidação/Acompanhamento
+  // (ver montarAcompanhamento em routes/pac.js): item cancelado mantém o
+  // numero_pac congelado, pode colidir com o de um ativo renumerado por
+  // cima dele. Achado do Alex, 2026-09-30.
+  const itens = todosItens.filter(i => i.status_consolidacao !== 'cancelado');
+  const cancelados = todosItens.filter(i => i.status_consolidacao === 'cancelado');
+  mudarDfdDetItensSubtab('ativos');
 
   // "Setor" primeiro, depois ID PAC/Nº PAC — "Número" (numero_item, sequencial
   // interno) não aparece mais aqui, mesma decisão da tela de Lançamento
@@ -625,7 +633,26 @@ async function renderItensDfd(colunasParam) {
       ${temColContrato ? celulaContratoLeitura(item, colunasContrato, todasColunas, item.id) : ''}
     </tr>
   `).join('') || `<tr><td colspan="${colunasResto.length + 3 + (temColContrato ? 1 : 0)}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`;
-  return itens;
+
+  const idDescricao = (todasColunas.find(c => c.slug === 'descricao_objeto') || {}).id;
+  document.getElementById('dfd-det-itens-cancelados-tbody').innerHTML = cancelados.map(item => `
+    <tr>
+      <td>${nomeSetor(item.setor_id)}</td>
+      <td>${item.codigo_pac || '—'}</td>
+      <td><strong>${item.numero_pac ?? '—'}</strong></td>
+      <td>${(item.valores[idDescricao]) || '—'}</td>
+      <td>${item.justificativa_cancelamento || '—'}</td>
+      <td>${fmtBr(item.cancelado_em)}</td>
+    </tr>
+  `).join('') || `<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item cancelado.</td></tr>`;
+
+  return todosItens;
+}
+
+function mudarDfdDetItensSubtab(tab) {
+  document.querySelectorAll('.dfd-det-itens-subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === tab));
+  ['ativos', 'cancelados'].forEach(t =>
+    document.getElementById(`dfd-det-itens-subtab-${t}`).style.display = t === tab ? '' : 'none');
 }
 
 /* ── Formatação por tipo de coluna (mesma ideia de fmtBr/fmtMoeda do resto do
@@ -1978,9 +2005,9 @@ function renderResumoOrcamentario(naturezaDestaque) {
         <div class="orcpac-nome">${l.natureza}</div>
         <div class="orcpac-valores">
           <div class="orcpac-valor-col orcado"><span class="lbl">Orçado</span><span class="val">R$ ${_consolFmtMoeda(l.valor_orcado)}</span></div>
-          <div class="orcpac-valor-col usado"><span class="lbl">Usado (TU+MLP)</span><span class="val ${classeStatus}">R$ ${_consolFmtMoeda(l.valor_usado)}</span></div>
+          <div class="orcpac-valor-col usado"><span class="lbl">Usado</span><span class="val ${classeStatus}">R$ ${_consolFmtMoeda(l.valor_usado)}</span></div>
           <div class="orcpac-valor-col saldo"><span class="lbl">Saldo</span><span class="val ${classeStatus}">${saldoTxt}</span></div>
-          <div class="orcpac-valor-col rdc"><span class="lbl">RDC (à parte)</span><span class="val">R$ ${_consolFmtMoeda(l.valor_rdc || 0)}</span></div>
+          <div class="orcpac-valor-col rdc"><span class="lbl">RDC</span><span class="val">R$ ${_consolFmtMoeda(l.valor_rdc || 0)}</span></div>
         </div>
         <button type="button" class="btn btn-secondary btn-xs" onclick="abrirDetalheNaturezaOrcamentaria('${l.natureza.replace(/'/g, "\\'")}')">Quem soma</button>
       </div>`;
@@ -2002,7 +2029,7 @@ async function abrirDetalheNaturezaOrcamentaria(natureza) {
         <td>${i.descricao || '—'}</td>
         <td>${textoRateioFonte(i.fonte_pagadora) || i.fonte_pagadora || '—'}</td>
         <td style="text-align:right;">R$ ${_consolFmtMoeda(i.valor_tu_mlp)}</td>
-        <td style="text-align:right;">R$ ${_consolFmtMoeda(i.valor_rdc)}</td>
+        <td style="text-align:right;color:#c0392b;">R$ ${_consolFmtMoeda(i.valor_rdc)}</td>
       </tr>`).join('') || `<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text-subtle);">Nenhum item com esta natureza.</td></tr>`;
   } catch {
     tbody.innerHTML = `<tr><td colspan="4" style="padding:16px;text-align:center;color:#c0392b;">Erro ao carregar.</td></tr>`;
@@ -2096,14 +2123,16 @@ function renderRelatorioOrcamento() {
           </table>`
         : `<div class="orcpac-rel-vazio">Nenhum item com rateio RDC nesta natureza.</div>`;
     } else {
-      // 'tu_mlp' e 'combinado' comparam Usado x Orçado igual, RDC sempre à
-      // parte logo depois do % usado (pedido literal do Alex).
+      // 'tu_mlp' e 'combinado' comparam Usado x Orçado igual, RDC sempre logo
+      // depois do % usado (pedido literal do Alex), sempre em vermelho pra
+      // não passar despercebido nesses 2 relatórios (aqui RDC é informação à
+      // parte, não entra no Usado/Saldo).
       camposHtml = `
         <span>Orçado: <b>R$ ${_consolFmtMoeda(n.valor_orcado)}</b></span>
-        <span>Consumido (TU+MLP): <b class="${classeStatus}">R$ ${_consolFmtMoeda(n.valor_usado)}</b></span>
+        <span>Consumido: <b class="${classeStatus}">R$ ${_consolFmtMoeda(n.valor_usado)}</b></span>
         <span>Saldo: <b class="${classeStatus}">${n.saldo < 0 ? '-R$ ' : 'R$ '}${_consolFmtMoeda(Math.abs(n.saldo))}</b></span>
         <span>% usado: <b>${pct === Infinity ? '—' : pct.toFixed(1) + '%'}</b></span>
-        <span>RDC (à parte): <b>R$ ${_consolFmtMoeda(n.valor_rdc)}</b></span>`;
+        <span>RDC: <b class="rdc-forte">R$ ${_consolFmtMoeda(n.valor_rdc)}</b></span>`;
       const colValorExtra = tipo === 'combinado' ? '<th style="text-align:right;">RDC</th>' : '';
       itensHtml = n.itens.length
         ? `<table class="orcpac-rel-itens-tbl">
@@ -2114,7 +2143,7 @@ function renderRelatorioOrcamento() {
                 <td>${i.numero_pac ?? '—'}</td>
                 <td>${i.descricao || '—'}</td>
                 <td style="text-align:right;">R$ ${_consolFmtMoeda(i.valor_tu_mlp)}</td>
-                ${tipo === 'combinado' ? `<td style="text-align:right;">R$ ${_consolFmtMoeda(i.valor_rdc)}</td>` : ''}
+                ${tipo === 'combinado' ? `<td style="text-align:right;color:#c0392b;">R$ ${_consolFmtMoeda(i.valor_rdc)}</td>` : ''}
               </tr>`).join('')}</tbody>
           </table>`
         : `<div class="orcpac-rel-vazio">Nenhum item lançado com esta natureza neste DFD.</div>`;

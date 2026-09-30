@@ -106,7 +106,8 @@
     .orcpac-valor-col .val.negativo { color: #c0392b; }
     [data-theme="dark"] .orcpac-valor-col .val.negativo { color: #f87171; }
     .orcpac-valor-col.rdc { min-width: 92px; }
-    .orcpac-valor-col.rdc .val { color: var(--text-subtle); font-size: 13px; }
+    .orcpac-valor-col.rdc .val { color: #c0392b; }
+    [data-theme="dark"] .orcpac-valor-col.rdc .val { color: #f87171; }
     /* Relatório de Orçamento (aba DFDs) — 1 bloco por natureza (mesma
        estrutura do PDF): nome + Orçado/Consumido/Saldo/% + itens que
        compõem o valor (ou aviso de "nenhum item", pra natureza sem gasto
@@ -121,6 +122,8 @@
     .orcpac-rel-campos b.positivo { color: var(--verde, #2E7D32); }
     .orcpac-rel-campos b.negativo { color: #c0392b; }
     [data-theme="dark"] .orcpac-rel-campos b.negativo { color: #f87171; }
+    .orcpac-rel-campos b.rdc-forte { color: #c0392b; }
+    [data-theme="dark"] .orcpac-rel-campos b.rdc-forte { color: #f87171; }
     .orcpac-rel-vazio { font-size: 12px; color: var(--text-subtle); font-style: italic; }
     .orcpac-rel-itens-tbl { width: 100%; font-size: 12px; border-collapse: collapse; }
     .orcpac-rel-itens-tbl th { text-align: left; font-size: 10.5px; color: var(--text-subtle); font-weight: 600; padding: 4px 8px; }
@@ -308,11 +311,30 @@
 
         <div class="pac-card">
           <div class="pac-card-title">Itens lançados (todos os setores)</div>
-          <div class="table-wrap dfd-table-wrap">
-            <table id="dfd-det-itens-table" class="dfd-table">
-              <thead id="dfd-det-itens-thead"></thead>
-              <tbody id="dfd-det-itens-tbody"><tr><td style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
-            </table>
+          <!-- Ativos/Cancelados — mesma separação de Consolidação/Acompanhamento
+               (ver mudarAcompSubtab): item cancelado mantém o numero_pac
+               congelado e pode colidir com o de um ativo renumerado por cima
+               dele. Achado do Alex, 2026-09-30: aqui em "Itens lançados"
+               continuava tudo junto, mesmo bug de "duplicidade" aparente. -->
+          <div class="consol-subtabs">
+            <button type="button" class="consol-subtab dfd-det-itens-subtab active" data-subtab="ativos" onclick="mudarDfdDetItensSubtab('ativos')">Ativos</button>
+            <button type="button" class="consol-subtab dfd-det-itens-subtab" data-subtab="cancelados" onclick="mudarDfdDetItensSubtab('cancelados')">Cancelados</button>
+          </div>
+          <div id="dfd-det-itens-subtab-ativos">
+            <div class="table-wrap dfd-table-wrap">
+              <table id="dfd-det-itens-table" class="dfd-table">
+                <thead id="dfd-det-itens-thead"></thead>
+                <tbody id="dfd-det-itens-tbody"><tr><td style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+          <div id="dfd-det-itens-subtab-cancelados" style="display:none;">
+            <div class="table-wrap dfd-table-wrap">
+              <table class="dfd-table">
+                <thead><tr><th>Setor</th><th>ID PAC</th><th>Nº PAC (histórico)</th><th>Descrição</th><th>Justificativa</th><th>Cancelado em</th></tr></thead>
+                <tbody id="dfd-det-itens-cancelados-tbody"></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
