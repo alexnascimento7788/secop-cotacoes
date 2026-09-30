@@ -126,7 +126,7 @@ function desenharTabela(w, negrito, regular, subtitulo, cols, linhas) {
   function cabecalhoTabela() {
     w.garantirEspaco(20);
     let x = MARGIN;
-    cols.forEach(c => { w.page.drawText(c.label, { x, y: w.y, size: 9, font: negrito, color: rgb(0.3, 0.3, 0.3) }); x += c.w; });
+    cols.forEach(c => { w.page.drawText(c.label, { x, y: w.y, size: 9, font: negrito, color: c.cor || rgb(0.3, 0.3, 0.3) }); x += c.w; });
     w.y -= 14;
     w.linha();
   }
@@ -136,7 +136,7 @@ function desenharTabela(w, negrito, regular, subtitulo, cols, linhas) {
     let x = MARGIN;
     cols.forEach((c, i) => {
       const texto = truncar(String(linha.valores[i]), regular, 8.5, c.w - 4);
-      w.page.drawText(texto, { x, y: w.y, size: 8.5, font: regular });
+      w.page.drawText(texto, { x, y: w.y, size: 8.5, font: regular, color: c.cor || rgb(0, 0, 0) });
       x += c.w;
     });
     w.y -= 15;
@@ -216,7 +216,7 @@ async function gerarPdfOrcamentoDfd(dados, nomeGerador, tipo = 'combinado') {
       { label: 'Total Orçado:', valor: fmtMoeda(totalOrcado) },
       { label: 'Total Consumido:', valor: fmtMoeda(totalUsado) },
       { label: 'Saldo Geral:', valor: fmtMoeda(saldoGeral), cor: saldoGeral >= 0 ? VERDE_OK : VERMELHO_ESTOUROU },
-      { label: 'Total RDC:', valor: fmtMoeda(totalRdc) },
+      { label: 'Total RDC:', valor: fmtMoeda(totalRdc), cor: VERMELHO_ESTOUROU },
     ]);
   }
   w.espaco(10);
@@ -225,9 +225,12 @@ async function gerarPdfOrcamentoDfd(dados, nomeGerador, tipo = 'combinado') {
     { label: 'Setor', w: 90 }, { label: 'Nº PAC', w: 55 }, { label: 'Descrição', w: 290 }, { label: 'Valor', w: 79 },
   ];
   const COLS_RDC = COLS_TU_MLP;
+  // Coluna RDC sempre em vermelho no relatório combinado — nos 2 relatórios
+  // que não são "só RDC", RDC é informação à parte e precisa chamar atenção
+  // (pedido do Alex, 2026-09-30).
   const COLS_COMBINADO = [
     { label: 'Setor', w: 70 }, { label: 'Nº PAC', w: 45 }, { label: 'Descrição', w: 200 },
-    { label: 'TU+MLP', w: 78 }, { label: 'RDC', w: 78 },
+    { label: 'TU+MLP', w: 78 }, { label: 'RDC', w: 78, cor: VERMELHO_ESTOUROU },
   ];
 
   dados.naturezas.forEach(n => {
@@ -256,7 +259,7 @@ async function gerarPdfOrcamentoDfd(dados, nomeGerador, tipo = 'combinado') {
         { label: 'Consumido:', valor: fmtMoeda(n.valor_usado) },
         { label: 'Saldo:', valor: fmtMoeda(n.saldo), cor: estourou ? VERMELHO_ESTOUROU : VERDE_OK },
         { label: '% usado:', valor: pct === Infinity ? '—' : `${pct.toFixed(1)}%` },
-        { label: 'RDC:', valor: fmtMoeda(n.valor_rdc) },
+        { label: 'RDC:', valor: fmtMoeda(n.valor_rdc), cor: VERMELHO_ESTOUROU },
       ]);
       if (n.itens.length) {
         const linhas = tipo === 'combinado'
