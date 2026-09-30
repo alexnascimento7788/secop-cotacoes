@@ -105,6 +105,8 @@
     .orcpac-valor-col .val.positivo { color: var(--verde, #2E7D32); }
     .orcpac-valor-col .val.negativo { color: #c0392b; }
     [data-theme="dark"] .orcpac-valor-col .val.negativo { color: #f87171; }
+    .orcpac-valor-col.rdc { min-width: 92px; }
+    .orcpac-valor-col.rdc .val { color: var(--text-subtle); font-size: 13px; }
     /* Relatório de Orçamento (aba DFDs) — 1 bloco por natureza (mesma
        estrutura do PDF): nome + Orçado/Consumido/Saldo/% + itens que
        compõem o valor (ou aviso de "nenhum item", pra natureza sem gasto
@@ -836,7 +838,7 @@
       </div>
       <div class="table-wrap modal-box-lg-corpo">
         <table>
-          <thead><tr><th>Setor</th><th>Nº PAC</th><th>Descrição</th><th style="text-align:right;">Valor</th></tr></thead>
+          <thead><tr><th>Setor</th><th>Nº PAC</th><th>Descrição</th><th>Fonte</th><th style="text-align:right;">TU+MLP</th><th style="text-align:right;">RDC</th></tr></thead>
           <tbody id="orcpac-detalhe-tbody"></tbody>
         </table>
       </div>
@@ -860,6 +862,14 @@
           <h3>Relatório de Orçamento</h3>
           <p class="text-muted" id="orcpac-relatorio-sub">—</p>
         </div>
+      </div>
+      <!-- 3 tipos de relatório (pedido do Alex, 2026-09-30): só TU+MLP entra
+           no cálculo comparado ao Orçado, RDC é sempre informativo à parte.
+           Re-renderiza client-side (dado já veio todo de uma vez). -->
+      <div class="consol-subtabs" style="flex-shrink:0;">
+        <button type="button" class="consol-subtab orcpac-tipo-btn active" data-tipo="combinado" onclick="mudarTipoRelatorioOrcamento('combinado')">Orçamento — TU+MLP e RDC</button>
+        <button type="button" class="consol-subtab orcpac-tipo-btn" data-tipo="tu_mlp" onclick="mudarTipoRelatorioOrcamento('tu_mlp')">Orçamento — TU e MLP</button>
+        <button type="button" class="consol-subtab orcpac-tipo-btn" data-tipo="rdc" onclick="mudarTipoRelatorioOrcamento('rdc')">Orçamento — RDC</button>
       </div>
       <div style="display:flex;justify-content:flex-end;margin-bottom:10px;flex-shrink:0;">
         <button type="button" class="btn btn-secondary btn-sm" id="orcpac-relatorio-btn-pdf" onclick="gerarPdfRelatorioOrcamento()">🖨️ Gerar PDF</button>

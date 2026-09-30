@@ -1978,8 +1978,9 @@ function renderResumoOrcamentario(naturezaDestaque) {
         <div class="orcpac-nome">${l.natureza}</div>
         <div class="orcpac-valores">
           <div class="orcpac-valor-col orcado"><span class="lbl">Orçado</span><span class="val">R$ ${_consolFmtMoeda(l.valor_orcado)}</span></div>
-          <div class="orcpac-valor-col usado"><span class="lbl">Usado</span><span class="val ${classeStatus}">R$ ${_consolFmtMoeda(l.valor_usado)}</span></div>
+          <div class="orcpac-valor-col usado"><span class="lbl">Usado (TU+MLP)</span><span class="val ${classeStatus}">R$ ${_consolFmtMoeda(l.valor_usado)}</span></div>
           <div class="orcpac-valor-col saldo"><span class="lbl">Saldo</span><span class="val ${classeStatus}">${saldoTxt}</span></div>
+          <div class="orcpac-valor-col rdc"><span class="lbl">RDC (à parte)</span><span class="val">R$ ${_consolFmtMoeda(l.valor_rdc || 0)}</span></div>
         </div>
         <button type="button" class="btn btn-secondary btn-xs" onclick="abrirDetalheNaturezaOrcamentaria('${l.natureza.replace(/'/g, "\\'")}')">Quem soma</button>
       </div>`;
@@ -1989,7 +1990,7 @@ function renderResumoOrcamentario(naturezaDestaque) {
 async function abrirDetalheNaturezaOrcamentaria(natureza) {
   document.getElementById('orcpac-detalhe-titulo').textContent = natureza;
   const tbody = document.getElementById('orcpac-detalhe-tbody');
-  tbody.innerHTML = `<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
   mostrarViewOrcamentario('detalhe');
   try {
     const res = await fetch(`/api/pac/dfds/${_orcpacDfdId}/orcamento/itens?natureza=${encodeURIComponent(natureza)}`);
@@ -1999,8 +2000,10 @@ async function abrirDetalheNaturezaOrcamentaria(natureza) {
         <td>${i.setor_nome}</td>
         <td>${i.numero_pac ?? '—'}</td>
         <td>${i.descricao || '—'}</td>
-        <td style="text-align:right;">R$ ${_consolFmtMoeda(i.valor)}</td>
-      </tr>`).join('') || `<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--text-subtle);">Nenhum item com esta natureza.</td></tr>`;
+        <td>${textoRateioFonte(i.fonte_pagadora) || i.fonte_pagadora || '—'}</td>
+        <td style="text-align:right;">R$ ${_consolFmtMoeda(i.valor_tu_mlp)}</td>
+        <td style="text-align:right;">R$ ${_consolFmtMoeda(i.valor_rdc)}</td>
+      </tr>`).join('') || `<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text-subtle);">Nenhum item com esta natureza.</td></tr>`;
   } catch {
     tbody.innerHTML = `<tr><td colspan="4" style="padding:16px;text-align:center;color:#c0392b;">Erro ao carregar.</td></tr>`;
   }
@@ -2025,6 +2028,12 @@ function fecharModalOrcamentario() {
    MESMA estrutura que o backend usa pra montar o PDF (montarRelatorioOrcamentoDfd
    em routes/pac.js), então tela e PDF nunca ficam divergentes. */
 let _orcpacRelatorioDfdId = null;
+let _orcpacRelatorioDados = null;
+// 3 tipos pedidos pelo Alex, 2026-09-30: só TU+MLP conta no Usado/Saldo do
+// orçamento, RDC é rateio de outra natureza e fica de fora do cálculo — os
+// 3 tipos só mudam COMO isso é exibido, o dado já vem todo junto de
+// /orcamento/relatorio (sem refetch ao trocar de tipo).
+let _orcpacRelatorioTipo = 'combinado';
 
 async function abrirRelatorioOrcamentoDfd(dfdId) {
   if (!_dfdAtualOrcamentoId) {
@@ -2032,6 +2041,8 @@ async function abrirRelatorioOrcamentoDfd(dfdId) {
     return;
   }
   _orcpacRelatorioDfdId = dfdId;
+  _orcpacRelatorioTipo = 'combinado';
+  mudarTipoRelatorioOrcamento('combinado', true);
   const modal = document.getElementById('modal-orcamentario');
   const wrap = document.getElementById('orcpac-relatorio-linhas');
   wrap.innerHTML = '<div class="text-muted" style="padding:12px;">Carregando...</div>';
@@ -2041,43 +2052,78 @@ async function abrirRelatorioOrcamentoDfd(dfdId) {
   try {
     const res = await fetch(`/api/pac/dfds/${dfdId}/orcamento/relatorio`);
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao carregar relatório'); }
-    const dados = await res.json();
+    _orcpacRelatorioDados = await res.json();
     document.getElementById('orcpac-relatorio-sub').textContent =
-      `${codigoDfd(dados.dfd)} — ${dados.dfd.titulo} · Orçamento: ${dados.orcamento_nome || '—'}`;
-    renderRelatorioOrcamento(dados.naturezas);
+      `${codigoDfd(_orcpacRelatorioDados.dfd)} — ${_orcpacRelatorioDados.dfd.titulo} · Orçamento: ${_orcpacRelatorioDados.orcamento_nome || '—'}`;
+    renderRelatorioOrcamento();
     document.getElementById('orcpac-relatorio-btn-pdf').disabled = false;
   } catch (e) {
     wrap.innerHTML = `<div style="padding:12px;color:#c0392b;">${e.message}</div>`;
   }
 }
 
-function renderRelatorioOrcamento(naturezas) {
+// Troca o tipo de relatório (TU+MLP / RDC / TU+MLP e RDC) e re-renderiza na
+// hora, sem novo fetch — silencioso: true no 1º carregamento (só ajusta o
+// estado visual dos botões, ainda não tem dados pra renderizar).
+function mudarTipoRelatorioOrcamento(tipo, silencioso) {
+  _orcpacRelatorioTipo = tipo;
+  document.querySelectorAll('.orcpac-tipo-btn').forEach(b => b.classList.toggle('active', b.dataset.tipo === tipo));
+  if (!silencioso && _orcpacRelatorioDados) renderRelatorioOrcamento();
+}
+
+function renderRelatorioOrcamento() {
   const wrap = document.getElementById('orcpac-relatorio-linhas');
-  wrap.innerHTML = naturezas.map(n => {
+  const tipo = _orcpacRelatorioTipo;
+  wrap.innerHTML = _orcpacRelatorioDados.naturezas.map(n => {
     const estourou = n.saldo < 0;
     const pct = n.valor_orcado > 0 ? (n.valor_usado / n.valor_orcado) * 100 : (n.valor_usado > 0 ? Infinity : 0);
     const classeStatus = estourou ? 'negativo' : 'positivo';
-    const itensHtml = n.itens.length
-      ? `<table class="orcpac-rel-itens-tbl">
-          <thead><tr><th>Setor</th><th>Nº PAC</th><th>Descrição</th><th style="text-align:right;">Valor</th></tr></thead>
-          <tbody>${n.itens.map(i => `
-            <tr>
-              <td>${i.setor_nome}</td>
-              <td>${i.numero_pac ?? '—'}</td>
-              <td>${i.descricao || '—'}</td>
-              <td style="text-align:right;">R$ ${_consolFmtMoeda(i.valor)}</td>
-            </tr>`).join('')}</tbody>
-        </table>`
-      : `<div class="orcpac-rel-vazio">Nenhum item lançado com esta natureza neste DFD.</div>`;
+
+    let camposHtml, itensHtml;
+    if (tipo === 'rdc') {
+      const itensRdc = n.itens.filter(i => i.valor_rdc > 0);
+      camposHtml = `<span>RDC: <b>R$ ${_consolFmtMoeda(n.valor_rdc)}</b></span>`;
+      itensHtml = itensRdc.length
+        ? `<table class="orcpac-rel-itens-tbl">
+            <thead><tr><th>Setor</th><th>Nº PAC</th><th>Descrição</th><th style="text-align:right;">RDC</th></tr></thead>
+            <tbody>${itensRdc.map(i => `
+              <tr>
+                <td>${i.setor_nome}</td>
+                <td>${i.numero_pac ?? '—'}</td>
+                <td>${i.descricao || '—'}</td>
+                <td style="text-align:right;">R$ ${_consolFmtMoeda(i.valor_rdc)}</td>
+              </tr>`).join('')}</tbody>
+          </table>`
+        : `<div class="orcpac-rel-vazio">Nenhum item com rateio RDC nesta natureza.</div>`;
+    } else {
+      // 'tu_mlp' e 'combinado' comparam Usado x Orçado igual, RDC sempre à
+      // parte logo depois do % usado (pedido literal do Alex).
+      camposHtml = `
+        <span>Orçado: <b>R$ ${_consolFmtMoeda(n.valor_orcado)}</b></span>
+        <span>Consumido (TU+MLP): <b class="${classeStatus}">R$ ${_consolFmtMoeda(n.valor_usado)}</b></span>
+        <span>Saldo: <b class="${classeStatus}">${n.saldo < 0 ? '-R$ ' : 'R$ '}${_consolFmtMoeda(Math.abs(n.saldo))}</b></span>
+        <span>% usado: <b>${pct === Infinity ? '—' : pct.toFixed(1) + '%'}</b></span>
+        <span>RDC (à parte): <b>R$ ${_consolFmtMoeda(n.valor_rdc)}</b></span>`;
+      const colValorExtra = tipo === 'combinado' ? '<th style="text-align:right;">RDC</th>' : '';
+      itensHtml = n.itens.length
+        ? `<table class="orcpac-rel-itens-tbl">
+            <thead><tr><th>Setor</th><th>Nº PAC</th><th>Descrição</th><th style="text-align:right;">TU+MLP</th>${colValorExtra}</tr></thead>
+            <tbody>${n.itens.map(i => `
+              <tr>
+                <td>${i.setor_nome}</td>
+                <td>${i.numero_pac ?? '—'}</td>
+                <td>${i.descricao || '—'}</td>
+                <td style="text-align:right;">R$ ${_consolFmtMoeda(i.valor_tu_mlp)}</td>
+                ${tipo === 'combinado' ? `<td style="text-align:right;">R$ ${_consolFmtMoeda(i.valor_rdc)}</td>` : ''}
+              </tr>`).join('')}</tbody>
+          </table>`
+        : `<div class="orcpac-rel-vazio">Nenhum item lançado com esta natureza neste DFD.</div>`;
+    }
+
     return `
       <div class="orcpac-rel-natureza">
-        <div class="orcpac-rel-nome${estourou ? ' estourou' : ''}">${n.natureza}</div>
-        <div class="orcpac-rel-campos">
-          <span>Orçado: <b>R$ ${_consolFmtMoeda(n.valor_orcado)}</b></span>
-          <span>Consumido: <b class="${classeStatus}">R$ ${_consolFmtMoeda(n.valor_usado)}</b></span>
-          <span>Saldo: <b class="${classeStatus}">${n.saldo < 0 ? '-R$ ' : 'R$ '}${_consolFmtMoeda(Math.abs(n.saldo))}</b></span>
-          <span>% usado: <b>${pct === Infinity ? '—' : pct.toFixed(1) + '%'}</b></span>
-        </div>
+        <div class="orcpac-rel-nome${tipo !== 'rdc' && estourou ? ' estourou' : ''}">${n.natureza}</div>
+        <div class="orcpac-rel-campos">${camposHtml}</div>
         ${itensHtml}
       </div>`;
   }).join('') || '<div class="text-muted" style="padding:12px;">Este orçamento não tem nenhuma natureza cadastrada.</div>';
@@ -2088,7 +2134,7 @@ function gerarPdfRelatorioOrcamento() {
   const btn = document.getElementById('orcpac-relatorio-btn-pdf');
   const textoOriginal = btn.textContent;
   btn.disabled = true; btn.textContent = 'Gerando...';
-  fetch(`/api/pac/dfds/${_orcpacRelatorioDfdId}/orcamento/relatorio/pdf`)
+  fetch(`/api/pac/dfds/${_orcpacRelatorioDfdId}/orcamento/relatorio/pdf?tipo=${_orcpacRelatorioTipo}`)
     .then(async res => {
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao gerar PDF'); }
       return res.blob();
