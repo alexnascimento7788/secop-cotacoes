@@ -653,9 +653,21 @@
     <!-- ═══ Parâmetros ═══ -->
     <div id="pane-parametros" class="pac-pane">
       <div class="pac-card">
-        <div class="form-group" style="max-width:280px;margin-bottom:14px;">
+        <div class="form-group" style="max-width:280px;margin-bottom:6px;">
           <label>Lista</label>
           <select id="param-lista-select" onchange="carregarParametros()"></select>
+        </div>
+        <!-- Ativar/desativar a LISTA INTEIRA (ex.: "Subitem"), não os valores
+             dela (ver checkbox "Ativo" por linha na tabela abaixo, que já
+             existia) — pedido do Alex, 2026-10-02. -->
+        <div id="param-lista-status-wrap" style="margin-bottom:14px;display:none;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="param-lista-ativa-chk" onchange="toggleCategoriaAtiva(this.checked)">
+            Esta lista está ativa
+          </label>
+          <p class="text-muted" style="font-size:11.5px;margin:2px 0 0 24px;">
+            Desativar não apaga os valores cadastrados nela — só marca a lista inteira como histórica/fora de uso.
+          </p>
         </div>
 
         <!-- Listas genéricas (valor único) -->
