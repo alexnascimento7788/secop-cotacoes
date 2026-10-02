@@ -66,7 +66,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await carregarDfds();
   carregarSetores();
-  popularSelectListas();
+  await popularSelectListas();
   carregarPedidos();
   aplicarPermissaoSolicitacoes();
   aplicarAcessoImportacao();
@@ -924,21 +924,32 @@ async function toggleSetorUsuario(userId, vinculado) {
 
 /* ── Parâmetros (listas de dropdown) ────────────────────────────────────── */
 
-const LISTAS_PARAMETRO = [
-  ['tipo', 'Tipo'], ['subitem', 'Subitem (histórico — Objeto virou digitável)'], ['prioridade', 'Prioridade'],
-  ['fonte_pagadora', 'Fonte Pagadora'], ['unidade_medida', 'Unidade'], ['sim_nao', 'Sim/Não'],
-  ['tipo_contratacao', 'Tipo de Contratação'], ['natureza_orcamentaria', 'Natureza Orçamentária'],
-];
+// Catálogo das LISTAS em si (não os valores de dentro delas) — vem de
+// dfd_parametros_categorias (GET /api/pac/parametros/categorias), não é mais
+// hardcoded aqui, pra poder ter o próprio `ativo` por lista inteira (pedido
+// do Alex, 2026-10-02: "o que quero ativar ou inativar é SubItem [...] e não
+// os valores dela"). Populado 1x por popularSelectListas().
+let _paramCategorias = [];
+
 // Sentinela — NÃO é uma lista de dfd_parametros_lista, é a tabela estruturada
 // `unidades` (nome + código IBGE + CEP + estado). Nome do rótulo deixa
 // "(filiais)" explícito pra não confundir com "Unidade" (unidade_medida)
 // logo acima, que é outra coisa (unidade de medida do item).
 const LISTA_UNIDADES_FISICAS = '__unidades_fisicas__';
 
-function popularSelectListas() {
+async function popularSelectListas() {
   const sel = document.getElementById('param-lista-select');
-  sel.innerHTML = LISTAS_PARAMETRO.map(([slug, label]) => `<option value="${slug}">${label}</option>`).join('')
+  const valorAtual = sel.value;
+  try {
+    const res = await fetch('/api/pac/parametros/categorias');
+    _paramCategorias = res.ok ? await res.json() : [];
+  } catch { _paramCategorias = []; }
+  // Todas aparecem sempre (ativas e inativas), igual Departamentos/Módulos/
+  // Rotinas já fazem — só marca "(inativa)" em vez de esconder, pra ainda dar
+  // pra reativar depois.
+  sel.innerHTML = _paramCategorias.map(c => `<option value="${c.slug}">${c.label}${c.ativo ? '' : ' (inativa)'}</option>`).join('')
     + `<option value="${LISTA_UNIDADES_FISICAS}">Unidades (filiais)</option>`;
+  if (valorAtual && [..._paramCategorias.map(c => c.slug), LISTA_UNIDADES_FISICAS].includes(valorAtual)) sel.value = valorAtual;
 }
 
 async function carregarParametros() {
@@ -946,6 +957,11 @@ async function carregarParametros() {
   const ehUnidades = lista === LISTA_UNIDADES_FISICAS;
   document.getElementById('param-generico-wrap').style.display = ehUnidades ? 'none' : '';
   document.getElementById('param-unidades-wrap').style.display = ehUnidades ? '' : 'none';
+  document.getElementById('param-lista-status-wrap').style.display = ehUnidades ? 'none' : '';
+  if (!ehUnidades) {
+    const cat = _paramCategorias.find(c => c.slug === lista);
+    document.getElementById('param-lista-ativa-chk').checked = !cat || !!cat.ativo;
+  }
   if (ehUnidades) { await carregarUnidadesPac(); return; }
   try {
     const res = await fetch(`/api/pac/parametros?lista=${encodeURIComponent(lista)}`);
@@ -1013,6 +1029,23 @@ async function toggleParametroAtivo(id, ativo) {
   } catch {
     toast('Erro ao atualizar parâmetro', 'error');
     carregarParametros();
+  }
+}
+
+// Ativa/desativa a LISTA INTEIRA selecionada (ex.: "Subitem"), não os valores
+// de dentro dela (ver toggleParametroAtivo acima, por linha) — pedido do
+// Alex, 2026-10-02.
+async function toggleCategoriaAtiva(ativo) {
+  const slug = document.getElementById('param-lista-select').value;
+  try {
+    const res = await fetch(`/api/pac/parametros/categorias/${encodeURIComponent(slug)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ativo }),
+    });
+    if (!res.ok) throw new Error();
+    await popularSelectListas();
+  } catch {
+    toast('Erro ao atualizar a lista', 'error');
+    document.getElementById('param-lista-ativa-chk').checked = !ativo;
   }
 }
 

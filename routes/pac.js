@@ -232,6 +232,26 @@ router.get('/api/pac/parametros', pac, requireRotinaPac('ver'), (req, res) => {
   res.json(rows);
 });
 
+// Catálogo das LISTAS em si (não os valores de dentro delas, ver acima) —
+// pedido do Alex, 2026-10-02: "o que quero ativar ou inativar é SubItem
+// [...] e não os valores dela". Puramente organizacional — nenhuma tela de
+// Lançamento lê isto, só a aba Parâmetros do admin (ver dfd_parametros_categorias
+// em database.js). Todas as categorias voltam sempre (ativas e inativas),
+// igual Departamentos/Módulos/Rotinas já fazem — a tela decide se marca
+// "(inativa)" em vez de escondê-la.
+router.get('/api/pac/parametros/categorias', pac, requireRotinaPac('ver'), (req, res) => {
+  res.json(db.prepare(`SELECT slug, label, ordem, ativo FROM dfd_parametros_categorias ORDER BY ordem`).all());
+});
+
+router.put('/api/pac/parametros/categorias/:slug', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const c = db.prepare(`SELECT label FROM dfd_parametros_categorias WHERE slug = ?`).get(req.params.slug);
+  if (!c) return res.status(404).json({ error: 'Não encontrado' });
+  const { ativo } = req.body || {};
+  if (ativo !== undefined) db.prepare(`UPDATE dfd_parametros_categorias SET ativo = ? WHERE slug = ?`).run(ativo ? 1 : 0, req.params.slug);
+  registrarLog(req, 'PAC', 'EDITOU_CATEGORIA_PARAMETRO', `${ativo ? 'Ativou' : 'Desativou'} a lista "${c.label}"`);
+  res.json({ ok: true });
+});
+
 router.post('/api/pac/parametros', pac, requireRotina('pac-gestao', 'incluir'), (req, res) => {
   const { lista, valor, ordem } = req.body || {};
   if (!lista || !valor) return res.status(400).json({ error: 'Lista e valor são obrigatórios' });

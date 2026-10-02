@@ -789,6 +789,20 @@ function setupDb() {
       UNIQUE (lista, valor)
     );
 
+    -- Catálogo das LISTAS em si (ex.: "Subitem", "Prioridade") — distinto de
+    -- dfd_parametros_lista, que guarda os VALORES de dentro de cada lista.
+    -- Pedido do Alex, 2026-10-02: ativar/desativar aqui é a lista INTEIRA
+    -- (ex.: "Subitem" inteira, por ser histórico — Objeto virou digitável),
+    -- sem mexer no ativo de cada valor dela (Permanente/Consumo etc., que já
+    -- tem o próprio toggle individual). Puramente organizacional — nenhuma
+    -- tela de Lançamento lê esta tabela, só a aba Parâmetros do admin.
+    CREATE TABLE IF NOT EXISTS dfd_parametros_categorias (
+      slug  TEXT    PRIMARY KEY,
+      label TEXT    NOT NULL,
+      ordem INTEGER NOT NULL DEFAULT 0,
+      ativo INTEGER NOT NULL DEFAULT 1
+    );
+
     CREATE TABLE IF NOT EXISTS dfd_colunas_catalogo (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       slug         TEXT    NOT NULL UNIQUE,
@@ -1221,6 +1235,22 @@ function setupDb() {
       'Serviços Gerais', 'Transporte de Funcionários', 'Vale Alimentação + Vale Refeição',
     ]);
   }
+
+  // Catálogo das listas em si (ver dfd_parametros_categorias acima) — mesmos
+  // 8 slugs/labels que antes viviam hardcoded em LISTAS_PARAMETRO, em
+  // pac-gestao.js (migrado pra cá pra poder ter o próprio `ativo`).
+  [
+    ['tipo', 'Tipo'],
+    ['subitem', 'Subitem (histórico — Objeto virou digitável)'],
+    ['prioridade', 'Prioridade'],
+    ['fonte_pagadora', 'Fonte Pagadora'],
+    ['unidade_medida', 'Unidade'],
+    ['sim_nao', 'Sim/Não'],
+    ['tipo_contratacao', 'Tipo de Contratação'],
+    ['natureza_orcamentaria', 'Natureza Orçamentária'],
+  ].forEach(([slug, label], i) => {
+    try { _db.prepare(`INSERT INTO dfd_parametros_categorias (slug, label, ordem) VALUES (?, ?, ?)`).run(slug, label, i + 1); } catch {}
+  });
 
   // Orçamento de teste (pedido do Alex, 2026-09-24: "crie o orcamento 2026 -
   // teste para ja termos base a testar") — valores do PDF real do orçamento
