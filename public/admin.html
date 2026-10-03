@@ -1010,12 +1010,15 @@
         <div class="admin-section-title">Atualização na base de produção</div>
         <p style="font-size:13px;color:#666;margin-bottom:12px;line-height:1.5;">
           Comandos SQL já aplicados <strong>aqui no homolog</strong>. Os <strong>IDs são explícitos e devem
-          ser mantidos idênticos</strong>. O "✓ executado" é só um controle visual seu (fica salvo neste navegador,
-          separado por destino).
+          ser mantidos idênticos</strong>. O "✓ executado" fica salvo no servidor (separado por destino) — sobrevive
+          a restart do serviço e é o mesmo em qualquer navegador/máquina.
         </p>
-        <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
           <button class="btn btn-secondary" id="homolog-sub-sqlite" onclick="mudarDestinoHomolog('sqlite')">🗄️ SQLite (DBeaver)</button>
           <button class="btn btn-secondary" id="homolog-sub-sqlserver" onclick="mudarDestinoHomolog('sqlserver')">🧱 SQL Server (produção)</button>
+          <span style="flex:1 1 auto;"></span>
+          <button class="btn btn-secondary" onclick="marcarTodasMigracoes(true)">✓ Marcar todas como executado</button>
+          <button class="btn btn-secondary" onclick="marcarTodasMigracoes(false)">↺ Marcar todas como pendente</button>
         </div>
         <div id="homolog-lista"></div>
       </div>
@@ -2889,8 +2892,14 @@ function mudarDestinoHomolog(destino) {
 
 function chaveMig(id) { return _homologDestino + '_' + id; }
 
+// "Executado" é estado do SERVIDOR agora (campo `executado` em cada migração
+// de migracoes-homolog.json) — pedido do Alex, 2026-10-03: era localStorage
+// do navegador e resetava sozinho ("sempre quando reinicio o serviço eles
+// voltam como não executado"), histórico de bugs nunca totalmente explicado
+// em versões anteriores. Gravar no servidor elimina essa classe de bug.
 function migExecutado(id) {
-  return localStorage.getItem('mig_exec_' + chaveMig(id)) === '1';
+  const m = _migsHomolog.find(x => x.id === id);
+  return !!(m && m.executado && m.executado[_homologDestino]);
 }
 
 function migColapsada(id) {
@@ -2988,14 +2997,54 @@ async function carregarMigracoes() {
   }).join('');
 }
 
-function marcarMigracao(id, feito) {
-  const chave = 'mig_exec_' + chaveMig(id);
-  if (feito) localStorage.setItem(chave, '1');
-  else localStorage.removeItem(chave);
+async function marcarMigracao(id, feito) {
+  try {
+    const res = await fetch(`/api/admin/migracoes-homolog/${encodeURIComponent(id)}/executado`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ destino: _homologDestino, executado: feito }),
+    });
+    if (!res.ok) throw new Error();
+  } catch {
+    toast('Erro ao salvar — tente de novo.', 'error');
+    atualizarListaMigracoes(); // re-renderiza do servidor, desfaz o clique visualmente
+    return;
+  }
+  const m = _migsHomolog.find(x => x.id === id);
+  if (m) { m.executado = m.executado || {}; m.executado[_homologDestino] = feito; }
   // Marcar executado fecha a sanfona; desmarcar reabre. Só mexe no card, sem
   // recarregar a lista inteira (evita pular a página pro topo).
   _migColapsadas[chaveMig(id)] = feito;
   aplicarColapso(id, feito);
+}
+
+// "Marcar todas como executado, com exceção de..." — pedido do Alex,
+// 2026-10-03: colocar o painel em dia depois de rodar um lote grande direto
+// no DBeaver, sem clicar checkbox por checkbox. Sugere como exceção padrão
+// as migrações criadas HOJE (normalmente as que ainda não foram rodadas),
+// mas o campo é editável — não é uma regra fixa pra sempre.
+async function marcarTodasMigracoes(executado) {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const sugestao = _migsHomolog.filter(m => m.data === hoje).map(m => m.id).join(', ');
+  const resposta = prompt(
+    `IDs para NÃO marcar como ${executado ? 'executado' : 'pendente'} (separados por vírgula).\nSugestão (criadas hoje):`,
+    sugestao
+  );
+  if (resposta === null) return;
+  const exceto = resposta.split(',').map(s => s.trim()).filter(Boolean);
+  const destinoLabel = _homologDestino === 'sqlserver' ? 'SQL Server (produção)' : 'DBeaver — SQLite';
+  if (!confirm(`Marcar TODAS as migrações de ${destinoLabel} como ${executado ? 'executadas' : 'pendentes'}, exceto ${exceto.length} id(s)?`)) return;
+  try {
+    const res = await fetch('/api/admin/migracoes-homolog/marcar-todas', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ destino: _homologDestino, executado, exceto }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error || 'Erro ao marcar em lote');
+    toast(`${j.afetadas} migração(ões) marcada(s) como ${executado ? 'executada(s)' : 'pendente(s)'}.`, 'success');
+    atualizarListaMigracoes();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+  }
 }
 
 function copiarMigracao(id) {

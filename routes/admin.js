@@ -899,4 +899,62 @@ router.get('/api/admin/migracoes-homolog', requireAdminAny, (req, res) => {
   res.json({ migracoes: dados.migracoes || [] });
 });
 
+// "Executado" virou estado do SERVIDOR (campo `executado: {sqlite, sqlserver}`
+// em cada migração, dentro do próprio migracoes-homolog.json) — pedido do
+// Alex, 2026-10-03: "sempre quando reinicio o serviço eles voltam como não
+// executado". Era 100% localStorage do navegador (ver histórico de bugs de
+// cache/reset em [[project_secop_pwa]], nunca totalmente explicado) — só o
+// navegador que marcou enxergava o check, e qualquer reset de storage
+// (origem diferente, dado de navegador limpo, etc.) perdia tudo. Gravar no
+// arquivo elimina essa classe de bug inteira: fica igual pra qualquer
+// navegador/máquina, sobrevive a restart do serviço e a troca de origem.
+function lerMigracoesHomolog() {
+  if (!fs.existsSync(MIGRACOES_FILE)) return { migracoes: [] };
+  const dados = JSON.parse(fs.readFileSync(MIGRACOES_FILE, 'utf8'));
+  return { migracoes: dados.migracoes || [] };
+}
+function salvarMigracoesHomolog(dados) {
+  fs.writeFileSync(MIGRACOES_FILE, JSON.stringify(dados, null, 2), 'utf8');
+}
+
+router.patch('/api/admin/migracoes-homolog/:id/executado', requireAdminAny, (req, res) => {
+  if (!IS_HOMOLOG) return res.status(404).json({ error: 'Indisponível fora do homolog.' });
+  if (req.user.username !== 'master') return res.status(403).json({ error: 'Restrito ao master.' });
+  const { destino, executado } = req.body || {};
+  if (!['sqlite', 'sqlserver'].includes(destino)) return res.status(400).json({ error: 'destino deve ser sqlite ou sqlserver' });
+  let dados;
+  try { dados = lerMigracoesHomolog(); } catch (e) { return res.status(500).json({ error: 'Falha ao ler: ' + e.message }); }
+  const m = dados.migracoes.find(x => x.id === req.params.id);
+  if (!m) return res.status(404).json({ error: 'Migração não encontrada.' });
+  m.executado = m.executado || {};
+  m.executado[destino] = !!executado;
+  salvarMigracoesHomolog(dados);
+  res.json({ ok: true });
+});
+
+// Marca (ou desmarca) TODAS as migrações de um destino de uma vez, com uma
+// lista de exceções — pedido do Alex: "colocar todos os sql do dbeaver como
+// executado com exceção dos 2 criados hoje". Usado pra colocar o painel em
+// dia depois de rodar um lote grande direto no DBeaver, sem clicar
+// checkbox por checkbox.
+router.post('/api/admin/migracoes-homolog/marcar-todas', requireAdminAny, (req, res) => {
+  if (!IS_HOMOLOG) return res.status(404).json({ error: 'Indisponível fora do homolog.' });
+  if (req.user.username !== 'master') return res.status(403).json({ error: 'Restrito ao master.' });
+  const { destino, executado, exceto } = req.body || {};
+  if (!['sqlite', 'sqlserver'].includes(destino)) return res.status(400).json({ error: 'destino deve ser sqlite ou sqlserver' });
+  const excecoes = new Set(Array.isArray(exceto) ? exceto : []);
+  let dados;
+  try { dados = lerMigracoesHomolog(); } catch (e) { return res.status(500).json({ error: 'Falha ao ler: ' + e.message }); }
+  let afetadas = 0;
+  dados.migracoes.forEach(m => {
+    if (excecoes.has(m.id)) return;
+    m.executado = m.executado || {};
+    m.executado[destino] = !!executado;
+    afetadas++;
+  });
+  salvarMigracoesHomolog(dados);
+  registrarLog(req, 'ADMIN', 'MIGRACOES_HOMOLOG_MARCAR_TODAS', `Marcou ${afetadas} migração(ões) de ${destino} como ${executado ? 'executada' : 'pendente'}, exceto [${[...excecoes].join(', ') || '-'}]`);
+  res.json({ ok: true, afetadas });
+});
+
 module.exports = { router, IS_HOMOLOG };
