@@ -333,7 +333,7 @@ router.post('/api/admin/users', requireAdminAny, (req, res) => {
 });
 
 router.patch('/api/admin/users/:id', requireAdminAny, (req, res) => {
-  const { ativo, senha, email, role, acesso_avancado, nome_completo, telefone, telefone_ddd, departamento_id } = req.body;
+  const { ativo, senha, email, role, acesso_avancado, nome_completo, telefone, telefone_ddd, departamento_id, username } = req.body;
   const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
   if (!user) return res.status(404).json({ error: 'Não encontrado' });
 
@@ -342,6 +342,18 @@ router.patch('/api/admin/users/:id', requireAdminAny, (req, res) => {
     return res.status(403).json({ error: 'Este usuário não pertence ao seu departamento.' });
   }
 
+  if (username !== undefined) {
+    if (user.username === 'master') return res.status(400).json({ error: 'Não é possível alterar o login do master' });
+    const novo = String(username).trim();
+    if (!novo) return res.status(400).json({ error: 'Login não pode ficar em branco' });
+    try {
+      db.prepare("UPDATE users SET username = ? WHERE id = ?").run(novo, req.params.id);
+    } catch (e) {
+      return res.status(400).json({ error: 'Já existe um usuário com esse login' });
+    }
+    registrarLog(req, 'USUARIO', 'LOGIN', `Alterou o login de "${user.username}" para "${novo}"`);
+    user.username = novo; // mantém os logs seguintes (ex.: email mais abaixo) coerentes
+  }
   if (email !== undefined) {
     db.prepare("UPDATE users SET email = ? WHERE id = ?").run(email ? String(email).trim() : null, req.params.id);
     registrarLog(req, 'USUARIO', 'EMAIL', `Alterou o email do usuário "${user.username}"`);
