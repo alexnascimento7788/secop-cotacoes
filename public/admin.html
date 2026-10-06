@@ -2466,6 +2466,7 @@ async function carregarUsuarios() {
         <td>${fmtData(u.criado_em)}</td>
         <td style="white-space:nowrap;text-align:right;">
           <button class="btn btn-secondary btn-sm" onclick="abrirModalPerfilUsuario(${u.id})">Perfil</button>
+          ${u.username!=='master' ? `<button class="btn btn-secondary btn-sm" onclick="editarLogin(${u.id})">Login</button>` : ''}
           <button class="btn btn-secondary btn-sm" onclick="editarEmail(${u.id})">Email</button>
           <button class="btn btn-secondary btn-sm" onclick="alterarSenha(${u.id})" title="Define uma nova senha; ela já nasce provisória, o usuário troca no 1º login">Renovar senha</button>
           <button class="btn btn-danger btn-sm" onclick="excluirUsuario(${u.id},'${u.username}')">Excluir</button>
@@ -2803,6 +2804,23 @@ async function salvarPerfilUsuarioModal() {
   } catch(e) {
     msg.style.color = '#c00'; msg.textContent = 'Erro: ' + e.message;
   }
+}
+
+async function editarLogin(id) {
+  const u = (window._usersCache || []).find(x => x.id === id);
+  const atual = u ? u.username : '';
+  const novo = prompt('Login do usuário (é isto que ele digita pra entrar):', atual);
+  if (novo === null) return; // cancelou
+  if (!novo.trim()) { toast('Login não pode ficar em branco', 'error'); return; }
+  try {
+    const res = await fetch(`/api/admin/users/${id}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ username: novo.trim() })
+    });
+    if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
+    toast('Login atualizado', 'success');
+    carregarUsuarios();
+  } catch(e) { toast('Erro: ' + e.message, 'error'); }
 }
 
 async function editarEmail(id) {
