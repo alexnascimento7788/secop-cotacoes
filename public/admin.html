@@ -1194,7 +1194,7 @@
 
 <div class="modal-overlay" id="modal-perfil-usuario">
   <div class="modal-box" style="max-width:420px;">
-    <h3>Editar perfil do usuário</h3>
+    <h3>Editar usuário</h3>
     <input type="hidden" id="mpu-user-id" />
     <div id="mpu-foto-linha" style="display:flex;align-items:center;gap:14px;margin-bottom:14px;">
       <img id="mpu-foto-preview" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:var(--surface-2);flex-shrink:0;" />
@@ -1219,6 +1219,14 @@
         <button type="button" class="btn btn-secondary btn-sm" onclick="mpuCropCancelar()">Cancelar</button>
         <button type="button" class="btn btn-primary btn-sm" onclick="mpuCropConfirmar()">Confirmar posição</button>
       </div>
+    </div>
+    <div class="form-group" style="margin-bottom:14px;">
+      <label>Login</label>
+      <input type="text" id="mpu-login" style="width:100%;padding:10px 12px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:14px;"/>
+    </div>
+    <div class="form-group" style="margin-bottom:14px;">
+      <label>Email</label>
+      <input type="email" id="mpu-email" style="width:100%;padding:10px 12px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:14px;"/>
     </div>
     <div class="form-group" style="margin-bottom:14px;">
       <label>Nome completo</label>
@@ -2465,9 +2473,7 @@ async function carregarUsuarios() {
         <td><button class="btn-status-toggle ${u.ativo?'status-desativar':'status-ativar'}" onclick="toggleAtivo(${u.id},${u.ativo})">${u.ativo?'Desativar':'Ativar'}</button></td>
         <td>${fmtData(u.criado_em)}</td>
         <td style="white-space:nowrap;text-align:right;">
-          <button class="btn btn-secondary btn-sm" onclick="abrirModalPerfilUsuario(${u.id})">Perfil</button>
-          ${u.username!=='master' ? `<button class="btn btn-secondary btn-sm" onclick="editarLogin(${u.id})">Login</button>` : ''}
-          <button class="btn btn-secondary btn-sm" onclick="editarEmail(${u.id})">Email</button>
+          <button class="btn btn-secondary btn-sm" onclick="abrirModalPerfilUsuario(${u.id})">Editar</button>
           <button class="btn btn-secondary btn-sm" onclick="alterarSenha(${u.id})" title="Define uma nova senha; ela já nasce provisória, o usuário troca no 1º login">Renovar senha</button>
           <button class="btn btn-danger btn-sm" onclick="excluirUsuario(${u.id},'${u.username}')">Excluir</button>
         </td>
@@ -2547,6 +2553,8 @@ async function abrirModalPerfilUsuario(id) {
   const u = (window._usersCache || []).find(x => x.id === id);
   if (!u) return;
   document.getElementById('mpu-user-id').value = id;
+  document.getElementById('mpu-login').value = u.username || '';
+  document.getElementById('mpu-email').value = u.email || '';
   document.getElementById('mpu-nome').value = u.nome_completo || '';
   document.getElementById('mpu-telefone').value = u.telefone || '';
   _mpuTelWidget.setDDD(u.telefone_ddd || null);
@@ -2783,6 +2791,8 @@ async function salvarPerfilUsuarioModal() {
     const res = await fetch(`/api/admin/users/${id}`, {
       method:'PATCH', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
+        username: document.getElementById('mpu-login').value.trim(),
+        email: document.getElementById('mpu-email').value.trim(),
         nome_completo: document.getElementById('mpu-nome').value.trim(),
         telefone: document.getElementById('mpu-telefone').value.trim(),
         telefone_ddd: document.getElementById('mpu-telefone').value.trim() ? _mpuTelWidget.getDDD() : null
@@ -2804,39 +2814,6 @@ async function salvarPerfilUsuarioModal() {
   } catch(e) {
     msg.style.color = '#c00'; msg.textContent = 'Erro: ' + e.message;
   }
-}
-
-async function editarLogin(id) {
-  const u = (window._usersCache || []).find(x => x.id === id);
-  const atual = u ? u.username : '';
-  const novo = prompt('Login do usuário (é isto que ele digita pra entrar):', atual);
-  if (novo === null) return; // cancelou
-  if (!novo.trim()) { toast('Login não pode ficar em branco', 'error'); return; }
-  try {
-    const res = await fetch(`/api/admin/users/${id}`, {
-      method:'PATCH', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ username: novo.trim() })
-    });
-    if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
-    toast('Login atualizado', 'success');
-    carregarUsuarios();
-  } catch(e) { toast('Erro: ' + e.message, 'error'); }
-}
-
-async function editarEmail(id) {
-  const u = (window._usersCache || []).find(x => x.id === id);
-  const atual = u ? (u.email || '') : '';
-  const novo = prompt('Email do usuário:', atual);
-  if (novo === null) return; // cancelou
-  try {
-    const res = await fetch(`/api/admin/users/${id}`, {
-      method:'PATCH', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ email: novo.trim() })
-    });
-    if (!res.ok) { const e=await res.json(); throw new Error(e.error); }
-    toast('Email atualizado', 'success');
-    carregarUsuarios();
-  } catch(e) { toast('Erro: ' + e.message, 'error'); }
 }
 
 async function alterarRole(id, role) {
