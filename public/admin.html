@@ -3160,7 +3160,7 @@ async function carregarRelatorioAcessos() {
   el.innerHTML = '<p style="color:#aaa;padding:20px 0;">Carregando...</p>';
   try {
     const qs = filtro ? ('?modulo=' + encodeURIComponent(filtro)) : '';
-    const { modulos } = await fetch('/api/admin/relatorio-acessos' + qs).then(r => r.json());
+    const { modulos, sem_modulo } = await fetch('/api/admin/relatorio-acessos' + qs).then(r => r.json());
 
     // As opções do filtro só são preenchidas na 1ª carga (sem filtro aplicado
     // ainda, a resposta já traz todos os módulos ativos) — trocas de filtro
@@ -3210,7 +3210,22 @@ async function carregarRelatorioAcessos() {
           </div>
         </div>
       </div>
-    `).join('');
+    `).join('') + (!sem_modulo || !sem_modulo.length ? '' : `
+      <div class="admin-card" style="max-width:none;border-color:#c0392b;">
+        <div class="admin-section">
+          <div class="admin-section-title" style="color:#c0392b;">Usuários sem nenhum módulo liberado</div>
+          <p style="margin:0 0 10px;color:var(--text-muted);font-size:12.5px;">
+            Têm conta no sistema, mas nenhum módulo foi liberado ainda (tela Usuários → coluna "Módulos") —
+            por isso não aparecem em nenhuma lista acima.
+          </p>
+          <ul style="margin:0;padding-left:18px;font-size:13px;color:#c0392b;">
+            ${sem_modulo.map(u => `
+              <li>${u.nome_completo || u.username}${u.ativo ? '' : ' (inativo)'}${u.senha_provisoria ? ' — aguardando 1º acesso' : ''}</li>
+            `).join('')}
+          </ul>
+        </div>
+      </div>
+    `);
   } catch {
     el.innerHTML = '<p style="color:#c00;">Erro ao carregar o relatório de acessos.</p>';
   }

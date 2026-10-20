@@ -207,6 +207,21 @@ async function gerarPdfRelatorioAcessos(dados, nomeGerador) {
     w.linha();
   });
 
+  if (dados.sem_modulo && dados.sem_modulo.length) {
+    w.garantirEspaco(40);
+    w.subtitulo('Usuários sem nenhum módulo liberado', VERMELHO_NUNCA);
+    w.paragrafo('Têm conta no sistema, mas nenhum módulo foi liberado ainda — não aparecem em nenhuma lista acima.', 9, rgb(0.5, 0.5, 0.5));
+    const linhas = dados.sem_modulo.map(u => ({
+      valores: [
+        `${u.nome_completo || u.username}${u.ativo ? '' : ' (inativo)'}`,
+        u.senha_provisoria ? 'Aguardando 1º acesso (senha provisória)' : 'Ativa, sem módulo',
+      ],
+      cor: VERMELHO_NUNCA,
+    }));
+    desenharTabela(w, negrito, regular, subtituloPagina, COLS_NUNCA, linhas);
+    w.linha();
+  }
+
   w.page.drawText('CEASA CONECTA — Administração', { x: MARGIN, y: MARGIN - 28, size: 8.5, font: regular, color: rgb(0.6, 0.6, 0.6) });
   numerarPaginas(pdfDoc, regular);
   const bytes = await pdfDoc.save();
