@@ -192,7 +192,9 @@ async function carregar() {
     // Configurações → Parâmetros que libera edição pra qualquer usuário.
     let edicaoLivre = false;
     try { const cfg = await (await fetch('/api/config')).json(); edicaoLivre = cfg.secop_edicao_livre === '1'; } catch {}
-    podeEditarForn = !!user && (edicaoLivre || ['admin', 'admin_sistema', 'admin_operacional'].includes(user.role) || data.criado_por_id === user.id);
+    // Concluído trava edição pra todo mundo — reabrir só existe no Quadro (cotacao.html).
+    podeEditarForn = data.status !== 'Concluído' && !!user &&
+      (edicaoLivre || ['admin', 'admin_sistema', 'admin_operacional'].includes(user.role) || data.criado_por_id === user.id);
 
     document.getElementById('bread-processo').textContent =
       `Processo ${processo.numero_processo} — ${processo.objeto}`;
