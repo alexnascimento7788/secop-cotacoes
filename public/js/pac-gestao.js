@@ -820,10 +820,11 @@ async function carregarSetores() {
         <td><strong>${s.nome}</strong></td>
         <td>${s.sigla || '—'}</td>
         <td>${s.ordem}</td>
+        <td>${s.gestor_nome || '—'}</td>
         <td><input type="checkbox" ${s.ativo ? 'checked' : ''} onchange="toggleSetorAtivo(${s.id}, this.checked)"></td>
         <td style="text-align:right;white-space:nowrap;">
           <button class="btn btn-secondary btn-sm" onclick="editarSetor(${s.id},'${(s.nome || '').replace(/'/g, "\\'")}','${(s.sigla || '').replace(/'/g, "\\'")}',${s.ordem})">Editar</button>
-          <button class="btn btn-secondary btn-sm" onclick="abrirModalSetorUsuarios(${s.id},'${(s.nome || '').replace(/'/g, "\\'")}')">Usuários</button>
+          <button class="btn btn-secondary btn-sm" onclick="abrirModalSetorUsuarios(${s.id},'${(s.nome || '').replace(/'/g, "\\'")}',${s.gestor_user_id || 'null'})">Usuários</button>
         </td>
       </tr>
     `).join('');
@@ -884,9 +885,11 @@ async function toggleSetorAtivo(id, ativo) {
 }
 
 let _setorUsuariosId = null;
+let _setorGestorAtual = null;
 
-async function abrirModalSetorUsuarios(setorId, nomeSetor) {
+async function abrirModalSetorUsuarios(setorId, nomeSetor, gestorAtual) {
   _setorUsuariosId = setorId;
+  _setorGestorAtual = gestorAtual || null;
   document.getElementById('modal-setor-usuarios-titulo').textContent = `Usuários — ${nomeSetor}`;
   await renderSetorUsuarios();
   document.getElementById('modal-setor-usuarios').classList.add('open');
@@ -895,19 +898,21 @@ async function abrirModalSetorUsuarios(setorId, nomeSetor) {
 function fecharModalSetorUsuarios() {
   document.getElementById('modal-setor-usuarios').classList.remove('open');
   _setorUsuariosId = null;
+  _setorGestorAtual = null;
 }
 
 async function renderSetorUsuarios() {
   const tbody = document.getElementById('setor-usuarios-tbody');
-  tbody.innerHTML = '<tr><td colspan="2" style="padding:12px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="3" style="padding:12px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>';
   const res = await fetch(`/api/pac/setores/${_setorUsuariosId}/usuarios`);
   const usuarios = res.ok ? await res.json() : [];
   tbody.innerHTML = usuarios.map(u => `
     <tr>
       <td style="width:32px;"><input type="checkbox" ${u.vinculado ? 'checked' : ''} onchange="toggleSetorUsuario(${u.id}, this.checked)"></td>
       <td>${u.nome_completo || u.username}</td>
+      <td style="width:60px;text-align:center;"><input type="radio" name="setor-gestor" ${u.vinculado ? '' : 'disabled'} ${u.id === _setorGestorAtual ? 'checked' : ''} onchange="definirGestorSetor(${u.id})" title="Gestor deste setor — só ele aprova/rejeita lançamento pendente"></td>
     </tr>
-  `).join('') || `<tr><td colspan="2" style="padding:12px;text-align:center;color:var(--text-subtle);">Nenhum usuário.</td></tr>`;
+  `).join('') || `<tr><td colspan="3" style="padding:12px;text-align:center;color:var(--text-subtle);">Nenhum usuário.</td></tr>`;
 }
 
 async function toggleSetorUsuario(userId, vinculado) {
@@ -916,8 +921,29 @@ async function toggleSetorUsuario(userId, vinculado) {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: userId, vinculado }),
     });
     if (!res.ok) throw new Error();
+    if (!vinculado && _setorGestorAtual === userId) _setorGestorAtual = null; // mesma limpeza do backend, refletida na hora
+    renderSetorUsuarios();
   } catch {
     toast('Erro ao vincular usuário', 'error');
+    renderSetorUsuarios();
+  }
+}
+
+// Gestor único do setor (pedido do Alex, 2026-10-20) — só essa pessoa
+// aprova/rejeita pendência de sub-gestor daquele setor; "Remover gestor"
+// volta ao comportamento de sempre (qualquer um do setor aprova).
+async function definirGestorSetor(userId) {
+  try {
+    const res = await fetch(`/api/pac/setores/${_setorUsuariosId}/gestor`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: userId }),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    _setorGestorAtual = userId;
+    toast(userId ? 'Gestor designado.' : 'Gestor removido.');
+    renderSetorUsuarios();
+    carregarSetores();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
     renderSetorUsuarios();
   }
 }

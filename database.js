@@ -1146,6 +1146,17 @@ function setupDb() {
   // não pra criar o DFD; sem retroatividade, DFD já consolidado antes desta
   // versão fica com NULL e não é afetado.
   try { _db.exec(`ALTER TABLE dfds ADD COLUMN orcamento_id INTEGER REFERENCES orcamentos(id)`); } catch {}
+  // Gestor único por setor (pedido do Alex, 2026-10-20 — caso do Deuni: o
+  // mecanismo de sub-gestor já existia, mas "quem aprova" era "qualquer um
+  // do setor"; isso aperta pra uma pessoa só). NULL = comportamento de
+  // sempre; definido, só essa pessoa aprova/rejeita pendência de sub-gestor
+  // daquele setor (ver PATCH /api/pac/itens/:id/aprovacao em routes/pac.js).
+  try { _db.exec(`ALTER TABLE setores ADD COLUMN gestor_user_id INTEGER REFERENCES users(id)`); } catch {}
+  // Exceção ao mínimo de caracteres da Especificação do Objeto (pedido do
+  // Odiston via PDF, 2026-10-20: "alguns itens não necessitam de 50
+  // caracteres") — default 0 (regra de sempre vale); marcado, só exige que o
+  // campo não fique vazio (ver validarCamposObrigatorios em routes/pac.js).
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN especificacao_sem_minimo INTEGER NOT NULL DEFAULT 0`); } catch {}
 
   // Seed dos setores participantes do PAC (nomes exatamente como fornecidos)
   [

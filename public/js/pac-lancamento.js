@@ -172,6 +172,7 @@ function badgeVencimento(dataIso) {
 }
 
 let _nomeUsuarioPac = '';
+let _meuUserId = null;
 
 async function atualizarCabecalhoUsuario() {
   document.getElementById('pac-lanc-linha3').style.display = 'none';
@@ -183,6 +184,7 @@ async function atualizarCabecalhoUsuario() {
     ]);
     _meusSetores = setoresRes.ok ? await setoresRes.json() : [];
     _nomeUsuarioPac = (user && (user.nome_completo || user.username)) || '';
+    _meuUserId = user?.id ?? null;
     renderAvatarHeader(user);
   } catch {}
 }
@@ -661,19 +663,28 @@ async function renderItens() {
     // pode aprovar (pedido do Alex: "com indicação naquela linha, incluindo
     // aprovação deste gestor ou cancelamento").
     const pendenteAprovacao = item.aprovacao_subgestor === 'pendente';
+    // Setor com gestor único designado (ver setores.gestor_user_id, pedido
+    // do Alex 2026-10-20) — só essa pessoa aprova; sem designado, mantém a
+    // regra antiga (qualquer gestor comum do setor aprova).
+    const gestorDesteSetor = (_dfdAtual.setores || []).find(s => s.id === item.setor_id)?.gestor_user_id;
+    const souQuemAprova = gestorDesteSetor ? gestorDesteSetor === _meuUserId : souGestorPrincipal;
+    // Mouseover "Lançado por" nas colunas iniciais — só pro gestor designado
+    // do setor, só em linha que não é dele mesmo (pedido do Alex, 2026-10-20).
+    const tituloLancadoPor = (gestorDesteSetor && gestorDesteSetor === _meuUserId && item.criado_por !== _meuUserId)
+      ? ` title="Lançado por: ${(item.criado_por_nome || 'desconhecido').replace(/"/g, '&quot;')}"` : '';
     return `
     <tr data-item-id="${item.id}">
-      ${multiSetor ? `<td data-label="Setor">${nomeSetorLanc(item.setor_id)}</td>` : ''}
-      <td data-label="Unidade">${nomeUnidadeLanc(item.unidade_id)}${pendenteAprovacao ? `
+      ${multiSetor ? `<td data-label="Setor"${tituloLancadoPor}>${nomeSetorLanc(item.setor_id)}</td>` : ''}
+      <td data-label="Unidade"${tituloLancadoPor}>${nomeUnidadeLanc(item.unidade_id)}${pendenteAprovacao ? `
         <div style="margin-top:4px;">
           <span class="badge badge-analise" style="font-size:10px;">Aguardando aprovação</span>
-          ${souGestorPrincipal ? `
+          ${souQuemAprova ? `
             <button class="btn btn-primary btn-xs" style="margin-top:4px;" onclick="aprovarItemSubgestor(${item.id}, true)">Aprovar</button>
             <button class="btn btn-danger btn-xs" style="margin-top:4px;" onclick="aprovarItemSubgestor(${item.id}, false)">Rejeitar</button>
           ` : ''}
         </div>` : ''}</td>
-      <td class="dfd-col-fixa-1" data-label="ID PAC">${item.codigo_pac || '—'}</td>
-      <td class="dfd-col-fixa-2" data-label="Nº PAC">${item.numero_pac || '—'}</td>
+      <td class="dfd-col-fixa-1" data-label="ID PAC"${tituloLancadoPor}>${item.codigo_pac || '—'}</td>
+      <td class="dfd-col-fixa-2" data-label="Nº PAC"${tituloLancadoPor}>${item.numero_pac || '—'}</td>
       ${colunasPrincipais.map(c => renderCelula(item, c, -1, liberado)).join('')}
       ${temColContrato ? renderCelulaContrato(item, colunasContrato) : ''}
       <td style="text-align:right;white-space:nowrap;">
@@ -1134,7 +1145,7 @@ async function salvarCampoItem(el) {
     }
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
-      if (e.especificacaoMinima) { abrirModalEspecificacaoMin(e.especificacaoMinima.mensagem); return; }
+      if (e.especificacaoMinima) { abrirModalEspecificacaoMin(e.especificacaoMinima.mensagem, itemId, colunaId, valor); return; }
       toast(e.error || 'Erro ao salvar campo', 'error');
       return;
     }
@@ -1206,12 +1217,36 @@ function concluirItem(itemId) {
   }
 }
 
-function abrirModalEspecificacaoMin(mensagem) {
+let _espMinPendente = null;
+
+function abrirModalEspecificacaoMin(mensagem, itemId, colunaId, valor) {
+  _espMinPendente = { itemId, colunaId, valor };
   document.getElementById('esp-min-msg').textContent = mensagem;
   document.getElementById('modal-especificacao-min').classList.add('open');
 }
 function fecharModalEspecificacaoMin() {
   document.getElementById('modal-especificacao-min').classList.remove('open');
+  _espMinPendente = null;
+}
+
+// "Este item não atinge 50 caracteres mesmo assim" (pedido do Odiston via
+// PDF, 2026-10-20) — qualquer um que edita o item pode marcar a exceção;
+// reenvia o MESMO valor que tinha disparado o erro, agora com a flag ligada.
+async function confirmarSemMinimo() {
+  if (!_espMinPendente) { fecharModalEspecificacaoMin(); return; }
+  const { itemId, colunaId, valor } = _espMinPendente;
+  try {
+    const res = await fetch(`/api/pac/itens/${itemId}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ valores: { [colunaId]: valor === '' ? null : valor }, especificacao_sem_minimo: true }),
+    });
+    if (!res.ok) { toast(await mensagemErro(res, 'Erro ao salvar'), 'error'); return; }
+    const item = _itensAtuais.find(i => String(i.id) === String(itemId));
+    if (item) { item.valores = item.valores || {}; item.valores[colunaId] = valor === '' ? null : valor; item.especificacao_sem_minimo = 1; }
+    fecharModalEspecificacaoMin();
+    toast('Salvo — marcado como item sem o mínimo de caracteres.', 'success');
+    await renderItens();
+  } catch { toast('Erro ao salvar', 'error'); }
 }
 
 function ofertarPedidoEdicao(itemId) {

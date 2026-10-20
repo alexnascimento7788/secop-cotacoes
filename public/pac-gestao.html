@@ -634,8 +634,8 @@
         <div class="pac-card-title">Setores participantes do PAC</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Nome</th><th>Sigla</th><th>Ordem</th><th>Ativo</th><th></th></tr></thead>
-            <tbody id="setores-tbody"><tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
+            <thead><tr><th>Nome</th><th>Sigla</th><th>Ordem</th><th>Gestor</th><th>Ativo</th><th></th></tr></thead>
+            <tbody id="setores-tbody"><tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -808,9 +808,12 @@
     <h3 id="modal-setor-usuarios-titulo">Usuários do setor</h3>
     <div class="table-wrap" style="max-height:360px;overflow-y:auto;">
       <table>
-        <thead><tr><th></th><th>Usuário</th></tr></thead>
+        <thead><tr><th></th><th>Usuário</th><th title="Gestor deste setor — só ele aprova/rejeita lançamento pendente">Gestor</th></tr></thead>
         <tbody id="setor-usuarios-tbody"></tbody>
       </table>
+    </div>
+    <div style="margin-top:12px;">
+      <a href="#" onclick="definirGestorSetor(null);return false;" style="font-size:12.5px;">Remover gestor designado</a>
     </div>
     <div style="margin-top:16px;text-align:right;">
       <button class="btn btn-secondary" onclick="fecharModalSetorUsuarios()">Fechar</button>
