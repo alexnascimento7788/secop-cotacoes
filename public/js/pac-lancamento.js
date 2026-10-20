@@ -1123,6 +1123,15 @@ function wireCelulas() {
     const evento = (el.tagName === 'SELECT') ? 'change' : 'blur';
     el.addEventListener(evento, () => salvarCampoItem(el));
   });
+  // Autocomplete do "Objeto" a partir do histórico de TODOS os DFDs (pedido
+  // do Odiston via PDF, 2026-10-20: "padronização dos itens") — reaproveita
+  // o mesmo componente já usado no SECOP (public/js/autocomplete.js).
+  const colObjeto = (_dfdAtual.colunas || []).find(c => c.slug === 'subitem');
+  if (colObjeto) {
+    document.querySelectorAll(`#lanc-itens-tbody [data-coluna="${colObjeto.id}"]`).forEach(el => {
+      initDatalistAutocomplete(el.id, 'subitem', '/api/pac/autocomplete');
+    });
+  }
 }
 
 async function salvarCampoItem(el) {
@@ -1482,6 +1491,27 @@ async function atualizarLancamento() {
   await renderItens();
   renderFinalizacao();
   toast('Atualizado.');
+}
+
+// Relatório em PDF dos lançamentos (pedido do Odiston via PDF, 2026-10-20:
+// "para posterior acompanhamento") — mesmo padrão de gerarPdfRelatorioOrcamento
+// em pac-gestao.js.
+function gerarPdfRelatorioLancamentos() {
+  if (!_dfdAtualId) return;
+  const btn = document.getElementById('lanc-relatorio-btn-pdf');
+  const textoOriginal = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Gerando...';
+  fetch(`/api/pac/dfds/${_dfdAtualId}/lancamentos/relatorio/pdf`)
+    .then(async res => {
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao gerar PDF'); }
+      return res.blob();
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+    })
+    .catch(e => toast('Erro: ' + e.message, 'error'))
+    .finally(() => { btn.disabled = false; btn.textContent = textoOriginal; });
 }
 
 async function finalizarMeuSetor(setorId, forcar) {
