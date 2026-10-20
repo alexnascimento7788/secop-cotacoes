@@ -31,6 +31,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { db, depopDb, anexosDb, setupDb, setupDepop, setupAnexos, depopFilePath, anexosFilePath } = require('../database');
 const { n, registrarLog, requireAdminAny, requireAdminSistema, getLixeiraDias, ROTINA_FLAGS_VALIDAS } = require('../middleware');
+const { gerarPdfRelatorioAcessos } = require('../admin-pdf');
 
 const router = express.Router();
 
@@ -864,6 +865,67 @@ router.delete('/api/admin/logs', requireAdminAny, (req, res) => {
   db.prepare('DELETE FROM logs').run();
   registrarLog(req, 'SISTEMA', 'LIMPOU', 'Histórico de logs limpo');
   res.json({ ok: true });
+});
+
+// ── Relatório de Acessos (Admin > Acessos) ─────────────────────────────────
+// Pedido do Alex, 2026-10-20: acessos por usuário por módulo + quem nunca
+// logou por módulo. Não existe coluna de "último login" em nenhuma tabela —
+// é inferida a partir de `logs` (tipo='MODULO', acao='ENTROU'), que já é
+// gravado em todo login (ver app.post('/api/auth/login') e
+// /api/auth/selecionar-modulo em server.js) desde que o log existe. O único
+// jeito de casar um log com o módulo é pela descrição ('Entrou no módulo
+// "Nome"') — não tem coluna estruturada pra isso, e não dava pra mudar o
+// formato sem perder a leitura do histórico já gravado.
+// Observação: "Limpar logs" (botão da aba Logs) apaga esse histórico também —
+// o relatório reflete só o que ainda está em `logs`.
+function montarRelatorioAcessos() {
+  const modulos = db.prepare(`SELECT id, slug, nome, ordem FROM modulos WHERE ativo = 1 ORDER BY ordem`).all();
+
+  const acessosRows = db.prepare(`
+    SELECT m.id AS modulo_id, u.id AS user_id, u.username, u.nome_completo, u.ativo,
+           COUNT(*) AS total_acessos,
+           MIN(l.criado_em) AS primeiro_acesso, MAX(l.criado_em) AS ultimo_acesso
+    FROM logs l
+    JOIN modulos m ON l.descricao = 'Entrou no módulo "' || m.nome || '"'
+    JOIN users u ON u.id = l.user_id
+    WHERE l.tipo = 'MODULO' AND l.acao = 'ENTROU' AND u.username != 'master'
+    GROUP BY m.id, u.id
+    ORDER BY total_acessos DESC
+  `).all();
+
+  const nuncaRows = db.prepare(`
+    SELECT m.id AS modulo_id, u.id AS user_id, u.username, u.nome_completo, u.ativo
+    FROM user_modulos um
+    JOIN users u ON u.id = um.user_id AND u.username != 'master'
+    JOIN modulos m ON m.id = um.modulo_id AND m.ativo = 1
+    WHERE NOT EXISTS (
+      SELECT 1 FROM logs l WHERE l.tipo = 'MODULO' AND l.acao = 'ENTROU' AND l.user_id = u.id
+        AND l.descricao = 'Entrou no módulo "' || m.nome || '"'
+    )
+    ORDER BY u.ativo DESC, u.username
+  `).all();
+
+  return modulos.map(m => ({
+    id: m.id, slug: m.slug, nome: m.nome,
+    acessos: acessosRows.filter(r => r.modulo_id === m.id).map(({ modulo_id, user_id, ...rest }) => rest),
+    nunca_logaram: nuncaRows.filter(r => r.modulo_id === m.id).map(({ modulo_id, user_id, ...rest }) => rest),
+  }));
+}
+
+router.get('/api/admin/relatorio-acessos', requireAdminAny, (req, res) => {
+  res.json({ modulos: montarRelatorioAcessos() });
+});
+
+router.get('/api/admin/relatorio-acessos/pdf', requireAdminAny, async (req, res) => {
+  try {
+    const dados = { modulos: montarRelatorioAcessos() };
+    const bytes = await gerarPdfRelatorioAcessos(dados, req.user.username);
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', 'inline; filename="relatorio-acessos.pdf"');
+    res.send(bytes);
+  } catch (e) {
+    res.status(500).json({ error: 'Erro ao gerar o PDF: ' + e.message });
+  }
 });
 
 // Status da chave (pro admin saber se está configurada, sem expor o valor).

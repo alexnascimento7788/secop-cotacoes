@@ -207,6 +207,7 @@
       <button class="admin-tab" onclick="mudarAba('lixeira')">Lixeira</button>
       <button class="admin-tab" onclick="mudarAba('concessionarios-removidos')">Concessionários Removidos</button>
       <button class="admin-tab" onclick="mudarAba('logs')">Logs</button>
+      <button class="admin-tab" onclick="mudarAba('acessos')">Acessos</button>
       <button class="admin-tab" id="tab-comunicacao" onclick="mudarAba('comunicacao')">📧 Comunicação<span id="comm-tab-badge"></span></button>
       <button class="admin-tab" id="tab-homolog" style="display:none;" onclick="mudarAba('homolog')">🛠️ Atualização na base</button>
     </div>
@@ -673,6 +674,21 @@
           </table>
         </div>
       </div>
+    </div>
+
+    <!-- Aba Acessos -->
+    <div class="admin-pane" id="pane-acessos">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+        <p style="margin:0;color:var(--text-muted);font-size:13px;flex:1;">
+          Para cada módulo: quem acessou, quantas vezes, primeiro e último acesso — e quem tem o
+          módulo liberado mas nunca entrou. Baseado no histórico de logs (a aba "Limpar logs" também
+          limpa este relatório).
+        </p>
+        <button class="btn btn-primary btn-sm" id="acessos-btn-pdf" onclick="gerarPdfRelatorioAcessos()">
+          🖨️ Relatório PDF
+        </button>
+      </div>
+      <div id="acessos-conteudo">Carregando...</div>
     </div>
 
     <!-- Aba Usuários -->
@@ -1314,7 +1330,7 @@ function toast(msg, type='') {
   setTimeout(() => { el.className = ''; }, 3000);
 }
 
-const _abas = ['usuarios', 'departamentos', 'modulos', 'rotinas', 'perfis', 'tipos', 'extras', 'parametros', 'banco', 'lixeira', 'concessionarios-removidos', 'logs', 'comunicacao', 'homolog'];
+const _abas = ['usuarios', 'departamentos', 'modulos', 'rotinas', 'perfis', 'tipos', 'extras', 'parametros', 'banco', 'lixeira', 'concessionarios-removidos', 'logs', 'acessos', 'comunicacao', 'homolog'];
 function mudarAba(aba) {
   document.querySelectorAll('.admin-tab').forEach((t, i) => t.classList.toggle('active', _abas[i] === aba));
   _abas.forEach(a => document.getElementById(`pane-${a}`).classList.toggle('active', a === aba));
@@ -1330,6 +1346,7 @@ function mudarAba(aba) {
   if (aba === 'lixeira') carregarLixeira();
   if (aba === 'concessionarios-removidos') carregarConcessionariosRemovidos();
   if (aba === 'logs') { carregarUsuariosLog(); carregarLogs(); }
+  if (aba === 'acessos') carregarRelatorioAcessos();
   if (aba === 'comunicacao') mudarSubabaComm(_commSubaba);
   if (aba === 'homolog') carregarMigracoes();
 }
@@ -3129,6 +3146,73 @@ function limparFiltrosLog() {
   document.getElementById('log-username').value = '';
   document.getElementById('log-tipo').value     = '';
   carregarLogs();
+}
+
+// ── Acessos (Admin > Acessos) ────────────────────────────────────────────────
+
+async function carregarRelatorioAcessos() {
+  const el = document.getElementById('acessos-conteudo');
+  el.innerHTML = '<p style="color:#aaa;padding:20px 0;">Carregando...</p>';
+  try {
+    const { modulos } = await fetch('/api/admin/relatorio-acessos').then(r => r.json());
+    if (!modulos.length) { el.innerHTML = '<p style="color:#aaa;">Nenhum módulo ativo.</p>'; return; }
+
+    el.innerHTML = modulos.map(m => `
+      <div class="admin-card" style="max-width:none;margin-bottom:18px;">
+        <div class="admin-section">
+          <div class="admin-section-title">${m.nome}</div>
+          ${!m.acessos.length ? '<p style="color:#aaa;font-size:13px;">Nenhum acesso registrado neste módulo ainda.</p>' : `
+            <div class="table-wrap">
+              <table class="users-table">
+                <thead>
+                  <tr><th>Usuário</th><th>Total de acessos</th><th>Primeiro acesso</th><th>Último acesso</th></tr>
+                </thead>
+                <tbody>
+                  ${m.acessos.map(a => `
+                    <tr${a.ativo ? '' : ' style="opacity:.55;"'}>
+                      <td><strong>${a.nome_completo || a.username}</strong>${a.ativo ? '' : ' <span style="font-size:11px;">(inativo)</span>'}</td>
+                      <td>${a.total_acessos}</td>
+                      <td>${fmtDataHora(a.primeiro_acesso)}</td>
+                      <td>${fmtDataHora(a.ultimo_acesso)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+          <div style="margin-top:12px;">
+            <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px;">
+              Nunca acessaram (módulo liberado)
+            </div>
+            ${!m.nunca_logaram.length
+              ? '<p style="color:#aaa;font-size:13px;">Nenhum — todos que têm acesso já entraram ao menos uma vez.</p>'
+              : `<ul style="margin:0;padding-left:18px;font-size:13px;color:#c0392b;">
+                  ${m.nunca_logaram.map(u => `<li>${u.nome_completo || u.username}${u.ativo ? '' : ' (inativo)'}</li>`).join('')}
+                 </ul>`}
+          </div>
+        </div>
+      </div>
+    `).join('');
+  } catch {
+    el.innerHTML = '<p style="color:#c00;">Erro ao carregar o relatório de acessos.</p>';
+  }
+}
+
+function gerarPdfRelatorioAcessos() {
+  const btn = document.getElementById('acessos-btn-pdf');
+  const textoOriginal = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Gerando...';
+  fetch('/api/admin/relatorio-acessos/pdf')
+    .then(async res => {
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao gerar PDF'); }
+      return res.blob();
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+    })
+    .catch(e => toast('Erro: ' + e.message, 'error'))
+    .finally(() => { btn.disabled = false; btn.textContent = textoOriginal; });
 }
 
 async function limparLogs() {
