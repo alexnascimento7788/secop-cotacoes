@@ -201,7 +201,10 @@
     <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" style="height:36px;margin-bottom:14px;" onerror="this.style.display='none';"/>
     <h3 style="margin-bottom:10px;">Especificação do Objeto muito curta</h3>
     <p id="esp-min-msg" style="font-size:13.5px;line-height:1.6;color:var(--text-muted);"></p>
-    <button type="button" class="btn btn-primary" style="margin-top:8px;" onclick="fecharModalEspecificacaoMin()">Entendi</button>
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;flex-wrap:wrap;">
+      <button type="button" class="btn btn-secondary" onclick="fecharModalEspecificacaoMin()">Vou completar</button>
+      <button type="button" class="btn btn-primary" onclick="confirmarSemMinimo()" title="Marca este item como um caso que realmente não precisa de 50 caracteres">Este item não atinge 50 caracteres mesmo assim</button>
+    </div>
   </div>
 </div>
 

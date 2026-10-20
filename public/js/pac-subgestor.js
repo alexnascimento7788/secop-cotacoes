@@ -95,6 +95,18 @@ async function carregarDfdEscolhido() {
   document.getElementById('sg-setor-select').innerHTML =
     (_dfdAtual.setores || []).map(s => `<option value="${s.id}">${s.nome}</option>`).join('') || '<option value="">Nenhum setor participante</option>';
 
+  // "Lançar como unidade" só aparece quando a pessoa tem mais de 1 (pedido
+  // do Alex, 2026-10-20 — caso do Odiston, Barbacena + Contagem); com 1 só
+  // (a maioria), o servidor atribui sozinho, sem precisar escolher.
+  const minhasUnidades = _dfdAtual.minhas_unidades_nomes || [];
+  const unidadeWrap = document.getElementById('sg-unidade-wrap');
+  if (minhasUnidades.length > 1) {
+    document.getElementById('sg-unidade-select').innerHTML = minhasUnidades.map(u => `<option value="${u.id}">${u.nome}</option>`).join('');
+    unidadeWrap.style.display = '';
+  } else {
+    unidadeWrap.style.display = 'none';
+  }
+
   await carregarListas();
   resetarFluxoNovoItem();
   await renderMeusLancamentos();
@@ -146,6 +158,8 @@ function editarItemSubgestor(id) {
   selSetor.disabled = true; // setor não muda numa edição — só o servidor que decide o setor na criação
   renderCampos();
   preencherCamposComValores(item.valores, '#sg-campos');
+  const chkSemMinimo = document.getElementById('sg-sem-minimo');
+  if (chkSemMinimo) chkSemMinimo.checked = !!item.especificacao_sem_minimo;
   // Fonte pagadora não é um <input>/<select> genérico (pode ser rateio JSON)
   // — reconstrói a exibição a partir do valor que preencherCamposComValores
   // acabou de jogar no hidden.
@@ -233,7 +247,12 @@ function mostrarFormItem() {
 }
 
 async function carregarListas() {
-  const listas = [...new Set((_dfdAtual.colunas || []).filter(c => c.grupo === 'A' && c.lista).map(c => c.lista))];
+  // Bug achado 2026-10-20 (PDF do Odiston: "O contrato será renovado? não
+  // aparece") — o filtro `grupo === 'A'` deixava de fora as listas das
+  // colunas de contrato (grupo C, ex. "contrato_renovado"), que ficavam
+  // com _listasCache vazio e o <select> só com o placeholder "—". A versão
+  // de pac-lancamento.js nunca teve esse filtro — alinhando aqui.
+  const listas = [...new Set((_dfdAtual.colunas || []).filter(c => c.lista).map(c => c.lista))];
   const entradas = await Promise.all(listas.map(async l => {
     const res = await fetch(`/api/pac/parametros?lista=${encodeURIComponent(l)}`);
     return [l, res.ok ? (await res.json()).filter(p => p.ativo) : []];
@@ -249,6 +268,11 @@ function renderCampos() {
     <div class="form-group">
       <label>${c.label}${c.obrigatoria ? ' *' : ''}</label>
       ${renderCampoNovo(c)}
+      ${c.slug === 'descricao_objeto' ? `
+        <label style="font-size:12px;font-weight:400;color:var(--text-muted);display:flex;align-items:center;gap:6px;margin-top:4px;">
+          <input type="checkbox" id="sg-sem-minimo" />
+          Este item não atinge 50 caracteres
+        </label>` : ''}
     </div>
   `).join('');
   // Popula o <select>/rateio da fonte pagadora (o wrapper sai vazio de
@@ -441,15 +465,21 @@ async function lancarItemSubgestor() {
   if (!setorId) { msg.textContent = 'Selecione o setor.'; return; }
   const editando = !!_editandoItemId;
   const valores = { ...coletarValoresNovo(), ...(editando ? coletarValoresContratoEdicao() : coletarValoresContrato()) };
+  const semMinimo = document.getElementById('sg-sem-minimo')?.checked || false;
+  // unidade_id só vem daqui quando a pessoa tem mais de 1 (seletor visível,
+  // ver carregarDfdEscolhido) — com 1 só, o servidor atribui sozinho.
+  const unidadeSel = document.getElementById('sg-unidade-select');
+  const unidadeId = (!editando && unidadeSel && document.getElementById('sg-unidade-wrap').style.display !== 'none')
+    ? Number(unidadeSel.value) : undefined;
   try {
     const res = editando
       ? await fetch(`/api/pac/itens/${_editandoItemId}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ valores }),
+          body: JSON.stringify({ valores, especificacao_sem_minimo: semMinimo }),
         })
       : await fetch(`/api/pac/dfds/${_dfdAtual.id}/itens`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ setor_id: setorId, valores }), // unidade_id NUNCA vem daqui — o servidor atribui automaticamente a unidade do sub-gestor
+          body: JSON.stringify({ setor_id: setorId, unidade_id: unidadeId, valores, especificacao_sem_minimo: semMinimo }),
         });
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || (editando ? 'Erro ao salvar' : 'Erro ao lançar')); }
     resetarFluxoNovoItem(); // volta pro Passo 1 — próximo lançamento passa pela trava de contrato de novo
@@ -487,6 +517,9 @@ const CLASSE_STATUS_SUBGESTOR = { pendente: 'badge-analise', aprovado: 'badge-ab
 
 async function renderMeusLancamentos() {
   const tbody = document.getElementById('sg-meus-tbody');
+  // Coluna "Objeto" (pedido do Odiston via PDF, 2026-10-20: sem isso, achar
+  // um item pra editar depois exigia abrir "Ver" um por um).
+  const colObjeto = (_dfdAtual.colunas || []).find(c => c.slug === 'subitem');
   try {
     const res = await fetch(`/api/pac/dfds/${_dfdAtual.id}/itens`);
     _meusItens = res.ok ? await res.json() : [];
@@ -496,8 +529,10 @@ async function renderMeusLancamentos() {
       // Só dá pra editar/excluir enquanto pendente — depois de aprovado o
       // item passa a ser do setor oficial, não é mais um rascunho dele.
       const podeEditar = status === 'pendente';
+      const objeto = colObjeto ? (i.valores?.[colObjeto.id] || '—') : '—';
       return `<tr>
         <td>${setorNome}</td>
+        <td>${objeto}</td>
         <td>${fmtBr(i.criado_em)}</td>
         <td><span class="badge ${CLASSE_STATUS_SUBGESTOR[status] || 'badge-fechado'}">${LABEL_STATUS_SUBGESTOR[status] || status}</span></td>
         <td style="text-align:right;white-space:nowrap;">
@@ -508,9 +543,9 @@ async function renderMeusLancamentos() {
           ` : ''}
         </td>
       </tr>`;
-    }).join('') || `<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--text-subtle);">Nenhum lançamento seu ainda neste DFD.</td></tr>`;
+    }).join('') || `<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text-subtle);">Nenhum lançamento seu ainda neste DFD.</td></tr>`;
   } catch {
-    tbody.innerHTML = `<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--text-subtle);">Erro ao carregar.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text-subtle);">Erro ao carregar.</td></tr>`;
   }
 }
 

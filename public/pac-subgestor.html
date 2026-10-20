@@ -70,6 +70,10 @@
             <label>Setor</label>
             <select id="sg-setor-select"></select>
           </div>
+          <div class="form-group" id="sg-unidade-wrap" style="display:none;">
+            <label>Lançar como unidade</label>
+            <select id="sg-unidade-select"></select>
+          </div>
         </div>
 
         <!-- Passo 1: precisa responder Contrato (quando o DFD tem essa coluna) ANTES
@@ -105,8 +109,8 @@
         <div class="card-header"><span class="card-title">Meus lançamentos neste DFD</span></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Setor</th><th>Lançado em</th><th>Status</th><th></th></tr></thead>
-            <tbody id="sg-meus-tbody"><tr><td colspan="4" style="padding:16px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
+            <thead><tr><th>Setor</th><th>Objeto</th><th>Lançado em</th><th>Status</th><th></th></tr></thead>
+            <tbody id="sg-meus-tbody"><tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr></tbody>
           </table>
         </div>
       </div>
