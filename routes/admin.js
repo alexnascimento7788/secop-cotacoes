@@ -907,20 +907,38 @@ function montarRelatorioAcessos(moduloSlug) {
     ORDER BY u.ativo DESC, u.username
   `).all();
 
-  return modulos.map(m => ({
-    id: m.id, slug: m.slug, nome: m.nome,
-    acessos: acessosRows.filter(r => r.modulo_id === m.id).map(({ modulo_id, user_id, ...rest }) => rest),
-    nunca_logaram: nuncaRows.filter(r => r.modulo_id === m.id).map(({ modulo_id, user_id, ...rest }) => rest),
-  }));
+  // Usuário sem NENHUM módulo liberado (user_modulos vazio pra ele) nunca
+  // aparece em nenhum card acima — não é "nunca acessou o módulo X", é "não
+  // tem módulo nenhum ainda" (achado do Alex, 2026-10-20: 3 usuários recém-
+  // criados, com senha provisória, ficavam invisíveis no relatório inteiro
+  // porque department (tela Usuários) e módulo liberado (tela Módulos) são 2
+  // vínculos separados — ter departamento não dá módulo de graça). Só faz
+  // sentido mostrar essa lista na visão "Todos os módulos" (sem filtro) — com
+  // 1 módulo escolhido, filtrar por "sem módulo nenhum" não tem contexto.
+  const semModulo = moduloSlug ? [] : db.prepare(`
+    SELECT u.id AS user_id, u.username, u.nome_completo, u.ativo, u.senha_provisoria
+    FROM users u
+    WHERE u.username != 'master' AND NOT EXISTS (SELECT 1 FROM user_modulos um WHERE um.user_id = u.id)
+    ORDER BY u.ativo DESC, u.username
+  `).all();
+
+  return {
+    modulos: modulos.map(m => ({
+      id: m.id, slug: m.slug, nome: m.nome,
+      acessos: acessosRows.filter(r => r.modulo_id === m.id).map(({ modulo_id, user_id, ...rest }) => rest),
+      nunca_logaram: nuncaRows.filter(r => r.modulo_id === m.id).map(({ modulo_id, user_id, ...rest }) => rest),
+    })),
+    sem_modulo: semModulo.map(({ user_id, ...rest }) => rest),
+  };
 }
 
 router.get('/api/admin/relatorio-acessos', requireAdminAny, (req, res) => {
-  res.json({ modulos: montarRelatorioAcessos(req.query.modulo) });
+  res.json(montarRelatorioAcessos(req.query.modulo));
 });
 
 router.get('/api/admin/relatorio-acessos/pdf', requireAdminAny, async (req, res) => {
   try {
-    const dados = { modulos: montarRelatorioAcessos(req.query.modulo) };
+    const dados = montarRelatorioAcessos(req.query.modulo);
     const bytes = await gerarPdfRelatorioAcessos(dados, req.user.username);
     res.set('Content-Type', 'application/pdf');
     res.set('Content-Disposition', 'inline; filename="relatorio-acessos.pdf"');
