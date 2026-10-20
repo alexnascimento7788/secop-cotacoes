@@ -678,12 +678,15 @@
 
     <!-- Aba Acessos -->
     <div class="admin-pane" id="pane-acessos">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
-        <p style="margin:0;color:var(--text-muted);font-size:13px;flex:1;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+        <p style="margin:0;color:var(--text-muted);font-size:13px;flex:1;min-width:220px;">
           Para cada módulo: quem acessou, quantas vezes, primeiro e último acesso — e quem tem o
           módulo liberado mas nunca entrou. Baseado no histórico de logs (a aba "Limpar logs" também
           limpa este relatório).
         </p>
+        <select id="acessos-modulo-filtro" onchange="carregarRelatorioAcessos()" style="padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text);">
+          <option value="">Todos os módulos</option>
+        </select>
         <button class="btn btn-primary btn-sm" id="acessos-btn-pdf" onclick="gerarPdfRelatorioAcessos()">
           🖨️ Relatório PDF
         </button>
@@ -3151,11 +3154,26 @@ function limparFiltrosLog() {
 // ── Acessos (Admin > Acessos) ────────────────────────────────────────────────
 
 async function carregarRelatorioAcessos() {
+  const sel = document.getElementById('acessos-modulo-filtro');
+  const filtro = sel.value;
   const el = document.getElementById('acessos-conteudo');
   el.innerHTML = '<p style="color:#aaa;padding:20px 0;">Carregando...</p>';
   try {
-    const { modulos } = await fetch('/api/admin/relatorio-acessos').then(r => r.json());
-    if (!modulos.length) { el.innerHTML = '<p style="color:#aaa;">Nenhum módulo ativo.</p>'; return; }
+    const qs = filtro ? ('?modulo=' + encodeURIComponent(filtro)) : '';
+    const { modulos } = await fetch('/api/admin/relatorio-acessos' + qs).then(r => r.json());
+
+    // As opções do filtro só são preenchidas na 1ª carga (sem filtro aplicado
+    // ainda, a resposta já traz todos os módulos ativos) — trocas de filtro
+    // depois disso só recarregam o conteúdo, sem tocar nas opções.
+    if (!filtro && sel.options.length <= 1) {
+      modulos.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.slug; opt.textContent = m.nome;
+        sel.appendChild(opt);
+      });
+    }
+
+    if (!modulos.length) { el.innerHTML = '<p style="color:#aaa;">Nenhum módulo encontrado para este filtro.</p>'; return; }
 
     el.innerHTML = modulos.map(m => `
       <div class="admin-card" style="max-width:none;margin-bottom:18px;">
@@ -3199,10 +3217,12 @@ async function carregarRelatorioAcessos() {
 }
 
 function gerarPdfRelatorioAcessos() {
+  const filtro = document.getElementById('acessos-modulo-filtro').value;
+  const qs = filtro ? ('?modulo=' + encodeURIComponent(filtro)) : '';
   const btn = document.getElementById('acessos-btn-pdf');
   const textoOriginal = btn.textContent;
   btn.disabled = true; btn.textContent = 'Gerando...';
-  fetch('/api/admin/relatorio-acessos/pdf')
+  fetch('/api/admin/relatorio-acessos/pdf' + qs)
     .then(async res => {
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao gerar PDF'); }
       return res.blob();

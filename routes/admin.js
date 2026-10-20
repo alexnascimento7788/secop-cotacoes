@@ -878,8 +878,10 @@ router.delete('/api/admin/logs', requireAdminAny, (req, res) => {
 // formato sem perder a leitura do histórico já gravado.
 // Observação: "Limpar logs" (botão da aba Logs) apaga esse histórico também —
 // o relatório reflete só o que ainda está em `logs`.
-function montarRelatorioAcessos() {
-  const modulos = db.prepare(`SELECT id, slug, nome, ordem FROM modulos WHERE ativo = 1 ORDER BY ordem`).all();
+function montarRelatorioAcessos(moduloSlug) {
+  const modulos = moduloSlug
+    ? db.prepare(`SELECT id, slug, nome, ordem FROM modulos WHERE ativo = 1 AND slug = ? ORDER BY ordem`).all(moduloSlug)
+    : db.prepare(`SELECT id, slug, nome, ordem FROM modulos WHERE ativo = 1 ORDER BY ordem`).all();
 
   const acessosRows = db.prepare(`
     SELECT m.id AS modulo_id, u.id AS user_id, u.username, u.nome_completo, u.ativo,
@@ -913,12 +915,12 @@ function montarRelatorioAcessos() {
 }
 
 router.get('/api/admin/relatorio-acessos', requireAdminAny, (req, res) => {
-  res.json({ modulos: montarRelatorioAcessos() });
+  res.json({ modulos: montarRelatorioAcessos(req.query.modulo) });
 });
 
 router.get('/api/admin/relatorio-acessos/pdf', requireAdminAny, async (req, res) => {
   try {
-    const dados = { modulos: montarRelatorioAcessos() };
+    const dados = { modulos: montarRelatorioAcessos(req.query.modulo) };
     const bytes = await gerarPdfRelatorioAcessos(dados, req.user.username);
     res.set('Content-Type', 'application/pdf');
     res.set('Content-Disposition', 'inline; filename="relatorio-acessos.pdf"');
