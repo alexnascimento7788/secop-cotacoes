@@ -33,15 +33,28 @@ function podeEditarProcesso(user, processoId) {
   return !!proc && proc.criado_por_id === user.user_id;
 }
 
+// Processo concluído trava TODA edição (itens/fornecedores/preços/status/etc.)
+// até ser reaberto — reabertura é uma ação própria (admin, ver
+// POST /api/processos/:id/reabrir), não passa por aqui. Checado antes da
+// permissão de usuário porque "concluído" é um estado do processo, não um
+// privilégio: nem o criador nem um admin editam direto, têm que reabrir primeiro.
 function requireEditProcesso(resolveId) {
   return (req, res, next) => {
     const id = resolveId(req);
     if (id == null) return res.status(404).json({ error: 'Não encontrado' });
+    const proc = db.prepare('SELECT status FROM processos WHERE id = ?').get(id);
+    if (proc && proc.status === 'Concluído') {
+      return res.status(409).json({ error: 'Processo concluído não pode ser alterado — reabra o processo (dentro do processo, aba Quadro) antes de editar.' });
+    }
     if (!podeEditarProcesso(req.user, id)) {
       return res.status(403).json({ error: 'Você não tem permissão para editar esta cotação' });
     }
     next();
   };
+}
+
+function ehAdminSecop(user) {
+  return ['admin', 'admin_sistema', 'admin_operacional'].includes(user.role);
 }
 
 function processoIdDoFornecedor(fornecedorId) {
@@ -402,6 +415,34 @@ router.patch('/api/processos/:id/status', secop, requireEditProcesso(req => req.
     .run(req.params.id, atual.status, status);
   registrarLog(req, 'PROCESSO', 'STATUS', `Processo ${atual.numero_processo}: "${atual.status || 'Em cotação'}" → "${status}"`);
   res.json({ ok: true });
+});
+
+// Reabrir um processo concluído — só admin, só a partir de dentro do próprio
+// processo (não existe atalho na grid/quadro de processos, de propósito:
+// reabrir é uma decisão deliberada, não um clique acidental numa lista).
+// Não passa por requireEditProcesso (que bloquearia por estar concluído) —
+// a trava "concluído" é justamente o que esta rota existe pra destravar.
+// Volta pro status que o processo tinha ANTES de ser concluído (histórico),
+// caindo em "Em cotação" se não achar (processo antigo sem histórico, etc.).
+router.post('/api/processos/:id/reabrir', secop, (req, res) => {
+  if (!ehAdminSecop(req.user)) return res.status(403).json({ error: 'Apenas administradores podem reabrir um processo concluído' });
+  const proc = db.prepare(`SELECT status, numero_processo FROM processos WHERE id = ?`).get(req.params.id);
+  if (!proc) return res.status(404).json({ error: 'Não encontrado' });
+  if (proc.status !== 'Concluído') return res.status(400).json({ error: 'Este processo não está concluído' });
+
+  const ultima = db.prepare(`
+    SELECT status_de FROM status_historico
+    WHERE processo_id = ? AND status_para = 'Concluído'
+    ORDER BY id DESC LIMIT 1
+  `).get(req.params.id);
+  const statusVolta = (ultima && ultima.status_de) || 'Em cotação';
+
+  db.prepare(`UPDATE processos SET status=?, atualizado_em=CURRENT_TIMESTAMP WHERE id=?`)
+    .run(statusVolta, req.params.id);
+  db.prepare(`INSERT INTO status_historico (processo_id, status_de, status_para) VALUES (?,?,?)`)
+    .run(req.params.id, 'Concluído', statusVolta);
+  registrarLog(req, 'PROCESSO', 'REABRIU', `Reabriu processo ${proc.numero_processo}: "Concluído" → "${statusVolta}"`);
+  res.json({ ok: true, status: statusVolta });
 });
 
 // ── Status ────────────────────────────────────────────────────────────────────

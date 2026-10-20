@@ -66,6 +66,9 @@ async function carregarConfig() {
 // aqui: o perfil/rotina do SECOP não influencia essa decisão, só o role.
 function podeEditar(p) {
   if (!currentUser) return false;
+  // Concluído trava edição pra todo mundo, inclusive admin — reabrir é uma
+  // ação própria, só de dentro do processo (Quadro), nunca pela grid.
+  if (p.status === 'Concluído') return false;
   if (edicaoLivre) return true;
   if (['admin', 'admin_sistema', 'admin_operacional'].includes(currentUser.role)) return true;
   return p.criado_por_id === currentUser.id;

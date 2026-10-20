@@ -269,8 +269,13 @@ async function carregar() {
     // Configurações → Parâmetros que libera edição pra qualquer usuário.
     let edicaoLivre = false;
     try { const cfg = await (await fetch('/api/config')).json(); edicaoLivre = cfg.secop_edicao_livre === '1'; } catch {}
-    podeEditarCotacao = !!user && (edicaoLivre || ['admin', 'admin_sistema', 'admin_operacional'].includes(user.role) || data.criado_por_id === user.id);
+    const ehAdmin = !!user && ['admin', 'admin_sistema', 'admin_operacional'].includes(user.role);
+    const concluido = data.status === 'Concluído';
+    // Concluído trava edição pra todo mundo, inclusive admin — só reabrindo
+    // (botão abaixo, só aparece pro admin) é que volta a editar.
+    podeEditarCotacao = !concluido && !!user && (edicaoLivre || ehAdmin || data.criado_por_id === user.id);
     aplicarPermissaoUI();
+    document.getElementById('btn-reabrir-processo').style.display = (concluido && ehAdmin) ? '' : 'none';
 
     document.getElementById('chk-menor-preco').checked = mostrarMenorPreco;
     document.getElementById('chk-calculo-anual').checked = calculoAnual;
@@ -835,6 +840,20 @@ document.getElementById('status-select').addEventListener('change', async functi
     });
     toast('Status atualizado', 'success');
   } catch { toast('Erro ao atualizar status', 'error'); }
+});
+
+// Reabrir processo concluído — só aparece pro admin (ver carregar()), e só
+// existe aqui dentro do processo, nunca na grid. Depois de reabrir, recarrega
+// tudo (volta a ficar editável, botão some de novo).
+document.getElementById('btn-reabrir-processo').addEventListener('click', async () => {
+  if (!confirm('Reabrir este processo? Ele volta a ficar editável e sai da etapa "Concluído".')) return;
+  try {
+    const res = await fetch(`/api/processos/${processoId}/reabrir`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { toast(data.error || 'Erro ao reabrir processo', 'error'); return; }
+    toast('Processo reaberto', 'success');
+    carregar();
+  } catch { toast('Erro ao reabrir processo', 'error'); }
 });
 
 // ── Salvar OBS ────────────────────────────────────────────────────────────────
