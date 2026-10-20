@@ -279,4 +279,61 @@ async function gerarPdfOrcamentoDfd(dados, nomeGerador, tipo = 'combinado') {
   return Buffer.from(bytes);
 }
 
-module.exports = { gerarPdfOrcamentoDfd };
+// ── PAC: PDF do relatório de lançamentos ────────────────────────────────────
+// Pedido do Odiston via PDF, 2026-10-20: "inclusão de um relatório em PDF
+// após os lançamentos, para posterior acompanhamento". dados vem de
+// montarRelatorioLancamentosDfd() em routes/pac.js — { dfd, setores: [{nome,
+// itens: [{codigo_pac, numero_pac, objeto, quantidade, unidade_medida,
+// valor_estimado, status, criado_por_nome}]}], total_itens }. 1 seção por
+// setor (mesmo padrão de "1 seção por Natureza" do relatório de Orçamento
+// acima), coluna "Status" só aparece quando o item veio de sub-gestor
+// (status != null) — item de gestor comum não tem o que mostrar ali.
+const COLS_LANCAMENTOS = [
+  { label: 'Nº PAC', w: 48 }, { label: 'Objeto', w: 215 }, { label: 'Qtd', w: 42 },
+  { label: 'Unid.', w: 55 }, { label: 'Valor Est.', w: 75 }, { label: 'Lançado por', w: 90 },
+];
+
+async function gerarPdfLancamentosDfd(dados, nomeGerador) {
+  const pdfDoc = await PDFDocument.create();
+  const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const negrito = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const logoImg = await carregarLogo(pdfDoc);
+  const w = new Escritor(pdfDoc, regular, negrito, logoImg);
+  const subtituloPagina = `Lançamentos — ${codigoDfd(dados.dfd)}`;
+
+  w.novaPagina();
+  w.cabecalho(subtituloPagina);
+  w.titulo(`Relatório de Lançamentos — ${codigoDfd(dados.dfd)} — ${dados.dfd.titulo}`);
+  w.paragrafo(`Gerado em ${dataHojeBr()} por ${nomeGerador}.`, 9);
+  w.linha();
+  w.camposLinha([
+    { label: 'Total de itens:', valor: dados.total_itens },
+    { label: 'Setores:', valor: dados.setores.length },
+  ]);
+  w.espaco(10);
+
+  if (!dados.setores.length) {
+    w.paragrafo('Nenhum item lançado neste DFD ainda.', 10, rgb(0.5, 0.5, 0.5));
+  }
+
+  dados.setores.forEach(s => {
+    w.garantirEspaco(50);
+    const totalSetor = s.itens.reduce((acc, i) => acc + (Number(i.valor_estimado) || 0), 0);
+    w.subtitulo(`${s.nome} — ${s.itens.length} item(ns) — ${fmtMoeda(totalSetor)}`);
+    const linhas = s.itens.map(i => ({
+      valores: [
+        i.numero_pac ?? '—', i.objeto || '—', i.quantidade ?? '—', i.unidade_medida || '—',
+        fmtMoeda(i.valor_estimado), i.status ? `${i.criado_por_nome} (${i.status})` : i.criado_por_nome,
+      ],
+    }));
+    desenharTabela(w, negrito, regular, `${subtituloPagina} (continuação)`, COLS_LANCAMENTOS, linhas);
+    w.linha();
+  });
+
+  w.page.drawText('PAC — Departamento de Planejamento (DEPLA)', { x: MARGIN, y: MARGIN - 28, size: 8.5, font: regular, color: rgb(0.6, 0.6, 0.6) });
+  numerarPaginas(pdfDoc, regular);
+  const bytes = await pdfDoc.save();
+  return Buffer.from(bytes);
+}
+
+module.exports = { gerarPdfOrcamentoDfd, gerarPdfLancamentosDfd };

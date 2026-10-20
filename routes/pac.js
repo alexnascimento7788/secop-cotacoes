@@ -18,7 +18,7 @@ const crypto = require('crypto');
 // aguardadas, nunca podem derrubar a rota que as disparou (enfileirar() já
 // captura qualquer erro internamente).
 const mailer = require('../mailer');
-const { gerarPdfOrcamentoDfd } = require('../pac-pdf');
+const { gerarPdfOrcamentoDfd, gerarPdfLancamentosDfd } = require('../pac-pdf');
 
 const router = express.Router();
 const pac = requireModulo('pac');
@@ -654,6 +654,24 @@ router.get('/api/pac/colunas', pac, requireRotinaPac('ver'), (req, res) => {
   `).all());
 });
 
+// ── PAC: autocomplete a partir do histórico (pedido do Odiston via PDF,
+// 2026-10-20: "padronização dos itens que serão adicionados") — mesmo
+// componente de front já usado no SECOP (public/js/autocomplete.js,
+// /api/autocomplete/:campo), adaptado aqui porque os valores do PAC vivem
+// num modelo EAV (dfd_itens_valores.valor por coluna_id), não 1 coluna fixa
+// por tabela como lá. Olha TODOS os DFDs (não só o atual) — é exatamente
+// isso que padroniza entre DFDs diferentes, pedido explícito do Odiston.
+router.get('/api/pac/autocomplete/:slug', pac, requireRotinaPac('ver'), (req, res) => {
+  const col = db.prepare(`SELECT id FROM dfd_colunas_catalogo WHERE slug = ?`).get(req.params.slug);
+  if (!col) return res.status(404).json({ error: 'Campo desconhecido' });
+  const rows = db.prepare(`
+    SELECT valor AS v, COUNT(*) AS n FROM dfd_itens_valores
+    WHERE coluna_id = ? AND valor IS NOT NULL AND TRIM(valor) != ''
+    GROUP BY valor ORDER BY n DESC, valor ASC LIMIT 200
+  `).all(col.id);
+  res.json(rows.map(r => r.v));
+});
+
 // ── PAC: DFDs ──────────────────────────────────────────────────────────────
 
 router.get('/api/pac/dfds', pac, requireRotinaPac('ver'), (req, res) => {
@@ -957,13 +975,17 @@ router.put('/api/pac/dfds/:id/colunas', pac, requireRotina('pac-gestao', 'altera
 
 // ── PAC: itens do DFD ──────────────────────────────────────────────────────
 
-router.get('/api/pac/dfds/:id/itens', pac, requireRotinaPac('ver'), (req, res) => {
-  const dfdId = req.params.id;
-  let itens;
+// Extraído de GET /itens (mesma regra de sempre) pra ser reaproveitado
+// também pelo relatório em PDF (pedido do Odiston via PDF, 2026-10-20:
+// "relatório em PDF após os lançamentos, para posterior acompanhamento") —
+// cada um vê no PDF exatamente o que já vê na tela, sem modelo de permissão
+// novo.
+function itensVisiveis(req, dfdId) {
   const minhasUnidades = req.user.username === 'master' ? [] : unidadesDoUsuario(req.user.user_id);
   if (temPacGestao(req)) {
-    itens = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL ORDER BY setor_id, numero_item`).all(dfdId);
-  } else if (minhasUnidades.length) {
+    return db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL ORDER BY setor_id, numero_item`).all(dfdId);
+  }
+  if (minhasUnidades.length) {
     // Sub-gestor DEPLA (papel próprio, independente de setor — ver
     // unidade_usuarios): NUNCA vê a lista do gestor oficial do setor, só os
     // próprios lançamentos (qualquer setor, sempre dentro da sua unidade —
@@ -975,16 +997,20 @@ router.get('/api/pac/dfds/:id/itens', pac, requireRotinaPac('ver'), (req, res) =
     // Um item que ELE MESMO excluiu (v4.29.4, botão Excluir em "Meus
     // lançamentos") continua 'pendente' e deve sumir de vez, como qualquer
     // exclusão normal — daí a condição não valer pra esse caso.
-    itens = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND criado_por = ? AND (excluido_em IS NULL OR aprovacao_subgestor = 'rejeitado') ORDER BY criado_em DESC`).all(dfdId, req.user.user_id);
-  } else {
-    const meus = setoresDoUsuario(req.user.user_id);
-    if (!meus.length) return res.json([]);
-    const ph = meus.map(() => '?').join(',');
-    // Gestor de setor comum: vê TODOS os itens do(s) próprio(s) setor(es),
-    // de qualquer unidade — inclusive os pendentes lançados por sub-gestor,
-    // que é quem aprova/rejeita (ver PATCH .../aprovacao).
-    itens = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND setor_id IN (${ph}) ORDER BY numero_item`).all(dfdId, ...meus);
+    return db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND criado_por = ? AND (excluido_em IS NULL OR aprovacao_subgestor = 'rejeitado') ORDER BY criado_em DESC`).all(dfdId, req.user.user_id);
   }
+  const meus = setoresDoUsuario(req.user.user_id);
+  if (!meus.length) return [];
+  const ph = meus.map(() => '?').join(',');
+  // Gestor de setor comum: vê TODOS os itens do(s) próprio(s) setor(es),
+  // de qualquer unidade — inclusive os pendentes lançados por sub-gestor,
+  // que é quem aprova/rejeita (ver PATCH .../aprovacao).
+  return db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND setor_id IN (${ph}) ORDER BY numero_item`).all(dfdId, ...meus);
+}
+
+router.get('/api/pac/dfds/:id/itens', pac, requireRotinaPac('ver'), (req, res) => {
+  const dfdId = req.params.id;
+  const itens = itensVisiveis(req, dfdId);
   const ids = itens.map(i => i.id);
   const valoresPorItem = {};
   if (ids.length) {
@@ -1023,6 +1049,70 @@ router.get('/api/pac/dfds/:id/itens', pac, requireRotinaPac('ver'), (req, res) =
     ...(realizadoPorItem[i.id] || { realizado_tu_mlp: 0, realizado_rdc: 0 }),
     criado_por_nome: nomesPorUsuario[i.criado_por] || null,
   })));
+});
+
+const LABEL_STATUS_SUBGESTOR = { pendente: 'Pendente de aprovação', aprovado: 'Aprovado', rejeitado: 'Rejeitado' };
+
+// Relatório de lançamentos (pedido do Odiston via PDF, 2026-10-20: "inclusão
+// de um relatório em PDF após os lançamentos, para posterior acompanhamento")
+// — reaproveita itensVisiveis() (mesma regra de permissão de sempre: cada um
+// vê no PDF exatamente o que já vê na tela de Lançamento/Meus lançamentos).
+function montarRelatorioLancamentosDfd(req, dfdId) {
+  const dfd = db.prepare(`SELECT id, titulo, ano_base FROM dfds WHERE id = ?`).get(dfdId);
+  if (!dfd) return null;
+  const objCol = colunaId('subitem');
+  const qtdCol = colunaId('quantidade');
+  const undCol = colunaId('unidade_medida');
+  const valCol = colunaId('valor_estimado');
+  const itens = itensVisiveis(req, dfdId);
+  const ids = itens.map(i => i.id);
+  const valoresPorItem = {};
+  if (ids.length) {
+    const ph = ids.map(() => '?').join(',');
+    db.prepare(`SELECT item_id, coluna_id, valor FROM dfd_itens_valores WHERE item_id IN (${ph}) AND coluna_id IN (?, ?, ?, ?)`)
+      .all(...ids, objCol, qtdCol, undCol, valCol)
+      .forEach(v => { (valoresPorItem[v.item_id] ??= {})[v.coluna_id] = v.valor; });
+  }
+  const nomesSetor = {};
+  db.prepare(`SELECT id, nome FROM setores`).all().forEach(s => { nomesSetor[s.id] = s.nome; });
+  const nomesPorUsuario = {};
+  const criadoresIds = [...new Set(itens.map(i => i.criado_por).filter(Boolean))];
+  if (criadoresIds.length) {
+    const ph = criadoresIds.map(() => '?').join(',');
+    db.prepare(`SELECT id, nome_completo, username FROM users WHERE id IN (${ph})`).all(...criadoresIds)
+      .forEach(u => { nomesPorUsuario[u.id] = u.nome_completo || u.username; });
+  }
+  const porSetor = {};
+  itens.forEach(i => {
+    const v = valoresPorItem[i.id] || {};
+    (porSetor[i.setor_id] ??= { nome: nomesSetor[i.setor_id] || '—', itens: [] }).itens.push({
+      codigo_pac: i.codigo_pac, numero_pac: i.numero_pac,
+      objeto: objCol ? (v[objCol] || '—') : '—',
+      quantidade: qtdCol ? (v[qtdCol] || '—') : '—',
+      unidade_medida: undCol ? (v[undCol] || '—') : '—',
+      valor_estimado: valCol ? Number(v[valCol]) || 0 : 0,
+      status: LABEL_STATUS_SUBGESTOR[i.aprovacao_subgestor] || null,
+      criado_por_nome: nomesPorUsuario[i.criado_por] || '—',
+    });
+  });
+  const setoresList = Object.values(porSetor).sort((a, b) => a.nome.localeCompare(b.nome));
+  return { dfd: { id: dfd.id, titulo: dfd.titulo, ano_base: dfd.ano_base }, setores: setoresList, total_itens: itens.length };
+}
+
+router.get('/api/pac/dfds/:id/lancamentos/relatorio/pdf', pac, requireRotinaPac('ver'), async (req, res) => {
+  const dados = montarRelatorioLancamentosDfd(req, req.params.id);
+  if (!dados) return res.status(404).json({ error: 'DFD não encontrado' });
+  try {
+    const nomeGerador = req.user.nome_completo || req.user.username;
+    const pdfBuffer = await gerarPdfLancamentosDfd(dados, nomeGerador);
+    registrarLog(req, 'PAC', 'GEROU_RELATORIO_LANCAMENTOS', `Gerou o relatório de lançamentos do DFD "${dados.dfd.titulo}" #${dados.dfd.id}`);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="lancamentos-dfd-${dados.dfd.id}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (e) {
+    console.error('[pac] erro gerando relatório de lançamentos:', e);
+    res.status(500).json({ error: 'Erro ao gerar o relatório.' });
+  }
 });
 
 router.post('/api/pac/dfds/:id/itens', pac, requireRotina('pac-lancamento', 'incluir'),

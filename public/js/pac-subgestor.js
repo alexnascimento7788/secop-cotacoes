@@ -278,6 +278,11 @@ function renderCampos() {
   // Popula o <select>/rateio da fonte pagadora (o wrapper sai vazio de
   // renderCampoFontePagadoraSubgestor — precisa desse passo pra aparecer).
   colunas.filter(c => c.slug === 'fonte_pagadora').forEach(c => atualizarExibicaoFonteSubgestor(c.id));
+  // Autocomplete do "Objeto" a partir do histórico de TODOS os DFDs (pedido
+  // do Odiston via PDF, 2026-10-20: "padronização dos itens") — mesmo
+  // componente do SECOP (public/js/autocomplete.js).
+  const colObjeto = colunas.find(c => c.slug === 'subitem');
+  if (colObjeto) initDatalistAutocomplete(`campo-novo-${colObjeto.id}`, 'subitem', '/api/pac/autocomplete');
 }
 
 // Pergunta "Este item possui contrato?" + campos do grupo C, dentro do modal
@@ -547,6 +552,25 @@ async function renderMeusLancamentos() {
   } catch {
     tbody.innerHTML = `<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text-subtle);">Erro ao carregar.</td></tr>`;
   }
+}
+
+// Relatório em PDF dos lançamentos (pedido literal do Odiston no mesmo PDF
+// que trouxe as outras reclamações) — reaproveita o endpoint do gestor, mas
+// o PDF sai com só os itens dele mesmo (itensVisiveis() em routes/pac.js já
+// cuida disso, mesma regra de sempre pro sub-gestor).
+function gerarPdfRelatorioLancamentosSubgestor() {
+  if (!_dfdAtual?.id) return;
+  const btn = document.getElementById('sg-relatorio-btn-pdf');
+  const textoOriginal = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Gerando...';
+  fetch(`/api/pac/dfds/${_dfdAtual.id}/lancamentos/relatorio/pdf`)
+    .then(async res => {
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao gerar PDF'); }
+      return res.blob();
+    })
+    .then(blob => window.open(URL.createObjectURL(blob), '_blank'))
+    .catch(e => toast('Erro: ' + e.message, 'error'))
+    .finally(() => { btn.disabled = false; btn.textContent = textoOriginal; });
 }
 
 document.addEventListener('DOMContentLoaded', boot);

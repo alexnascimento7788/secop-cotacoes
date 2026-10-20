@@ -177,6 +177,7 @@
               <input type="text" id="lanc-filtro-objeto" class="filtro-moderno" oninput="renderItens()" style="width:120px;" />
             </div>
             <button class="btn btn-secondary btn-xs" onclick="atualizarLancamento()" title="Recarrega itens e o aviso de pendência">🔄 Atualizar</button>
+            <button class="btn btn-secondary btn-xs" id="lanc-relatorio-btn-pdf" onclick="gerarPdfRelatorioLancamentos()" title="Relatório em PDF dos itens lançados, pra acompanhamento">🖨️ Relatório</button>
           </div>
           <span class="text-muted" id="lanc-dfd-contagem" style="font-size:12.5px;"></span>
         </div>
@@ -294,6 +295,7 @@
 <div id="toast"></div>
 <script src="js/pwa.js"></script>
 <script src="js/auth.js"></script>
+<script src="js/autocomplete.js"></script>
 <script src="js/pac-lancamento.js"></script>
 </body>
 </html>

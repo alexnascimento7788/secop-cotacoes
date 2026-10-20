@@ -106,7 +106,10 @@
       </div>
 
       <div class="card">
-        <div class="card-header"><span class="card-title">Meus lançamentos neste DFD</span></div>
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+          <span class="card-title">Meus lançamentos neste DFD</span>
+          <button class="btn btn-secondary btn-xs" id="sg-relatorio-btn-pdf" onclick="gerarPdfRelatorioLancamentosSubgestor()" title="Relatório em PDF dos seus lançamentos, pra acompanhamento">🖨️ Relatório</button>
+        </div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Setor</th><th>Objeto</th><th>Lançado em</th><th>Status</th><th></th></tr></thead>
@@ -185,6 +188,7 @@
 <div id="toast"></div>
 <script src="js/pwa.js"></script>
 <script src="js/auth.js"></script>
+<script src="js/autocomplete.js"></script>
 <script src="js/pac-subgestor.js"></script>
 </body>
 </html>

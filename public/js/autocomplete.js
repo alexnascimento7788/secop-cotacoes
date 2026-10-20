@@ -23,8 +23,10 @@ async function _fetchJSON(url) {
   return promessa;
 }
 
-function _fetchHistorico(campo) { return _fetchJSON(`/api/autocomplete/${campo}`); }
-function _fetchPalavras(campo)  { return _fetchJSON(`/api/autocomplete/${campo}/palavras`); }
+// baseUrl default é o do SECOP; o PAC usa '/api/pac/autocomplete' (modelo EAV
+// por coluna_id, não 1 coluna fixa por tabela — ver routes/pac.js).
+function _fetchHistorico(campo, baseUrl = '/api/autocomplete') { return _fetchJSON(`${baseUrl}/${campo}`); }
+function _fetchPalavras(campo, baseUrl = '/api/autocomplete')  { return _fetchJSON(`${baseUrl}/${campo}/palavras`); }
 function _fetchDicionario()     { return _fetchJSON('/api/dicionario-pt'); } // buscado 1x só, cacheado por URL
 
 // Palavra (letras/números) que termina exatamente no cursor
@@ -46,10 +48,10 @@ function _completarPalavra(el, palavra) {
   el.setSelectionRange(novaPos, novaPos);
 }
 
-async function initDatalistAutocomplete(inputId, campo) {
+async function initDatalistAutocomplete(inputId, campo, baseUrl) {
   const input = document.getElementById(inputId);
   if (!input) return;
-  const valores = await _fetchHistorico(campo);
+  const valores = await _fetchHistorico(campo, baseUrl);
   if (!valores.length) return;
 
   const listId = `dl-${inputId}`;
