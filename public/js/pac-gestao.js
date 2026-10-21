@@ -1364,15 +1364,23 @@ function fecharModalUnidadeUsuarios() {
 
 async function renderUnidadeUsuarios() {
   const tbody = document.getElementById('unidade-usuarios-tbody');
-  tbody.innerHTML = '<tr><td colspan="2" style="padding:12px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="3" style="padding:12px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>';
   const res = await fetch(`/api/pac/unidades/${_unidadeUsuariosId}/usuarios`);
   const usuarios = res.ok ? await res.json() : [];
   tbody.innerHTML = usuarios.map(u => `
     <tr>
       <td style="width:32px;"><input type="checkbox" ${u.vinculado ? 'checked' : ''} onchange="toggleUnidadeUsuario(${u.id}, this.checked)"></td>
       <td>${u.nome_completo || u.username}</td>
+      <td>
+        ${u.setores_disponiveis.length ? `
+          <select onchange="definirSetorOrigem(${u.id}, this.value)" style="font-size:12.5px;padding:3px 5px;">
+            <option value="">— nenhum —</option>
+            ${u.setores_disponiveis.map(s => `<option value="${s.id}"${s.id === u.setor_origem_id ? ' selected' : ''}>${s.nome}</option>`).join('')}
+          </select>
+        ` : `<span class="text-muted" style="font-size:12px;">sem setor vinculado</span>`}
+      </td>
     </tr>
-  `).join('') || `<tr><td colspan="2" style="padding:12px;text-align:center;color:var(--text-subtle);">Nenhum usuário.</td></tr>`;
+  `).join('') || `<tr><td colspan="3" style="padding:12px;text-align:center;color:var(--text-subtle);">Nenhum usuário.</td></tr>`;
 }
 
 async function toggleUnidadeUsuario(userId, vinculado) {
@@ -1384,6 +1392,22 @@ async function toggleUnidadeUsuario(userId, vinculado) {
     toast('Salvo.');
   } catch {
     toast('Erro ao salvar', 'error');
+    renderUnidadeUsuarios();
+  }
+}
+
+// Setor de origem (gestor direto) do sub-gestor — pedido do Alex, 2026-10-21:
+// hierarquia de 2 aprovações quando ele lança fora do próprio setor (ver
+// routes/pac.js, criação do item + PATCH .../aprovacao).
+async function definirSetorOrigem(userId, setorId) {
+  try {
+    const res = await fetch(`/api/pac/usuarios/${userId}/setor-origem`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ setor_id: setorId || null }),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    toast('Salvo.');
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
     renderUnidadeUsuarios();
   }
 }

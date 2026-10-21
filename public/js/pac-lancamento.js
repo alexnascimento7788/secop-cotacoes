@@ -97,7 +97,51 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(atualizarRelogioHeader, 60 * 1000);
   carregarDfds();
   aplicarAcessoImportacao();
+  carregarAprovacoesOrigemPendentes();
 });
+
+// Painel "Aguardando sua 1ª aprovação (de outros setores)" — hierarquia de
+// 2 aprovações (pedido do Alex, 2026-10-21): itens de sub-gestor cujo setor
+// de ORIGEM sou eu o gestor, mas que estão filed em OUTRO setor (destino) —
+// por isso não aparecem na tabela normal de nenhum DFD aberto por mim. Vive
+// fora de qualquer DFD específico (abrange todos).
+async function carregarAprovacoesOrigemPendentes() {
+  const card = document.getElementById('lanc-aprov-origem-card');
+  try {
+    const res = await fetch('/api/pac/aprovacoes-origem-pendentes');
+    const itens = res.ok ? await res.json() : [];
+    if (!itens.length) { card.style.display = 'none'; return; }
+    card.style.display = '';
+    document.getElementById('lanc-aprov-origem-tbody').innerHTML = itens.map(i => `
+      <tr>
+        <td>${i.objeto || '—'} <span class="text-muted">(${i.codigo_pac || i.numero_pac || '—'})</span></td>
+        <td>${i.dfd_titulo || '—'}</td>
+        <td>${i.setor_destino_nome || '—'}</td>
+        <td>${i.criado_por_nome || i.criado_por_username || '—'}</td>
+        <td style="text-align:right;white-space:nowrap;">
+          <button class="btn btn-primary btn-xs" onclick="agirAprovacaoOrigem(${i.id}, true)">Aprovar</button>
+          <button class="btn btn-danger btn-xs" onclick="agirAprovacaoOrigem(${i.id}, false)">Rejeitar</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch {
+    card.style.display = 'none';
+  }
+}
+
+async function agirAprovacaoOrigem(itemId, aprovado) {
+  if (!aprovado && !confirm('Rejeitar este lançamento? O item será removido.')) return;
+  try {
+    const res = await fetch(`/api/pac/itens/${itemId}/aprovacao`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ aprovado }),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    toast(aprovado ? 'Item aprovado (1ª etapa) — segue pro gestor do setor de destino.' : 'Item rejeitado.');
+    await carregarAprovacoesOrigemPendentes();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+  }
+}
 
 // Link "Importação" dentro do galho Gestão da sidebar — acesso é só por role
 // (master/admin_sistema, ver routes/pac-importacao.js), não Perfil/Rotina;
@@ -663,6 +707,10 @@ async function renderItens() {
     // pode aprovar (pedido do Alex: "com indicação naquela linha, incluindo
     // aprovação deste gestor ou cancelamento").
     const pendenteAprovacao = item.aprovacao_subgestor === 'pendente';
+    // Hierarquia de 2 aprovações (pedido do Alex, 2026-10-21): item ainda na
+    // 1ª etapa (gestor de ORIGEM do sub-gestor) não é meu pra agir ainda —
+    // só um aviso, sem botão, até ele passar pro meu setor de destino.
+    const pendenteOrigem = item.aprovacao_subgestor === 'pendente_origem';
     // Setor com gestor único designado (ver setores.gestor_user_id, pedido
     // do Alex 2026-10-20) — só essa pessoa aprova; sem designado, mantém a
     // regra antiga (qualquer gestor comum do setor aprova).
@@ -670,12 +718,21 @@ async function renderItens() {
     const souQuemAprova = gestorDesteSetor ? gestorDesteSetor === _meuUserId : souGestorPrincipal;
     // Mouseover "Lançado por" nas colunas iniciais — só pro gestor designado
     // do setor, só em linha que não é dele mesmo (pedido do Alex, 2026-10-20).
+    // Quando o item veio de um sub-gestor com setor de ORIGEM diferente
+    // (hierarquia de 2 aprovações), ganha uma linha a mais com a trilha.
+    const veioDeOutroSetor = item.setor_origem_id && item.setor_origem_id !== item.setor_id;
+    const linhaOrigem = veioDeOutroSetor
+      ? `\nVeio de: ${item.setor_origem_nome || '—'}${item.aprovacao_origem_por_nome ? ` (aprovado por ${item.aprovacao_origem_por_nome})` : ''}`
+      : '';
     const tituloLancadoPor = (gestorDesteSetor && gestorDesteSetor === _meuUserId && item.criado_por !== _meuUserId)
-      ? ` title="Lançado por: ${(item.criado_por_nome || 'desconhecido').replace(/"/g, '&quot;')}"` : '';
+      ? ` title="Lançado por: ${(item.criado_por_nome || 'desconhecido').replace(/"/g, '&quot;')}${linhaOrigem.replace(/"/g, '&quot;')}"` : '';
     return `
     <tr data-item-id="${item.id}">
       ${multiSetor ? `<td data-label="Setor"${tituloLancadoPor}>${nomeSetorLanc(item.setor_id)}</td>` : ''}
-      <td data-label="Unidade"${tituloLancadoPor}>${nomeUnidadeLanc(item.unidade_id)}${pendenteAprovacao ? `
+      <td data-label="Unidade"${tituloLancadoPor}>${nomeUnidadeLanc(item.unidade_id)}${pendenteOrigem ? `
+        <div style="margin-top:4px;">
+          <span class="badge badge-analise" style="font-size:10px;">Aguardando aprovação do setor de origem${item.setor_origem_nome ? ` (${item.setor_origem_nome})` : ''}</span>
+        </div>` : ''}${pendenteAprovacao ? `
         <div style="margin-top:4px;">
           <span class="badge badge-analise" style="font-size:10px;">Aguardando aprovação</span>
           ${souQuemAprova ? `

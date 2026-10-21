@@ -823,17 +823,22 @@
 
 <!-- Modal: restrição gestor→unidade (define quem é sub-gestor) -->
 <div class="modal-overlay" id="modal-unidade-usuarios">
-  <div class="modal-box" style="max-width:460px;">
+  <div class="modal-box" style="max-width:620px;">
     <h3 id="modal-unidade-usuarios-titulo">Acesso — unidade</h3>
     <p class="text-muted" style="font-size:12px;margin-bottom:12px;">
       Só aparecem aqui usuários com o perfil <strong>"Sub-gestor DEPLA"</strong> já atribuído no PAC (Admin > Usuários).
       Marcar um usuário nesta unidade dá a ele acesso pra lançar itens em nome de QUALQUER setor do DFD, sem ver a
       lista de lançamentos — o que ele lançar entra como pendente de aprovação pelo gestor oficial daquele setor.
       Ninguém aparecendo? Verifique se o perfil foi atribuído no Admin primeiro.
+      <br><br>
+      <strong>Setor de origem</strong>: o setor onde esse sub-gestor é lotado (de onde é "o gestor direto" dele).
+      Quando ele lançar pro PRÓPRIO setor de origem, segue 1 aprovação só (gestor desse setor). Quando lançar pra
+      um setor DIFERENTE, primeiro passa pela aprovação do gestor do setor de origem, só depois pelo gestor do
+      setor de destino. Sem setor de origem definido, continua sempre 1 aprovação só (comportamento de sempre).
     </p>
     <div class="table-wrap" style="max-height:360px;overflow-y:auto;">
       <table>
-        <thead><tr><th></th><th>Usuário</th></tr></thead>
+        <thead><tr><th></th><th>Usuário</th><th>Setor de origem</th></tr></thead>
         <tbody id="unidade-usuarios-tbody"></tbody>
       </table>
     </div>

@@ -79,6 +79,21 @@
       </div>
     </div>
 
+    <!-- Painel: itens de sub-gestor aguardando MINHA 1ª aprovação, como
+         gestor do setor de ORIGEM dele (hierarquia de 2 aprovações, pedido
+         do Alex, 2026-10-21) — ficam em QUALQUER DFD/setor de destino, por
+         isso vive fora da lista/tela de um DFD específico. Só aparece
+         quando a lista não é vazia. -->
+    <div class="card" id="lanc-aprov-origem-card" style="display:none;margin-bottom:16px;border-color:#a15c00;">
+      <div class="card-header"><span class="card-title">📋 Aguardando sua 1ª aprovação (de outros setores)</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Objeto/Nº PAC</th><th>DFD</th><th>Setor de destino</th><th>Lançado por</th><th></th></tr></thead>
+          <tbody id="lanc-aprov-origem-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- Lista de DFDs -->
     <div id="pac-dfd-lista">
       <div class="card">

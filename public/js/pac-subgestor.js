@@ -517,8 +517,15 @@ function coletarValoresContratoEdicao() {
   return valores;
 }
 
-const LABEL_STATUS_SUBGESTOR = { pendente: 'Pendente de aprovação', aprovado: 'Aprovado', rejeitado: 'Rejeitado' };
-const CLASSE_STATUS_SUBGESTOR = { pendente: 'badge-analise', aprovado: 'badge-aberto', rejeitado: 'badge-cancelado' };
+// Hierarquia de 2 aprovações (pedido do Alex, 2026-10-21): quando ele lança
+// fora do próprio setor de origem, passa primeiro pelo gestor de lá
+// ('pendente_origem') antes de chegar no gestor do setor de destino
+// ('pendente', igual sempre).
+const LABEL_STATUS_SUBGESTOR = {
+  pendente_origem: 'Aguardando 1ª aprovação (gestor de origem)',
+  pendente: 'Pendente de aprovação', aprovado: 'Aprovado', rejeitado: 'Rejeitado',
+};
+const CLASSE_STATUS_SUBGESTOR = { pendente_origem: 'badge-analise', pendente: 'badge-analise', aprovado: 'badge-aberto', rejeitado: 'badge-cancelado' };
 
 async function renderMeusLancamentos() {
   const tbody = document.getElementById('sg-meus-tbody');
@@ -533,7 +540,7 @@ async function renderMeusLancamentos() {
       const status = i.aprovacao_subgestor || 'pendente';
       // Só dá pra editar/excluir enquanto pendente — depois de aprovado o
       // item passa a ser do setor oficial, não é mais um rascunho dele.
-      const podeEditar = status === 'pendente';
+      const podeEditar = status === 'pendente' || status === 'pendente_origem';
       const objeto = colObjeto ? (i.valores?.[colObjeto.id] || '—') : '—';
       return `<tr>
         <td>${setorNome}</td>

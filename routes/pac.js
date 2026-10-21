@@ -34,6 +34,34 @@ function unidadesDoUsuario(userId) {
   return db.prepare(`SELECT unidade_id FROM unidade_usuarios WHERE user_id = ?`).all(userId).map(r => r.unidade_id);
 }
 
+// Decide o status inicial de aprovação (+ a trilha de origem) de um item
+// novo lançado por sub-gestor (pedido do Alex, 2026-10-21: hierarquia de 2
+// aprovações quando ele lança fora do próprio setor de origem — "o gestor
+// acima dele" aprova primeiro, só depois o gestor do setor de destino).
+// Sem setor_origem_id configurado pro criador (users.setor_origem_id), ou
+// lançando pro PRÓPRIO setor de origem, continua 1 aprovação só — zero
+// mudança de comportamento pra quem não tem origem definida. Devolve
+// { status, setorOrigemId } ou { erro } no caso defensivo de faltar gestor
+// designado num dos lados (não deve ocorrer hoje — todo setor já tem
+// gestor, ver plano em linear-puzzling-rain.md).
+function calcularAprovacaoSubgestor(userId, setorDestinoId) {
+  const criador = db.prepare(`SELECT setor_origem_id FROM users WHERE id = ?`).get(userId);
+  const setorOrigemId = criador?.setor_origem_id || null;
+  if (!setorOrigemId || Number(setorOrigemId) === Number(setorDestinoId)) {
+    return { status: 'pendente', setorOrigemId };
+  }
+  const origem = db.prepare(`SELECT gestor_user_id FROM setores WHERE id = ?`).get(setorOrigemId);
+  const destino = db.prepare(`SELECT gestor_user_id FROM setores WHERE id = ?`).get(setorDestinoId);
+  if (!origem?.gestor_user_id || !destino?.gestor_user_id) {
+    return { erro: 'Não é possível lançar: o setor de origem ou o setor de destino ainda não tem gestor designado. Procure o administrador.' };
+  }
+  // Mesma pessoa gestora dos 2 lados — 1 aprovação só, não faz ela clicar 2x.
+  if (Number(origem.gestor_user_id) === Number(destino.gestor_user_id)) {
+    return { status: 'pendente', setorOrigemId };
+  }
+  return { status: 'pendente_origem', setorOrigemId };
+}
+
 // Validação de obrigatoriedade — generaliza o que antes era só
 // validarEspecificacaoObjeto() (pedido do Alex, 2026-09-15, revisado em
 // 2026-10-20 depois de achar #97/#100 com "Objeto"/"Especificação do
@@ -392,15 +420,41 @@ router.delete('/api/pac/unidades/:id', pac, requireRotina('pac-gestao', 'excluir
 // (isso é o perfil). Sem o perfil, marcar aqui não dá acesso nenhum de
 // verdade (a rotina pac-lancamento é quem abre a porta).
 router.get('/api/pac/unidades/:id/usuarios', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
-  res.json(db.prepare(`
-    SELECT u.id, u.username, u.nome_completo,
+  const usuarios = db.prepare(`
+    SELECT u.id, u.username, u.nome_completo, u.setor_origem_id,
            EXISTS(SELECT 1 FROM unidade_usuarios uu WHERE uu.unidade_id = ? AND uu.user_id = u.id) AS vinculado
     FROM users u
     JOIN user_modulos um ON um.user_id = u.id
     JOIN modulos m ON m.id = um.modulo_id AND m.slug = 'pac'
     JOIN perfis p ON p.id = um.perfil_id AND p.nome = 'Sub-gestor DEPLA'
     WHERE u.ativo = 1 ORDER BY COALESCE(u.nome_completo, u.username)
-  `).all(req.params.id));
+  `).all(req.params.id);
+  // Setores que cada um já tem acesso (setor_usuarios) — é dentre esses que
+  // dá pra escolher o "setor de origem" (ver PATCH .../usuarios/:id/setor-origem).
+  const ids = usuarios.map(u => u.id);
+  const setoresPorUsuario = {};
+  if (ids.length) {
+    const ph = ids.map(() => '?').join(',');
+    db.prepare(`
+      SELECT su.user_id, s.id, s.nome FROM setor_usuarios su JOIN setores s ON s.id = su.setor_id
+      WHERE su.user_id IN (${ph}) ORDER BY s.nome
+    `).all(...ids).forEach(r => { (setoresPorUsuario[r.user_id] ??= []).push({ id: r.id, nome: r.nome }); });
+  }
+  res.json(usuarios.map(u => ({ ...u, setores_disponiveis: setoresPorUsuario[u.id] || [] })));
+});
+
+// Setor de origem (gestor direto) do sub-gestor (pedido do Alex, 2026-10-21)
+// — exige que o setor escolhido já esteja entre os que ele tem acesso
+// (setor_usuarios), mesma regra de "já vinculado" usada em .../setores/:id/gestor.
+router.patch('/api/pac/usuarios/:id/setor-origem', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const { setor_id } = req.body || {};
+  if (setor_id) {
+    const vinculado = db.prepare(`SELECT 1 FROM setor_usuarios WHERE setor_id = ? AND user_id = ?`).get(setor_id, req.params.id);
+    if (!vinculado) return res.status(400).json({ error: 'O setor de origem precisa ser um setor que esse usuário já tem acesso.' });
+  }
+  db.prepare(`UPDATE users SET setor_origem_id = ? WHERE id = ?`).run(setor_id || null, req.params.id);
+  registrarLog(req, 'PAC', 'SETOR_ORIGEM', `${setor_id ? 'Definiu' : 'Removeu'} setor de origem do usuário #${req.params.id}`);
+  res.json({ ok: true });
 });
 router.put('/api/pac/unidades/:id/usuarios', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
   const { user_id, vinculado } = req.body || {};
@@ -1035,23 +1089,38 @@ router.get('/api/pac/dfds/:id/itens', pac, requireRotinaPac('ver'), (req, res) =
   }
   // Nome de quem lançou — usado só pelo gestor de setor, pra mostrar um
   // mouseover "Lançado por: fulano" nas linhas que não são dele mesmo
-  // (pedido do Alex, 2026-10-20).
+  // (pedido do Alex, 2026-10-20). Reaproveitado também pra rastreabilidade
+  // da hierarquia de 2 aprovações (pedido do Alex, 2026-10-21): quem aprovou
+  // a 1ª etapa (aprovacao_origem_por) e a etapa final (aprovado_por).
   const nomesPorUsuario = {};
-  const criadoresIds = [...new Set(itens.map(i => i.criado_por).filter(Boolean))];
-  if (criadoresIds.length) {
-    const ph = criadoresIds.map(() => '?').join(',');
-    db.prepare(`SELECT id, nome_completo, username FROM users WHERE id IN (${ph})`).all(...criadoresIds)
+  const idsUsuarios = [...new Set(itens.flatMap(i => [i.criado_por, i.aprovacao_origem_por, i.aprovado_por]).filter(Boolean))];
+  if (idsUsuarios.length) {
+    const ph = idsUsuarios.map(() => '?').join(',');
+    db.prepare(`SELECT id, nome_completo, username FROM users WHERE id IN (${ph})`).all(...idsUsuarios)
       .forEach(u => { nomesPorUsuario[u.id] = u.nome_completo || u.username; });
+  }
+  const nomesPorSetor = {};
+  const idsSetoresOrigem = [...new Set(itens.map(i => i.setor_origem_id).filter(Boolean))];
+  if (idsSetoresOrigem.length) {
+    const ph = idsSetoresOrigem.map(() => '?').join(',');
+    db.prepare(`SELECT id, nome FROM setores WHERE id IN (${ph})`).all(...idsSetoresOrigem)
+      .forEach(s => { nomesPorSetor[s.id] = s.nome; });
   }
   res.json(itens.map(i => ({
     ...i,
     valores: valoresPorItem[i.id] || {},
     ...(realizadoPorItem[i.id] || { realizado_tu_mlp: 0, realizado_rdc: 0 }),
     criado_por_nome: nomesPorUsuario[i.criado_por] || null,
+    setor_origem_nome: nomesPorSetor[i.setor_origem_id] || null,
+    aprovacao_origem_por_nome: nomesPorUsuario[i.aprovacao_origem_por] || null,
+    aprovado_por_nome: nomesPorUsuario[i.aprovado_por] || null,
   })));
 });
 
-const LABEL_STATUS_SUBGESTOR = { pendente: 'Pendente de aprovação', aprovado: 'Aprovado', rejeitado: 'Rejeitado' };
+const LABEL_STATUS_SUBGESTOR = {
+  pendente_origem: 'Aguardando 1ª aprovação (gestor de origem)',
+  pendente: 'Pendente de aprovação', aprovado: 'Aprovado', rejeitado: 'Rejeitado',
+};
 
 // Relatório de lançamentos (pedido do Odiston via PDF, 2026-10-20: "inclusão
 // de um relatório em PDF após os lançamentos, para posterior acompanhamento")
@@ -1161,9 +1230,17 @@ router.post('/api/pac/dfds/:id/itens', pac, requireRotina('pac-lancamento', 'inc
     const participaUnidade = db.prepare(`SELECT 1 FROM dfd_unidades WHERE dfd_id = ? AND unidade_id = ?`).get(dfdId, unidade_id);
     if (!participaUnidade) return res.status(400).json({ error: 'Esta unidade não participa deste DFD.' });
   }
-  // Item de sub-gestor nasce "pendente" até o gestor oficial do setor
-  // aprovar — gestor comum/DEPLA/master nunca passa por esse gate.
-  const aprovacaoSubgestor = souSubgestor ? 'pendente' : null;
+  // Item de sub-gestor nasce "pendente" (ou "pendente_origem", se ele lançar
+  // fora do próprio setor de origem — ver calcularAprovacaoSubgestor) até o
+  // gestor oficial aprovar — gestor comum/DEPLA/master nunca passa por esse gate.
+  let aprovacaoSubgestor = null;
+  let setorOrigemId = null;
+  if (souSubgestor) {
+    const calc = calcularAprovacaoSubgestor(req.user.user_id, Number(setor_id));
+    if (calc.erro) return res.status(400).json({ error: calc.erro });
+    aprovacaoSubgestor = calc.status;
+    setorOrigemId = calc.setorOrigemId;
+  }
 
   const erroEspecificacao = validarCamposObrigatorios(dfdId, valores, req.body?.especificacao_sem_minimo);
   if (erroEspecificacao) return res.status(400).json({ error: erroEspecificacao.mensagem, especificacaoMinima: erroEspecificacao });
@@ -1177,9 +1254,9 @@ router.post('/api/pac/dfds/:id/itens', pac, requireRotina('pac-lancamento', 'inc
   const idPac = crypto.randomUUID();
   const codigoPac = gerarCodigoPac(setor, numeroItem);
   const info = db.prepare(`
-    INSERT INTO dfd_itens (dfd_id, setor_id, numero_item, criado_por, numero_pac, id_pac, codigo_pac, unidade_id, aprovacao_subgestor, especificacao_sem_minimo)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(dfdId, setor_id, numeroItem, req.user.user_id, String(numeroItem), idPac, codigoPac, unidade_id, aprovacaoSubgestor, req.body?.especificacao_sem_minimo ? 1 : 0);
+    INSERT INTO dfd_itens (dfd_id, setor_id, numero_item, criado_por, numero_pac, id_pac, codigo_pac, unidade_id, aprovacao_subgestor, especificacao_sem_minimo, setor_origem_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(dfdId, setor_id, numeroItem, req.user.user_id, String(numeroItem), idPac, codigoPac, unidade_id, aprovacaoSubgestor, req.body?.especificacao_sem_minimo ? 1 : 0, setorOrigemId);
   const itemId = info.lastInsertRowid;
 
   const colunasAtivas = new Set(db.prepare(`SELECT coluna_id FROM dfd_colunas_ativas WHERE dfd_id = ?`).all(dfdId).map(r => r.coluna_id));
@@ -1207,7 +1284,7 @@ router.put('/api/pac/itens/:id',
     const item = req.item;
     // Sub-gestor edita o próprio lançamento enquanto está pendente de
     // aprovação — ainda não é oficial do setor, é rascunho dele.
-    const souCriadorPendente = item.criado_por === req.user.user_id && item.aprovacao_subgestor === 'pendente';
+    const souCriadorPendente = item.criado_por === req.user.user_id && ['pendente', 'pendente_origem'].includes(item.aprovacao_subgestor);
     if (req.user.username !== 'master' && !souCriadorPendente && !setoresDoUsuario(req.user.user_id).includes(item.setor_id)) {
       return res.status(403).json({ error: 'Você não pertence ao setor deste item.' });
     }
@@ -1249,7 +1326,7 @@ router.delete('/api/pac/itens/:id',
   (req, res, next) => requireDfdEditavel(() => req.item.dfd_id, { resolveItemId: () => req.item.id, tipo: 'excluir', resolveSetorId: () => req.item.setor_id })(req, res, next),
   (req, res) => {
     const item = req.item;
-    const souCriadorPendente = item.criado_por === req.user.user_id && item.aprovacao_subgestor === 'pendente';
+    const souCriadorPendente = item.criado_por === req.user.user_id && ['pendente', 'pendente_origem'].includes(item.aprovacao_subgestor);
     if (req.user.username !== 'master' && !souCriadorPendente && !setoresDoUsuario(req.user.user_id).includes(item.setor_id)) {
       return res.status(403).json({ error: 'Você não pertence ao setor deste item.' });
     }
@@ -1269,9 +1346,11 @@ router.patch('/api/pac/itens/:id/aprovacao',
   pac,
   requireRotina('pac-lancamento', 'alterar'),
   (req, res, next) => {
-    const item = db.prepare(`SELECT id, dfd_id, setor_id, unidade_id, aprovacao_subgestor FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
+    const item = db.prepare(`SELECT id, dfd_id, setor_id, unidade_id, aprovacao_subgestor, setor_origem_id FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
     if (!item) return res.status(404).json({ error: 'Item não encontrado' });
-    if (item.aprovacao_subgestor !== 'pendente') return res.status(409).json({ error: 'Este item não está pendente de aprovação.' });
+    if (!['pendente', 'pendente_origem'].includes(item.aprovacao_subgestor)) {
+      return res.status(409).json({ error: 'Este item não está pendente de aprovação.' });
+    }
     req.item = item;
     next();
   },
@@ -1283,6 +1362,30 @@ router.patch('/api/pac/itens/:id/aprovacao',
     if (req.user.username !== 'master' && unidadesDoUsuario(req.user.user_id).length) {
       return res.status(403).json({ error: 'Sub-gestor não aprova lançamentos — isso é feito pelo gestor oficial do setor.' });
     }
+    const { aprovado } = req.body || {};
+    // 'pendente_origem': 1ª etapa — só o gestor do setor de ORIGEM do
+    // sub-gestor age (pedido do Alex, 2026-10-21: "primeiro este item vai
+    // pro Gestor acima dele"). Aprovando, vira 'pendente' (2ª etapa, igual
+    // sempre); rejeitando, mata o item igual rejeição de sempre.
+    if (item.aprovacao_subgestor === 'pendente_origem') {
+      if (req.user.username !== 'master') {
+        const origem = db.prepare(`SELECT gestor_user_id FROM setores WHERE id = ?`).get(item.setor_origem_id);
+        if (Number(origem?.gestor_user_id) !== Number(req.user.user_id)) {
+          return res.status(403).json({ error: 'Somente o gestor do setor de origem deste sub-gestor pode dar a 1ª aprovação.' });
+        }
+      }
+      if (aprovado) {
+        db.prepare(`UPDATE dfd_itens SET aprovacao_subgestor = 'pendente', aprovacao_origem_por = ?, aprovacao_origem_em = datetime('now'), atualizado_em = datetime('now') WHERE id = ?`)
+          .run(req.user.user_id, item.id);
+        registrarLog(req, 'PAC', 'APROVOU_ORIGEM_SUBGESTOR', `Aprovou (1ª etapa, setor de origem) o item #${item.id} do DFD #${item.dfd_id}`);
+      } else {
+        db.prepare(`UPDATE dfd_itens SET aprovacao_subgestor = 'rejeitado', excluido_em = datetime('now'), rejeitado_por = ? WHERE id = ?`)
+          .run(req.user.user_id, item.id);
+        registrarLog(req, 'PAC', 'REJEITOU_ORIGEM_SUBGESTOR', `Rejeitou (1ª etapa, setor de origem) o item #${item.id} do DFD #${item.dfd_id}`);
+      }
+      return res.json({ ok: true });
+    }
+    // 'pendente': etapa final — gestor do setor de DESTINO (igual sempre).
     if (req.user.username !== 'master') {
       const setor = db.prepare(`SELECT gestor_user_id FROM setores WHERE id = ?`).get(item.setor_id);
       if (setor?.gestor_user_id) {
@@ -1297,17 +1400,48 @@ router.patch('/api/pac/itens/:id/aprovacao',
         return res.status(403).json({ error: 'Você não pertence ao setor deste item.' });
       }
     }
-    const { aprovado } = req.body || {};
     if (aprovado) {
-      db.prepare(`UPDATE dfd_itens SET aprovacao_subgestor = 'aprovado', atualizado_em = datetime('now') WHERE id = ?`).run(item.id);
+      db.prepare(`UPDATE dfd_itens SET aprovacao_subgestor = 'aprovado', aprovado_por = ?, aprovado_em = datetime('now'), atualizado_em = datetime('now') WHERE id = ?`)
+        .run(req.user.user_id, item.id);
       registrarLog(req, 'PAC', 'APROVOU_ITEM_SUBGESTOR', `Aprovou o item #${item.id} do DFD #${item.dfd_id}`);
     } else {
-      db.prepare(`UPDATE dfd_itens SET aprovacao_subgestor = 'rejeitado', excluido_em = datetime('now') WHERE id = ?`).run(item.id);
+      db.prepare(`UPDATE dfd_itens SET aprovacao_subgestor = 'rejeitado', excluido_em = datetime('now'), rejeitado_por = ? WHERE id = ?`)
+        .run(req.user.user_id, item.id);
       registrarLog(req, 'PAC', 'REJEITOU_ITEM_SUBGESTOR', `Rejeitou o item #${item.id} do DFD #${item.dfd_id}`);
     }
     res.json({ ok: true });
   }
 );
+
+// Painel do gestor de ORIGEM: itens de sub-gestores "dele" pendentes da 1ª
+// aprovação, mas filados em OUTRO setor (destino) — por isso não aparecem na
+// tela normal de setor (ele pode nem ter acesso àquele setor). Pedido do
+// Alex, 2026-10-21. Master vê tudo (não tem "seu" setor de origem).
+router.get('/api/pac/aprovacoes-origem-pendentes', pac, requireRotinaPac('ver'), (req, res) => {
+  const base = `
+    SELECT i.id, i.dfd_id, i.codigo_pac, i.numero_pac, i.criado_em,
+           so.nome AS setor_origem_nome, sd.nome AS setor_destino_nome,
+           u.nome_completo AS criado_por_nome, u.username AS criado_por_username,
+           d.titulo AS dfd_titulo
+    FROM dfd_itens i
+    JOIN setores so ON so.id = i.setor_origem_id
+    JOIN setores sd ON sd.id = i.setor_id
+    JOIN users u ON u.id = i.criado_por
+    JOIN dfds d ON d.id = i.dfd_id
+    WHERE i.excluido_em IS NULL AND i.aprovacao_subgestor = 'pendente_origem'`;
+  const rows = req.user.username === 'master'
+    ? db.prepare(`${base} ORDER BY i.criado_em`).all()
+    : db.prepare(`${base} AND so.gestor_user_id = ? ORDER BY i.criado_em`).all(req.user.user_id);
+  const objCol = colunaId('subitem');
+  const ids = rows.map(r => r.id);
+  const objetoPorItem = {};
+  if (objCol && ids.length) {
+    const ph = ids.map(() => '?').join(',');
+    db.prepare(`SELECT item_id, valor FROM dfd_itens_valores WHERE coluna_id = ? AND item_id IN (${ph})`)
+      .all(objCol, ...ids).forEach(v => { objetoPorItem[v.item_id] = v.valor; });
+  }
+  res.json(rows.map(r => ({ ...r, objeto: objetoPorItem[r.id] || null })));
+});
 
 // ── PAC: pedidos de edição (DFD em análise) ───────────────────────────────────
 
