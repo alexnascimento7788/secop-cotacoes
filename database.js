@@ -1158,6 +1158,24 @@ function setupDb() {
   // campo não fique vazio (ver validarCamposObrigatorios em routes/pac.js).
   try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN especificacao_sem_minimo INTEGER NOT NULL DEFAULT 0`); } catch {}
 
+  // Hierarquia de 2 aprovações (pedido do Alex, 2026-10-21): cada sub-gestor
+  // pode ter um "setor de origem" (seu gestor direto) — NULL mantém o
+  // comportamento de sempre (1 aprovação só, pelo gestor do setor de
+  // destino). Com origem definida, lançar pro PRÓPRIO setor de origem
+  // continua 1 aprovação só; lançar pra um setor DIFERENTE passa primeiro
+  // pelo gestor da origem, só depois pelo gestor do destino (ver
+  // POST/PATCH .../itens em routes/pac.js).
+  try { _db.exec(`ALTER TABLE users ADD COLUMN setor_origem_id INTEGER REFERENCES setores(id)`); } catch {}
+  // Snapshot do setor_origem_id do criador NO MOMENTO do lançamento (não lido
+  // ao vivo depois — se o admin trocar a origem de alguém, itens já criados
+  // mantêm a trilha original) + rastreabilidade de quem aprovou cada etapa.
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN setor_origem_id INTEGER REFERENCES setores(id)`); } catch {}
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN aprovacao_origem_por INTEGER REFERENCES users(id)`); } catch {}
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN aprovacao_origem_em DATETIME`); } catch {}
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN aprovado_por INTEGER REFERENCES users(id)`); } catch {}
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN aprovado_em DATETIME`); } catch {}
+  try { _db.exec(`ALTER TABLE dfd_itens ADD COLUMN rejeitado_por INTEGER REFERENCES users(id)`); } catch {}
+
   // Seed dos setores participantes do PAC (nomes exatamente como fornecidos)
   [
     'Depop', 'Dereh', 'Detin', 'Depla', 'Depad', 'Audin', 'Defin', 'Deuni',
