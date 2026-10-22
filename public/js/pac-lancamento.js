@@ -90,6 +90,7 @@ let _meusSetores = [];
 let _pedidosLiberados = {}; // item_id -> Set('editar'|'excluir') aprovados e ainda não consumidos
 let _itensAtuais = [];
 let _finalizacaoPorSetor = {}; // setor_id -> finalizado_em (ou null)
+let _aprovacoesOrigemPendentes = []; // itens de outro setor aguardando MINHA 1ª aprovação (ver carregarAprovacoesOrigemPendentes)
 
 document.addEventListener('DOMContentLoaded', () => {
   atualizarCabecalhoUsuario();
@@ -110,23 +111,31 @@ async function carregarAprovacoesOrigemPendentes() {
   try {
     const res = await fetch('/api/pac/aprovacoes-origem-pendentes');
     const itens = res.ok ? await res.json() : [];
-    if (!itens.length) { card.style.display = 'none'; return; }
-    card.style.display = '';
-    document.getElementById('lanc-aprov-origem-tbody').innerHTML = itens.map(i => `
-      <tr>
-        <td>${i.objeto || '—'} <span class="text-muted">(${i.codigo_pac || i.numero_pac || '—'})</span></td>
-        <td>${i.dfd_titulo || '—'}</td>
-        <td>${i.setor_destino_nome || '—'}</td>
-        <td>${i.criado_por_nome || i.criado_por_username || '—'}</td>
-        <td style="text-align:right;white-space:nowrap;">
-          <button class="btn btn-primary btn-xs" onclick="agirAprovacaoOrigem(${i.id}, true)">Aprovar</button>
-          <button class="btn btn-danger btn-xs" onclick="agirAprovacaoOrigem(${i.id}, false)">Rejeitar</button>
-        </td>
-      </tr>
-    `).join('');
+    _aprovacoesOrigemPendentes = itens;
+    if (!itens.length) { card.style.display = 'none'; }
+    else {
+      card.style.display = '';
+      document.getElementById('lanc-aprov-origem-tbody').innerHTML = itens.map(i => `
+        <tr>
+          <td>${i.objeto || '—'} <span class="text-muted">(${i.codigo_pac || i.numero_pac || '—'})</span></td>
+          <td>${i.dfd_titulo || '—'}</td>
+          <td>${i.setor_destino_nome || '—'}</td>
+          <td>${i.criado_por_nome || i.criado_por_username || '—'}</td>
+          <td style="text-align:right;white-space:nowrap;">
+            <button class="btn btn-primary btn-xs" onclick="agirAprovacaoOrigem(${i.id}, true)">Aprovar</button>
+            <button class="btn btn-danger btn-xs" onclick="agirAprovacaoOrigem(${i.id}, false)">Rejeitar</button>
+          </td>
+        </tr>
+      `).join('');
+    }
   } catch {
     card.style.display = 'none';
+    _aprovacoesOrigemPendentes = [];
   }
+  // Pedido do Alex, 2026-10-22: "o card deve continuar, porém preciso dos
+  // dados na listagem" — além do card (acima, cross-DFD), os mesmos itens
+  // também entram como linhas extras na tabela do DFD aberto (ver renderItens).
+  if (_dfdAtualId) renderItens();
 }
 
 async function agirAprovacaoOrigem(itemId, aprovado) {
@@ -694,8 +703,29 @@ async function renderItens() {
   // quando NÃO estou restrito a nenhuma unidade — mesmo dado que já veio
   // junto com o DFD (ver GET /api/pac/dfds/:id, minhas_unidades_restritas).
   const souGestorPrincipal = !(_dfdAtual.minhas_unidades_restritas || []).length;
+  // Itens de OUTRO setor aguardando minha 1ª aprovação (hierarquia de 2
+  // aprovações) — além do card no topo da página (cross-DFD), pedido do
+  // Alex 2026-10-22: também precisam aparecer dentro da listagem do DFD
+  // aberto, não só ali. Linha compacta (não usa as colunas configuráveis —
+  // o item não é meu, não edito nem excluo, só aprovo/rejeito a 1ª etapa).
+  const linhasOrigemAqui = _aprovacoesOrigemPendentes
+    .filter(i => i.dfd_id === _dfdAtualId)
+    .map(i => `
+      <tr class="pac-item-origem-pendente" style="background:var(--laranja-bg,#fff7e6);">
+        <td colspan="${Math.max(colspan - 1, 1)}">
+          <span class="badge badge-analise" style="font-size:10px;">Aguardando sua 1ª aprovação</span>
+          <strong>${i.objeto || '—'}</strong> <span class="text-muted">(${i.codigo_pac || i.numero_pac || '—'})</span>
+          <span class="text-muted"> — setor de destino: ${i.setor_destino_nome || '—'} · lançado por ${i.criado_por_nome || i.criado_por_username || '—'}</span>
+        </td>
+        <td style="text-align:right;white-space:nowrap;">
+          <button class="btn btn-primary btn-xs" onclick="agirAprovacaoOrigem(${i.id}, true)">Aprovar</button>
+          <button class="btn btn-danger btn-xs" onclick="agirAprovacaoOrigem(${i.id}, false)">Rejeitar</button>
+        </td>
+      </tr>
+    `).join('');
+
   const tbody = document.getElementById('lanc-itens-tbody');
-  tbody.innerHTML = itensExibidos.map(item => {
+  const linhasNormais = itensExibidos.map(item => {
     const liberado = _pedidosLiberados[item.id] || new Set();
     const setorFinalizado = !!_finalizacaoPorSetor[item.setor_id];
     const podeExcluir = (_dfdAtual.status === 'aberto' && !setorFinalizado) || liberado.has('excluir');
@@ -755,7 +785,8 @@ async function renderItens() {
           ? `<button class="btn btn-secondary btn-xs" onclick="abrirPedido(${item.id}, 'editar')">Solicitar edição</button>` : ''}
       </td>
     </tr>`;
-  }).join('') || `<tr><td colspan="${colspan}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`;
+  }).join('');
+  tbody.innerHTML = linhasOrigemAqui + (linhasNormais || (linhasOrigemAqui ? '' : `<tr><td colspan="${colspan}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`));
 
   wireCelulas();
   renderFormNovoItem();
