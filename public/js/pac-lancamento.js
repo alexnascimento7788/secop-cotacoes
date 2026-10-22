@@ -609,7 +609,11 @@ function fecharAcompanhamentoPopup() {
 // diferentes apareciam misturados na mesma tabela sem nenhuma pista de qual
 // é qual. Com 1 setor só (o caso comum), a tela continua idêntica a sempre.
 function nomeSetorLanc(setorId) {
-  return (_meusSetores.find(s => s.id === setorId) || {}).nome || '—';
+  // Itens de outro setor aguardando minha 1ª aprovação (hierarquia de 2
+  // aprovações) vêm junto na mesma listagem (ver itensVisiveis, routes/pac.js)
+  // mas o setor deles não está em _meusSetores — cai pro nome vindo do DFD.
+  return (_meusSetores.find(s => s.id === setorId) || {}).nome
+    || (_dfdAtual.setores || []).find(s => s.id === setorId)?.nome || '—';
 }
 function nomeUnidadeLanc(unidadeId) {
   if (!unidadeId) return '—';
@@ -626,7 +630,17 @@ async function renderItens() {
   const colunasPrincipais = _dfdAtual.colunas.filter(c => c.grupo === 'A' && c.slug !== 'numero_item');
   const colunasContrato = _dfdAtual.colunas.filter(c => c.grupo === 'C');
   const temColContrato = colunasContrato.length > 0;
-  const multiSetor = _meusSetores.length > 1;
+
+  const res = await fetch(`/api/pac/dfds/${_dfdAtualId}/itens`);
+  _itensAtuais = res.ok ? await res.json() : [];
+  // Itens de outro setor, aguardando minha 1ª aprovação como gestor de
+  // origem (hierarquia de 2 aprovações) — o servidor já devolve junto na
+  // mesma lista (ver itensVisiveis, routes/pac.js), pedido do Alex,
+  // 2026-10-22: "deve ser igual as demais [linhas], que visão em linha
+  // temos do item? Nenhuma" — precisam das mesmas colunas, não um resumo.
+  // "Estranho" = não é de nenhum setor meu; força some-leitura e troca os
+  // botões de ação (ver mais abaixo).
+  const multiSetor = _meusSetores.length > 1 || _itensAtuais.some(i => !_meusSetores.some(s => s.id === i.setor_id));
 
   const filtroWrap = document.getElementById('lanc-filtro-setor-wrap');
   const filtroSelect = document.getElementById('lanc-filtro-setor');
@@ -641,8 +655,6 @@ async function renderItens() {
   const thead = document.getElementById('lanc-itens-thead');
   thead.innerHTML = `<tr>${multiSetor ? '<th>Setor</th>' : ''}<th>Unidade</th><th class="dfd-col-fixa-1">ID PAC</th><th class="dfd-col-fixa-2">Nº PAC</th>${colunasPrincipais.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}<th></th></tr>`;
 
-  const res = await fetch(`/api/pac/dfds/${_dfdAtualId}/itens`);
-  _itensAtuais = res.ok ? await res.json() : [];
   let itensExibidos = filtroSetorId ? _itensAtuais.filter(i => i.setor_id === filtroSetorId) : _itensAtuais;
 
   // Filtros adicionais — pedido do Alex, 2026-09-15: fonte pagadora, data
@@ -703,43 +715,30 @@ async function renderItens() {
   // quando NÃO estou restrito a nenhuma unidade — mesmo dado que já veio
   // junto com o DFD (ver GET /api/pac/dfds/:id, minhas_unidades_restritas).
   const souGestorPrincipal = !(_dfdAtual.minhas_unidades_restritas || []).length;
-  // Itens de OUTRO setor aguardando minha 1ª aprovação (hierarquia de 2
-  // aprovações) — além do card no topo da página (cross-DFD), pedido do
-  // Alex 2026-10-22: também precisam aparecer dentro da listagem do DFD
-  // aberto, não só ali. Linha compacta (não usa as colunas configuráveis —
-  // o item não é meu, não edito nem excluo, só aprovo/rejeito a 1ª etapa).
-  const linhasOrigemAqui = _aprovacoesOrigemPendentes
-    .filter(i => i.dfd_id === _dfdAtualId)
-    .map(i => `
-      <tr class="pac-item-origem-pendente" style="background:var(--laranja-bg,#fff7e6);">
-        <td colspan="${Math.max(colspan - 1, 1)}">
-          <span class="badge badge-analise" style="font-size:10px;">Aguardando sua 1ª aprovação</span>
-          <strong>${i.objeto || '—'}</strong> <span class="text-muted">(${i.codigo_pac || i.numero_pac || '—'})</span>
-          <span class="text-muted"> — setor de destino: ${i.setor_destino_nome || '—'} · lançado por ${i.criado_por_nome || i.criado_por_username || '—'}</span>
-        </td>
-        <td style="text-align:right;white-space:nowrap;">
-          <button class="btn btn-primary btn-xs" onclick="agirAprovacaoOrigem(${i.id}, true)">Aprovar</button>
-          <button class="btn btn-danger btn-xs" onclick="agirAprovacaoOrigem(${i.id}, false)">Rejeitar</button>
-        </td>
-      </tr>
-    `).join('');
-
   const tbody = document.getElementById('lanc-itens-tbody');
   const linhasNormais = itensExibidos.map(item => {
-    const liberado = _pedidosLiberados[item.id] || new Set();
+    // Item de outro setor, aguardando MINHA 1ª aprovação como gestor de
+    // origem (hierarquia de 2 aprovações) — veio junto na mesma lista (ver
+    // itensVisiveis, routes/pac.js), mas não é de nenhum setor meu. Pedido
+    // do Alex, 2026-10-22: precisa ter a MESMA cara de qualquer outra linha
+    // (mesmas colunas), só sem edição/exclusão — só aprovo/rejeito a 1ª etapa.
+    const itemEstranho = !_meusSetores.some(s => s.id === item.setor_id);
+    const liberado = itemEstranho ? new Set() : (_pedidosLiberados[item.id] || new Set());
     const setorFinalizado = !!_finalizacaoPorSetor[item.setor_id];
-    const podeExcluir = (_dfdAtual.status === 'aberto' && !setorFinalizado) || liberado.has('excluir');
+    const podeExcluir = !itemEstranho && ((_dfdAtual.status === 'aberto' && !setorFinalizado) || liberado.has('excluir'));
     // "análise" OU setor já finalizado (com DFD ainda aberto pros outros
     // setores) — nos dois casos, "fechado" não aceita nem pedido.
-    const podeSolicitar = _dfdAtual.status !== 'fechado' && (_dfdAtual.status === 'analise' || setorFinalizado);
+    const podeSolicitar = !itemEstranho && _dfdAtual.status !== 'fechado' && (_dfdAtual.status === 'analise' || setorFinalizado);
     // Item lançado por sub-gestor, ainda não aprovado pelo gestor principal
     // do setor — badge pra todo mundo, botões Aprovar/Rejeitar só pra quem
     // pode aprovar (pedido do Alex: "com indicação naquela linha, incluindo
     // aprovação deste gestor ou cancelamento").
     const pendenteAprovacao = item.aprovacao_subgestor === 'pendente';
     // Hierarquia de 2 aprovações (pedido do Alex, 2026-10-21): item ainda na
-    // 1ª etapa (gestor de ORIGEM do sub-gestor) não é meu pra agir ainda —
-    // só um aviso, sem botão, até ele passar pro meu setor de destino.
+    // 1ª etapa (gestor de ORIGEM do sub-gestor). Se é "estranho" (outro
+    // setor), sou EU o gestor de origem — ganho botão de ação aqui mesmo.
+    // Se é do meu próprio setor (destino), só um aviso, sem botão, até ele
+    // passar pela origem.
     const pendenteOrigem = item.aprovacao_subgestor === 'pendente_origem';
     // Setor com gestor único designado (ver setores.gestor_user_id, pedido
     // do Alex 2026-10-20) — só essa pessoa aprova; sem designado, mantém a
@@ -754,14 +753,20 @@ async function renderItens() {
     const linhaOrigem = veioDeOutroSetor
       ? `\nVeio de: ${item.setor_origem_nome || '—'}${item.aprovacao_origem_por_nome ? ` (aprovado por ${item.aprovacao_origem_por_nome})` : ''}`
       : '';
-    const tituloLancadoPor = (gestorDesteSetor && gestorDesteSetor === _meuUserId && item.criado_por !== _meuUserId)
+    const tituloLancadoPor = itemEstranho
+      ? ` title="Lançado por: ${(item.criado_por_nome || 'desconhecido').replace(/"/g, '&quot;')} — setor de destino: ${nomeSetorLanc(item.setor_id).replace(/"/g, '&quot;')}"`
+      : (gestorDesteSetor && gestorDesteSetor === _meuUserId && item.criado_por !== _meuUserId)
       ? ` title="Lançado por: ${(item.criado_por_nome || 'desconhecido').replace(/"/g, '&quot;')}${linhaOrigem.replace(/"/g, '&quot;')}"` : '';
     return `
-    <tr data-item-id="${item.id}">
+    <tr data-item-id="${item.id}"${itemEstranho ? ' class="pac-item-origem-pendente"' : ''}>
       ${multiSetor ? `<td data-label="Setor"${tituloLancadoPor}>${nomeSetorLanc(item.setor_id)}</td>` : ''}
       <td data-label="Unidade"${tituloLancadoPor}>${nomeUnidadeLanc(item.unidade_id)}${pendenteOrigem ? `
         <div style="margin-top:4px;">
-          <span class="badge badge-analise" style="font-size:10px;">Aguardando aprovação do setor de origem${item.setor_origem_nome ? ` (${item.setor_origem_nome})` : ''}</span>
+          <span class="badge badge-analise" style="font-size:10px;">${itemEstranho ? 'Aguardando sua 1ª aprovação' : `Aguardando aprovação do setor de origem${item.setor_origem_nome ? ` (${item.setor_origem_nome})` : ''}`}</span>
+          ${itemEstranho ? `
+            <button class="btn btn-primary btn-xs" style="margin-top:4px;" onclick="agirAprovacaoOrigem(${item.id}, true)">Aprovar</button>
+            <button class="btn btn-danger btn-xs" style="margin-top:4px;" onclick="agirAprovacaoOrigem(${item.id}, false)">Rejeitar</button>
+          ` : ''}
         </div>` : ''}${pendenteAprovacao ? `
         <div style="margin-top:4px;">
           <span class="badge badge-analise" style="font-size:10px;">Aguardando aprovação</span>
@@ -772,21 +777,21 @@ async function renderItens() {
         </div>` : ''}</td>
       <td class="dfd-col-fixa-1" data-label="ID PAC"${tituloLancadoPor}>${item.codigo_pac || '—'}</td>
       <td class="dfd-col-fixa-2" data-label="Nº PAC"${tituloLancadoPor}>${item.numero_pac || '—'}</td>
-      ${colunasPrincipais.map(c => renderCelula(item, c, -1, liberado)).join('')}
-      ${temColContrato ? renderCelulaContrato(item, colunasContrato) : ''}
+      ${colunasPrincipais.map(c => renderCelula(item, c, -1, liberado, itemEstranho)).join('')}
+      ${temColContrato ? (itemEstranho ? renderCelulaContratoSomenteLeitura(item) : renderCelulaContrato(item, colunasContrato)) : ''}
       <td style="text-align:right;white-space:nowrap;">
-        ${!itemEditavel(item, liberado) ? '' : itemTemPendencia(item)
+        ${itemEstranho ? '' : (!itemEditavel(item, liberado) ? '' : itemTemPendencia(item)
           ? `<button class="btn btn-primary btn-xs" onclick="concluirItem(${item.id})" title="Confere se falta algo e confirma">✅ Concluir</button>`
-          : `<span class="pac-item-completo" style="color:var(--verde,#2E7D32);font-size:12px;font-weight:600;white-space:nowrap;">✅ Completo</span>`}
+          : `<span class="pac-item-completo" style="color:var(--verde,#2E7D32);font-size:12px;font-weight:600;white-space:nowrap;">✅ Completo</span>`)}
         ${podeExcluir
           ? `<button class="btn btn-danger btn-xs" onclick="excluirItem(${item.id})">Excluir</button>`
           : (podeSolicitar ? `<button class="btn btn-secondary btn-xs" onclick="abrirPedido(${item.id}, 'excluir')">Solicitar exclusão</button>` : '')}
-        ${(!itemEditavel(item, liberado) && podeSolicitar)
+        ${(!itemEstranho && !itemEditavel(item, liberado) && podeSolicitar)
           ? `<button class="btn btn-secondary btn-xs" onclick="abrirPedido(${item.id}, 'editar')">Solicitar edição</button>` : ''}
       </td>
     </tr>`;
   }).join('');
-  tbody.innerHTML = linhasOrigemAqui + (linhasNormais || (linhasOrigemAqui ? '' : `<tr><td colspan="${colspan}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`));
+  tbody.innerHTML = linhasNormais || `<tr><td colspan="${colspan}" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item lançado ainda.</td></tr>`;
 
   wireCelulas();
   renderFormNovoItem();
@@ -859,10 +864,13 @@ function itemEditavel(item, liberado) {
   return _dfdAtual.status === 'aberto' && !_finalizacaoPorSetor[item.setor_id];
 }
 
-function renderCelula(item, coluna, indice, liberado) {
+function renderCelula(item, coluna, indice, liberado, forcarSomenteLeitura) {
   const classe = indice === 0 ? 'dfd-col-fixa-1' : indice === 1 ? 'dfd-col-fixa-2' : '';
   const valor = coluna.slug === 'numero_item' ? item.numero_item : item.valores[coluna.id];
-  const editavel = itemEditavel(item, liberado);
+  // forcarSomenteLeitura: item de outro setor (hierarquia de 2 aprovações,
+  // pedido do Alex 2026-10-22) — nunca editável, não importa o estado do
+  // DFD/setor, porque não é meu item pra mexer, só pra aprovar/rejeitar.
+  const editavel = !forcarSomenteLeitura && itemEditavel(item, liberado);
 
   if (coluna.tipo_input === 'auto') {
     return `<td class="${classe}" data-label="${coluna.label}">${valor ?? ''}</td>`;
