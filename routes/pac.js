@@ -1054,12 +1054,25 @@ function itensVisiveis(req, dfdId) {
     return db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND criado_por = ? AND (excluido_em IS NULL OR aprovacao_subgestor = 'rejeitado') ORDER BY criado_em DESC`).all(dfdId, req.user.user_id);
   }
   const meus = setoresDoUsuario(req.user.user_id);
-  if (!meus.length) return [];
+  // Itens de OUTRO setor, aguardando MINHA 1ª aprovação como gestor de
+  // ORIGEM de quem lançou (hierarquia de 2 aprovações, pedido do Alex,
+  // 2026-10-22: precisam aparecer na MESMA listagem, com as mesmas colunas
+  // — não só num resumo à parte). Mesmo filtro de GET
+  // /api/pac/aprovacoes-origem-pendentes, só que escopado a este DFD e
+  // devolvido junto (o front distingue pelo setor_id não estar em _meusSetores).
+  const meusSetoresOrigem = db.prepare(`SELECT id FROM setores WHERE gestor_user_id = ?`).all(req.user.user_id).map(s => s.id);
+  let itensOrigem = [];
+  if (meusSetoresOrigem.length) {
+    const ph2 = meusSetoresOrigem.map(() => '?').join(',');
+    itensOrigem = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND aprovacao_subgestor = 'pendente_origem' AND setor_origem_id IN (${ph2})`).all(dfdId, ...meusSetoresOrigem);
+  }
+  if (!meus.length) return itensOrigem;
   const ph = meus.map(() => '?').join(',');
   // Gestor de setor comum: vê TODOS os itens do(s) próprio(s) setor(es),
   // de qualquer unidade — inclusive os pendentes lançados por sub-gestor,
   // que é quem aprova/rejeita (ver PATCH .../aprovacao).
-  return db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND setor_id IN (${ph}) ORDER BY numero_item`).all(dfdId, ...meus);
+  const itensDoSetor = db.prepare(`SELECT * FROM dfd_itens WHERE dfd_id = ? AND excluido_em IS NULL AND setor_id IN (${ph}) ORDER BY numero_item`).all(dfdId, ...meus);
+  return [...itensOrigem, ...itensDoSetor];
 }
 
 router.get('/api/pac/dfds/:id/itens', pac, requireRotinaPac('ver'), (req, res) => {
