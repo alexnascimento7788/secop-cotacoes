@@ -93,7 +93,7 @@ function bootApp() {
   document.getElementById('nav-validacao').style.display = podeValidar ? '' : 'none';
   document.getElementById('nav-comunicados').style.display = podeComunicados ? '' : 'none';
   document.getElementById('nav-relatorios').style.display = podeRelatorios ? '' : 'none';
-  if (podeRelatorios) document.getElementById('rel-card-importar').style.display = caps.pode_importar_relatorios ? '' : 'none';
+  if (podeRelatorios) document.getElementById('rel-tab-importar').style.display = caps.pode_importar_relatorios ? '' : 'none';
 
   // Abas da validação
   document.querySelectorAll('#dp-tabs .page-tab').forEach(t => {

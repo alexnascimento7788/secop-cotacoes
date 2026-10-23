@@ -14,6 +14,16 @@ const CONTENT_W = PAGE_W - MARGIN * 2;
 const AZUL = rgb(0x1A / 255, 0x3F / 255, 0x6B / 255);
 const VERMELHO_PENDENTE = rgb(0xC0 / 255, 0x39 / 255, 0x2B / 255);
 const VERDE_OK = rgb(0x2E / 255, 0x7D / 255, 0x32 / 255);
+const AMBAR = rgb(0xB4 / 255, 0x6A / 255, 0x00 / 255);
+const CINZA_BORDA = rgb(0.8, 0.8, 0.8);
+
+// Mesmas 3 faixas usadas na tela (rel-pct-ok/rel-pct-baixo) — ≥80% verde,
+// 50–79% âmbar, <50% vermelho.
+function corPorPct(pct) {
+  if (pct >= 80) return VERDE_OK;
+  if (pct >= 50) return AMBAR;
+  return VERMELHO_PENDENTE;
+}
 
 function truncar(texto, font, size, maxWidth) {
   const t0 = String(texto ?? '');
@@ -77,7 +87,9 @@ class Escritor {
 }
 
 // Tabela simples (cabeçalho em negrito + linhas) — mesmo padrão de
-// desenharTabela em admin-pdf.js/pac-pdf.js.
+// desenharTabela em admin-pdf.js/pac-pdf.js. `linha.cor` colore a linha toda;
+// `linha.coresCol` (array, mesmo tamanho de cols) colore só células
+// específicas (usado no % de adesão — resto da linha fica em preto, sóbrio).
 function desenharTabela(w, negrito, regular, subtitulo, cols, linhas) {
   function cabecalhoTabela() {
     w.garantirEspaco(20);
@@ -92,11 +104,33 @@ function desenharTabela(w, negrito, regular, subtitulo, cols, linhas) {
     let x = MARGIN;
     cols.forEach((c, i) => {
       const texto = truncar(String(linha.valores[i]), regular, 8.5, c.w - 4);
-      w.page.drawText(texto, { x, y: w.y, size: 8.5, font: regular, color: linha.cor || c.cor || rgb(0, 0, 0) });
+      const cor = (linha.coresCol && linha.coresCol[i]) || linha.cor || c.cor || rgb(0, 0, 0);
+      const fonte = (linha.coresCol && linha.coresCol[i]) ? negrito : regular;
+      w.page.drawText(texto, { x, y: w.y, size: 8.5, font: fonte, color: cor });
       x += c.w;
     });
     w.y -= 15;
   });
+}
+
+// Capa: 4 caixas com número grande + label, 2x2 — mesmos 4 KPIs já exibidos
+// na tela (Total/Aceitaram/Pendentes/% Adesão), calculados globalmente.
+function desenharCardsCapa(w, negrito, regular, cards) {
+  const gap = 14;
+  const larguraCaixa = (CONTENT_W - gap) / 2;
+  const alturaCaixa = 64;
+  w.garantirEspaco(alturaCaixa * 2 + gap * 2);
+  const yInicio = w.y;
+  cards.forEach((card, i) => {
+    const col = i % 2, lin = Math.floor(i / 2);
+    const x = MARGIN + col * (larguraCaixa + gap);
+    const yTopo = yInicio - lin * (alturaCaixa + gap);
+    const yBase = yTopo - alturaCaixa;
+    w.page.drawRectangle({ x, y: yBase, width: larguraCaixa, height: alturaCaixa, borderColor: CINZA_BORDA, borderWidth: 1 });
+    w.page.drawText(card.label, { x: x + 14, y: yTopo - 22, size: 9.5, font: regular, color: rgb(0.4, 0.4, 0.4) });
+    w.page.drawText(String(card.valor), { x: x + 14, y: yBase + 16, size: 24, font: negrito, color: card.cor || AZUL });
+  });
+  w.y = yInicio - 2 * (alturaCaixa + gap) + gap;
 }
 
 function numerarPaginas(pdfDoc, regular) {
@@ -143,6 +177,13 @@ async function gerarPdfAdesaoRenovacao(dados, nomeGerador) {
   const w = new Escritor(pdfDoc, regular, negrito, logoImg);
   const subtituloPagina = 'Relatório de Adesão à Renovação';
 
+  // ── Capa: números gerais (soma de todos os prazos/cidades do filtro ativo) ──
+  const totalGeral = dados.grupos.reduce((acc, g) => ({
+    total: acc.total + g.total.total, aceitaram: acc.aceitaram + g.total.aceitaram,
+  }), { total: 0, aceitaram: 0 });
+  const pendentesGeral = totalGeral.total - totalGeral.aceitaram;
+  const pctGeral = totalGeral.total ? (totalGeral.aceitaram / totalGeral.total) * 100 : 0;
+
   w.novaPagina();
   w.cabecalho(subtituloPagina);
   w.titulo('Relatório de Adesão à Renovação — CEASA CONECTA');
@@ -153,14 +194,22 @@ async function gerarPdfAdesaoRenovacao(dados, nomeGerador) {
       `(${dados.importacao.total_linhas} linha(s), ${dados.importacao.nao_casados} sem contrato correspondente).`,
       8.5, rgb(0.5, 0.5, 0.5));
   }
-  w.espaco(6);
+  w.espaco(10);
+  desenharCardsCapa(w, negrito, regular, [
+    { label: 'Total de contratos', valor: totalGeral.total },
+    { label: 'Aceitaram', valor: totalGeral.aceitaram, cor: VERDE_OK },
+    { label: 'Pendentes', valor: pendentesGeral, cor: pendentesGeral > 0 ? VERMELHO_PENDENTE : VERDE_OK },
+    { label: '% Adesão geral', valor: `${pctGeral.toFixed(1)}%`, cor: corPorPct(pctGeral) },
+  ]);
 
+  // ── 1 página exclusiva por prazo — nunca começa no meio da anterior ──────
   dados.grupos.forEach(g => {
-    w.garantirEspaco(60);
+    w.novaPagina();
+    w.cabecalho(subtituloPagina);
     w.subtitulo(`Prazo final: ${g.prazo}`);
     const linhasCidade = g.cidades.map(c => ({
       valores: [c.cidade, c.total, c.aceitaram, c.pendentes, `${c.pct.toFixed(1)}%`],
-      cor: c.pendentes > 0 ? undefined : VERDE_OK,
+      coresCol: [undefined, undefined, undefined, undefined, corPorPct(c.pct)],
     }));
     desenharTabela(w, negrito, regular, `${subtituloPagina} (continuação)`, COLS_CIDADE, linhasCidade);
     w.espaco(4);
@@ -173,14 +222,25 @@ async function gerarPdfAdesaoRenovacao(dados, nomeGerador) {
     if (g.lista_pendentes.length) {
       w.garantirEspaco(30);
       w.paragrafo(`Concessionários pendentes (prazo ${g.prazo}):`, 9.5, VERMELHO_PENDENTE);
-      const linhasPend = g.lista_pendentes.map(p => ({
-        valores: [p.codigo, p.concessionario || '—', p.cnpj || '—', p.numero_ccu || '—'],
-      }));
-      desenharTabela(w, negrito, regular, `${subtituloPagina} (continuação)`, COLS_PENDENTES, linhasPend);
+      // Sub-cabeçalho por cidade — lista_pendentes já vem ordenada
+      // cidade→concessionário, só falta agrupar visualmente em blocos (sem
+      // repetir a coluna Cidade — a largura liberada vai pro Concessionário).
+      const blocosPorCidade = [];
+      g.lista_pendentes.forEach(p => {
+        const cidade = p.cidade || 'Sem cidade definida';
+        let bloco = blocosPorCidade[blocosPorCidade.length - 1];
+        if (!bloco || bloco.cidade !== cidade) { bloco = { cidade, itens: [] }; blocosPorCidade.push(bloco); }
+        bloco.itens.push(p);
+      });
+      blocosPorCidade.forEach(bloco => {
+        w.garantirEspaco(18);
+        w.paragrafo(`${bloco.cidade} (${bloco.itens.length})`, 9.5, AZUL);
+        const linhasPend = bloco.itens.map(p => ({ valores: [p.codigo, p.concessionario || '—', p.cnpj || '—', p.numero_ccu || '—'] }));
+        desenharTabela(w, negrito, regular, `${subtituloPagina} (continuação)`, COLS_PENDENTES, linhasPend);
+      });
     } else {
       w.paragrafo('Nenhum pendente — 100% de adesão neste prazo.', 9, VERDE_OK);
     }
-    w.linha();
   });
 
   w.page.drawText('CEASA CONECTA — Concessionários Renovação', { x: MARGIN, y: MARGIN - 28, size: 8.5, font: regular, color: rgb(0.6, 0.6, 0.6) });

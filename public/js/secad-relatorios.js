@@ -113,6 +113,15 @@ function _relMostrarSimulacao(r) {
   `;
 }
 
+// ── Sub-navegação do submódulo (Relatórios × Importar planilha) ─────────────
+
+function relTrocarSubview(nome) {
+  const ehImportar = nome === 'importar';
+  document.getElementById('rel-sub-painel').style.display = ehImportar ? 'none' : '';
+  document.getElementById('rel-sub-importar').style.display = ehImportar ? '' : 'none';
+  document.querySelectorAll('#rel-tabs .page-tab').forEach(t => t.classList.toggle('active', t.dataset.reltab === nome));
+}
+
 // ── Relatório ────────────────────────────────────────────────────────────────
 
 async function initRelatorios() {
@@ -167,24 +176,153 @@ function _relFmtDataHora(iso) {
 async function carregarRelatorioAdesao() {
   const info = document.getElementById('rel-base-info');
   const cont = document.getElementById('rel-conteudo');
+  const dashCard = document.getElementById('rel-dash-card');
   try {
     const res = await fetch(`/api/secad/relatorios/adesao?${_relParamsAtuais().toString()}`);
     if (res.status === 404) {
       info.textContent = '';
+      dashCard.style.display = 'none';
       cont.innerHTML = `<div class="card"><div style="padding:40px;text-align:center;color:var(--text-muted);">Nenhuma importação feita ainda.</div></div>`;
       return;
     }
     const dados = await res.json();
     info.textContent = `Base: importação #${dados.importacao.id} — "${dados.importacao.nome_arquivo || '—'}", ${_relFmtDataHora(dados.importacao.criado_em)}, ${dados.importacao.total_linhas} linha(s)${dados.importacao.nao_casados ? ` (${dados.importacao.nao_casados} sem contrato correspondente)` : ''}.`;
     if (!dados.grupos.length) {
+      dashCard.style.display = 'none';
       cont.innerHTML = `<div class="card"><div style="padding:40px;text-align:center;color:var(--text-muted);">Nenhum contrato no intervalo de prazo previsto (2027–2032) com os filtros atuais.</div></div>`;
       return;
     }
+    dashCard.style.display = '';
+    _relRenderDashboard(dados);
     cont.innerHTML = dados.grupos.map(_relRenderGrupo).join('');
   } catch {
     info.textContent = '';
+    dashCard.style.display = 'none';
     cont.innerHTML = `<div class="card"><div style="padding:40px;text-align:center;color:var(--vermelho);">Erro ao carregar o relatório.</div></div>`;
   }
+}
+
+// ── Painel interativo: velocímetro + pizza + timeline ───────────────────────
+// SVG na mão, sem lib — mesma convenção de detin-painel.js (donut) e
+// pac-lancamento.js (svgVelocimetro/svgPizzaMulti), duplicado aqui de
+// propósito (cada arquivo tem o seu, convenção já estabelecida no projeto).
+
+const PALETA_REL_CIDADE = ['#1A3F6B', '#C0392B', '#2E7D32', '#B46A00', '#6C5CE7', '#00897B', '#8D6E63', '#546E7A'];
+
+// Meio-círculo com 3 zonas fixas (vermelho/âmbar/verde) + ponteiro — cópia
+// adaptada de svgVelocimetro em public/js/pac-lancamento.js.
+function _relSvgVelocimetro(pct) {
+  const p = Math.max(0, Math.min(100, pct));
+  const raio = 44, cx = 50, cy = 50, L = Math.PI * raio;
+  const zonas = [
+    { ini: 0, fim: 50, cor: 'var(--vermelho)' },
+    { ini: 50, fim: 80, cor: 'var(--amarelo)' },
+    { ini: 80, fim: 100, cor: 'var(--verde)' },
+  ];
+  const arcoZona = z => {
+    const comp = (z.fim - z.ini) / 100 * L, offset = -(z.ini / 100 * L);
+    return `<path d="M 6 50 A ${raio} ${raio} 0 0 1 94 50" fill="none" stroke="${z.cor}" stroke-width="10"
+      stroke-dasharray="${comp.toFixed(1)} ${L.toFixed(1)}" stroke-dashoffset="${offset.toFixed(1)}"></path>`;
+  };
+  const theta = (180 - (p / 100) * 180) * Math.PI / 180;
+  const x2 = cx + 34 * Math.cos(theta), y2 = cy - 34 * Math.sin(theta);
+  return `<svg viewBox="0 0 100 68" width="200" height="136" style="flex-shrink:0;">
+    ${zonas.map(arcoZona).join('')}
+    <line x1="${cx}" y1="${cy}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round"></line>
+    <circle cx="${cx}" cy="${cy}" r="4" fill="var(--text)"></circle>
+    <text x="4" y="63" font-size="7" fill="var(--text-muted)">0%</text>
+    <text x="96" y="63" font-size="7" fill="var(--text-muted)" text-anchor="end">100%</text>
+    <text x="${cx}" y="42" font-size="16" font-weight="800" text-anchor="middle" fill="var(--text)">${p.toFixed(1)}%</text>
+  </svg>`;
+}
+
+// Pizza cheia (sem furo) por arco SVG — mesma matemática de svgArcoPizza em
+// detin-pdf.js/secad-relatorios-pdf.js, só que gerando o path pro browser.
+function _relSvgPizza(itens, valorFn, corFn, raio) {
+  const total = itens.reduce((s, it) => s + valorFn(it), 0) || 1;
+  const cx = raio, cy = raio;
+  let acumulado = 0;
+  const fatias = itens.map((it, i) => {
+    const frac = valorFn(it) / total;
+    const cor = corFn(it, i);
+    if (frac <= 0) return '';
+    if (frac >= 0.999) { return `<circle cx="${cx}" cy="${cy}" r="${raio}" fill="${cor}"></circle>`; }
+    const ang0 = (-90 + 360 * acumulado) * Math.PI / 180;
+    const ang1 = (-90 + 360 * (acumulado + frac)) * Math.PI / 180;
+    const x0 = cx + raio * Math.cos(ang0), y0 = cy + raio * Math.sin(ang0);
+    const x1 = cx + raio * Math.cos(ang1), y1 = cy + raio * Math.sin(ang1);
+    const largeArc = frac > 0.5 ? 1 : 0;
+    acumulado += frac;
+    return `<path d="M ${cx},${cy} L ${x0.toFixed(2)},${y0.toFixed(2)} A ${raio},${raio} 0 ${largeArc} 1 ${x1.toFixed(2)},${y1.toFixed(2)} Z" fill="${cor}"></path>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${raio * 2} ${raio * 2}" width="${raio * 2}" height="${raio * 2}" style="flex-shrink:0;">${fatias}</svg>`;
+}
+
+// Linha simples (sem lib) do % acumulado de aceites sobre o total elegível,
+// dia a dia — mostra se o ritmo de adesão está acelerando ou parado.
+function _relSvgTimeline(pontos, totalElegivel) {
+  if (!pontos.length || !totalElegivel) {
+    return `<div class="text-muted" style="font-size:12px;padding:30px 10px;text-align:center;">Ainda sem datas de aceite suficientes pra desenhar a evolução.</div>`;
+  }
+  const w = 640, h = 140, padL = 8, padR = 8, padT = 16, padB = 22;
+  let acumulado = 0;
+  const serie = pontos.map(p => { acumulado += p.quantidade; return { data: p.data, pct: (acumulado / totalElegivel) * 100 }; });
+  const n = serie.length;
+  const x = i => padL + (n > 1 ? (i / (n - 1)) * (w - padL - padR) : (w - padL - padR) / 2);
+  const y = pct => h - padB - (Math.min(100, pct) / 100) * (h - padT - padB);
+  const pts = serie.map((s, i) => `${x(i).toFixed(1)},${y(s.pct).toFixed(1)}`).join(' ');
+  const areaPath = `M ${x(0).toFixed(1)},${h - padB} L ${pts} L ${x(n - 1).toFixed(1)},${h - padB} Z`;
+  const fmtData = iso => { const [, m, d] = String(iso).split('-'); return `${d}/${m}`; };
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none">
+    <line x1="${padL}" y1="${h - padB}" x2="${w - padR}" y2="${h - padB}" stroke="var(--cinza-b)" stroke-width="1"></line>
+    <path d="${areaPath}" fill="var(--verde)" opacity="0.1"></path>
+    <polyline points="${pts}" fill="none" stroke="var(--verde)" stroke-width="2.5"></polyline>
+    <text x="${padL}" y="${h - 6}" font-size="9" fill="var(--text-muted)">${fmtData(serie[0].data)}</text>
+    <text x="${w - padR}" y="${h - 6}" font-size="9" fill="var(--text-muted)" text-anchor="end">${fmtData(serie[n - 1].data)}</text>
+    <text x="${padL}" y="${padT}" font-size="12" font-weight="700" fill="var(--text)">${serie[n - 1].pct.toFixed(1)}% acumulado</text>
+  </svg>`;
+}
+
+function _relRenderDashboard(dados) {
+  const totalGeral = dados.grupos.reduce((acc, g) => ({
+    total: acc.total + g.total.total, aceitaram: acc.aceitaram + g.total.aceitaram,
+  }), { total: 0, aceitaram: 0 });
+  const pctGeral = totalGeral.total ? (totalGeral.aceitaram / totalGeral.total) * 100 : 0;
+  document.getElementById('rel-gauge').innerHTML = _relSvgVelocimetro(pctGeral);
+
+  const pendentesPorCidade = new Map();
+  dados.grupos.forEach(g => g.cidades.forEach(c => {
+    if (!c.pendentes) return;
+    pendentesPorCidade.set(c.cidade, (pendentesPorCidade.get(c.cidade) || 0) + c.pendentes);
+  }));
+  const itensPizza = [...pendentesPorCidade.entries()].sort((a, b) => b[1] - a[1]).map(([cidade, qtd]) => ({ cidade, qtd }));
+  const elPizza = document.getElementById('rel-pizza');
+  if (!itensPizza.length) {
+    elPizza.innerHTML = `<div class="text-muted" style="font-size:12px;padding:30px 10px;text-align:center;">Nenhum pendente — 100% de adesão.</div>`;
+  } else {
+    const svg = _relSvgPizza(itensPizza, it => it.qtd, (it, i) => PALETA_REL_CIDADE[i % PALETA_REL_CIDADE.length], 56);
+    const legenda = itensPizza.map((it, i) => `
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px;margin-top:4px;">
+        <span style="width:10px;height:10px;border-radius:2px;background:${PALETA_REL_CIDADE[i % PALETA_REL_CIDADE.length]};display:inline-block;"></span>
+        ${it.cidade} — ${it.qtd}
+      </div>`).join('');
+    elPizza.innerHTML = `<div style="display:flex;gap:16px;align-items:center;justify-content:center;flex-wrap:wrap;">${svg}<div>${legenda}</div></div>`;
+  }
+
+  document.getElementById('rel-timeline').innerHTML = _relSvgTimeline(dados.evolucao || [], totalGeral.total);
+}
+
+// lista_pendentes já vem ordenada cidade→concessionário (montarRelatorioAdesao)
+// — só falta agrupar em blocos consecutivos pro sub-cabeçalho visual.
+function _relAgruparPorCidade(lista) {
+  const blocos = [];
+  lista.forEach(p => {
+    const cidade = p.cidade || 'Sem cidade definida';
+    let bloco = blocos[blocos.length - 1];
+    if (!bloco || bloco.cidade !== cidade) { bloco = { cidade, itens: [] }; blocos.push(bloco); }
+    bloco.itens.push(p);
+  });
+  return blocos;
 }
 
 function _relRenderGrupo(g) {
@@ -194,8 +332,9 @@ function _relRenderGrupo(g) {
       <td>${c.cidade}</td><td>${c.total}</td><td>${c.aceitaram}</td><td>${c.pendentes}</td>
       <td class="${classePct(c.pct)}">${c.pct.toFixed(1)}%</td>
     </tr>`).join('');
-  const linhasPendentes = g.lista_pendentes.map(p => `
-    <tr><td>${p.codigo}</td><td>${p.concessionario}</td><td>${p.cnpj}</td><td>${p.numero_ccu}</td><td>${p.cidade}</td></tr>
+  const linhasPendentes = _relAgruparPorCidade(g.lista_pendentes).map(bloco => `
+    <tr class="rel-subcab"><td colspan="4">${bloco.cidade} (${bloco.itens.length})</td></tr>
+    ${bloco.itens.map(p => `<tr><td>${p.codigo}</td><td>${p.concessionario}</td><td>${p.cnpj}</td><td>${p.numero_ccu}</td></tr>`).join('')}
   `).join('');
   return `
     <div class="card" style="margin-bottom:16px;">
@@ -217,7 +356,7 @@ function _relRenderGrupo(g) {
         <summary style="cursor:pointer;font-size:13px;color:var(--text-muted);">Ver ${g.lista_pendentes.length} concessionário(s) pendente(s)</summary>
         <div class="table-wrap" style="margin-top:10px;">
           <table class="rel-grupo-cidades">
-            <thead><tr><th>Código</th><th>Concessionário</th><th>CNPJ</th><th>CCU</th><th>Cidade</th></tr></thead>
+            <thead><tr><th>Código</th><th>Concessionário</th><th>CNPJ</th><th>CCU</th></tr></thead>
             <tbody>${linhasPendentes}</tbody>
           </table>
         </div>
