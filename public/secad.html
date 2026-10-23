@@ -188,6 +188,16 @@
       #dp-print .dp-paper { box-shadow: none; border-radius: 0; max-width: 100%; margin: 0; padding: 16mm 15mm; page-break-after: always; }
       #dp-print .dp-paper:last-child { page-break-after: auto; }
     }
+
+    /* ── Relatórios (adesão à renovação) — dropzone igual pac-importacao.html ── */
+    .imp-dropzone {
+      border: 2px dashed var(--cinza-b); border-radius: 10px; padding: 28px; text-align: center;
+      cursor: pointer; color: var(--text-muted); font-size: 13px; transition: border-color .15s;
+    }
+    .imp-dropzone.drag-over { border-color: var(--verde); color: var(--text); }
+    .rel-grupo-cidades td, .rel-grupo-cidades th { padding: 6px 10px; font-size: 13px; }
+    .rel-pct-ok { color: var(--verde); font-weight: 600; }
+    .rel-pct-baixo { color: var(--vermelho); font-weight: 600; }
   </style>
 </head>
 <body data-modulo="secad">
@@ -211,6 +221,10 @@
       <a href="#" id="nav-comunicados" class="nav-item" onclick="mostrarView('comunicados');return false;" style="display:none;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H5.17L4 17.17z"/><path d="M8 9h8"/><path d="M8 12h5"/></svg>
         Comunicados
+      </a>
+      <a href="#" id="nav-relatorios" class="nav-item" onclick="mostrarView('relatorios');return false;" style="display:none;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
+        Relatórios
       </a>
     </nav>
     <div class="sidebar-footer">
@@ -353,6 +367,51 @@
         <div id="dpc-lista"></div>
       </div>
      </div><!-- /view-comunicados -->
+
+     <!-- ═══ VIEW: Relatórios (adesão à renovação) ═══ -->
+     <div id="view-relatorios" style="display:none;">
+
+      <!-- Importação da planilha (só master/admin_sistema) -->
+      <div class="card" id="rel-card-importar" style="display:none;margin-bottom:16px;">
+        <div class="card-header"><span class="card-title">📥 Importar planilha de aceites</span></div>
+        <div style="padding:14px 16px;">
+          <p class="text-muted" style="font-size:12.5px;margin-bottom:12px;">
+            Colunas esperadas: <strong>Codigo</strong>, <strong>CpfCnpj</strong>, <strong>NumContrato</strong>, <strong>DataAceite</strong>.
+            Cada importação vira um lote novo — nada do histórico é apagado.
+          </p>
+          <div class="imp-dropzone" id="rel-dropzone" onclick="document.getElementById('rel-file-input').click()">
+            <span id="rel-dropzone-texto">Clique ou arraste o arquivo aqui (.xlsx)</span>
+            <input type="file" id="rel-file-input" accept=".xlsx,.xls" style="display:none" onchange="relArquivoSelecionado(this.files[0])">
+          </div>
+          <div style="margin-top:12px;display:flex;gap:10px;">
+            <button class="btn btn-secondary" id="rel-btn-simular" disabled onclick="relImportar(true)">🔍 Simular (sem gravar)</button>
+            <button class="btn btn-primary" id="rel-btn-confirmar" style="display:none;" onclick="relImportar(false)">Importar de verdade</button>
+          </div>
+          <div id="rel-import-msg" class="pac-msg" style="margin-top:10px;"></div>
+          <div id="rel-import-preview" style="margin-top:12px;display:none;"></div>
+        </div>
+      </div>
+
+      <!-- Filtros + ações -->
+      <div class="card" style="margin-bottom:16px;">
+        <div style="padding:14px 16px;">
+          <div class="filters">
+            <select id="rel-filtro-importacao" class="filter-select"></select>
+            <select id="rel-filtro-prazo" class="filter-select">
+              <option value="">Todos os prazos</option>
+              <option value="30/10/2026">Prazo 30/10/2026</option>
+              <option value="18/12/2026">Prazo 18/12/2026</option>
+            </select>
+            <select id="rel-filtro-cidade" class="filter-select"><option value="">Todas as cidades</option></select>
+            <button class="btn btn-secondary btn-sm" onclick="carregarRelatorioAdesao()">🔄 Atualizar</button>
+            <button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="baixarPdfAdesao()">🖨️ Gerar PDF</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="rel-base-info" class="text-muted" style="font-size:12px;margin-bottom:10px;"></div>
+      <div id="rel-conteudo"></div>
+     </div><!-- /view-relatorios -->
 
     </div>
     <div id="app-footer"></div>
@@ -504,5 +563,6 @@
 <script src="js/pwa.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/secad.js"></script>
+<script src="js/secad-relatorios.js"></script>
 </body>
 </html>

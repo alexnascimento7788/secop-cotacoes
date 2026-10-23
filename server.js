@@ -254,6 +254,10 @@ app.use(require('./routes/secop'));
 // Rotas do SECAD (ex-Depop) — ver routes/secad.js
 app.use(require('./routes/secad'));
 
+// Relatórios de adesão à renovação (importação de planilha + indicadores) —
+// ver routes/secad-relatorios.js
+app.use(require('./routes/secad-relatorios'));
+
 // Rotas do PAC/DEPLA (DFD) — ver routes/pac.js
 app.use(require('./routes/pac'));
 

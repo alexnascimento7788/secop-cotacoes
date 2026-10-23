@@ -81,13 +81,19 @@ async function initSecad() {
 }
 
 function bootApp() {
-  const caps = estado.caps || { is_master: false, pode_validar: true, pode_comunicados: false };
+  const caps = estado.caps || { is_master: false, pode_validar: true, pode_comunicados: false, pode_relatorios: false };
   const podeValidar = caps.is_master || caps.pode_validar;
   const podeComunicados = caps.is_master || caps.pode_comunicados;
+  // pode_relatorios NÃO cai no "is_master ||" pros outros dois — na real cai
+  // sim, master sempre vê tudo; é só a role 'consulta' que fica de fora (ver
+  // secadCaps em routes/secad.js).
+  const podeRelatorios = caps.is_master || caps.pode_relatorios;
 
-  // Sidebar: mostra Validação e/ou Comunicados conforme capacidade.
+  // Sidebar: mostra Validação e/ou Comunicados/Relatórios conforme capacidade.
   document.getElementById('nav-validacao').style.display = podeValidar ? '' : 'none';
   document.getElementById('nav-comunicados').style.display = podeComunicados ? '' : 'none';
+  document.getElementById('nav-relatorios').style.display = podeRelatorios ? '' : 'none';
+  if (podeRelatorios) document.getElementById('rel-card-importar').style.display = caps.pode_importar_relatorios ? '' : 'none';
 
   // Abas da validação
   document.querySelectorAll('#dp-tabs .page-tab').forEach(t => {
@@ -106,18 +112,25 @@ function bootApp() {
   mostrarView(podeValidar ? 'validacao' : 'comunicados');
 }
 
-// Alterna entre as duas seções (sidebar): Concessionários Renovação × Comunicados.
+// Alterna entre as 3 seções (sidebar): Concessionários Renovação × Comunicados × Relatórios.
 function mostrarView(view) {
   const ehCom = view === 'comunicados';
-  document.getElementById('view-validacao').style.display = ehCom ? 'none' : '';
+  const ehRel = view === 'relatorios';
+  const ehVal = !ehCom && !ehRel;
+  document.getElementById('view-validacao').style.display = ehVal ? '' : 'none';
   document.getElementById('view-comunicados').style.display = ehCom ? '' : 'none';
-  document.getElementById('nav-validacao').classList.toggle('active', !ehCom);
+  document.getElementById('view-relatorios').style.display = ehRel ? '' : 'none';
+  document.getElementById('nav-validacao').classList.toggle('active', ehVal);
   document.getElementById('nav-comunicados').classList.toggle('active', ehCom);
-  document.getElementById('dp-page-title').textContent = ehCom ? 'Comunicados' : 'Concessionários Renovação';
-  document.getElementById('dp-page-subtitle').textContent = ehCom
-    ? 'Setor de Cadastro · Departamento de Operações · CEASAMINAS'
-    : 'Conferência do Setor de Cadastro · CEASAMINAS';
+  document.getElementById('nav-relatorios').classList.toggle('active', ehRel);
+  document.getElementById('dp-page-title').textContent = ehRel ? 'Relatórios' : (ehCom ? 'Comunicados' : 'Concessionários Renovação');
+  document.getElementById('dp-page-subtitle').textContent = ehRel
+    ? 'Adesão à renovação · Setor de Cadastro · CEASAMINAS'
+    : (ehCom
+      ? 'Setor de Cadastro · Departamento de Operações · CEASAMINAS'
+      : 'Conferência do Setor de Cadastro · CEASAMINAS');
   if (ehCom) carregarComunicados();
+  if (ehRel) initRelatorios();
 }
 
 function trocarAba(aba) {

@@ -467,8 +467,14 @@ function setupDb() {
       ['secop', 'processos',      'Processos',    2, 'ver,incluir,alterar,excluir'],
       ['secop', 'cotacao',        'Cotação',      3, 'ver,incluir,alterar,excluir'],
       ['secop', 'fornecedores',   'Fornecedores', 4, 'ver,incluir,alterar,excluir'],
-      ['secad', 'validacao',      'Concessionários Renovação', 1, 'ver,incluir,alterar'],
-      ['secad', 'comunicados',    'Comunicados',               2, 'ver,incluir,alterar'],
+      ['secad', 'validacao',           'Concessionários Renovação', 1, 'ver,incluir,alterar'],
+      ['secad', 'comunicados',         'Comunicados',                2, 'ver,incluir,alterar'],
+      // Relatório de adesão à renovação — uso executivo, acesso restrito via
+      // esta rotina mesma (sem reaproveitar secad_cidade_usuarios, que é
+      // escopo específico da rotina 'comunicados' — confirmado com o Alex,
+      // 2026-10-23). Importar a planilha é à parte, gateado por role
+      // master/admin_sistema, ver routes/secad-relatorios.js.
+      ['secad', 'relatorios-renovacao', 'Relatórios',                 3, 'ver'],
       // "Concessionários Cadastro" NÃO é rotina do secad — é um MÓDULO próprio
       // (ver seed logo abaixo, junto de pac/detin), mesmo departamento (Depop).
       ['concessionarios-cadastro', 'consulta', 'Consulta', 1, 'ver'],
@@ -750,6 +756,36 @@ function setupDb() {
       cidade_id INTEGER NOT NULL,
       UNIQUE (user_id, cidade_id),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+
+  // ── Depop/Relatórios: lotes de importação do Excel de adesão à renovação ────
+  // Pedido do Alex, 2026-10-23: planilha (Codigo/CpfCnpj/NumContrato/DataAceite,
+  // gerada por ele via query no CORPORE) casada por (codigo, numero_ccu) com
+  // depop.db/AvaliacaoAreaRenovacao. Mora aqui (secop.db) pelo mesmo motivo de
+  // sempre — depop.db é só leitura/re-sincronizável, liga só por convenção de
+  // valor, nunca FK entre arquivos. Importação NUNCA é destrutiva: cada upload
+  // vira um lote novo (nenhuma linha antiga é apagada); "importação atual" é
+  // sempre MAX(id) de renovacao_aceites_importacao, mas um lote anterior pode
+  // ser reaberto pra relatório/comparação a qualquer momento.
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS renovacao_aceites_importacao (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome_arquivo  TEXT,
+      total_linhas  INTEGER NOT NULL,
+      nao_casados   INTEGER NOT NULL DEFAULT 0,
+      importado_por INTEGER REFERENCES users(id),
+      criado_em     DATETIME NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS renovacao_aceites (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      importacao_id  INTEGER NOT NULL REFERENCES renovacao_aceites_importacao(id),
+      codigo         INTEGER NOT NULL,
+      cnpj           TEXT,
+      numero_ccu     TEXT NOT NULL,
+      data_aceite    TEXT
     );
   `);
 
