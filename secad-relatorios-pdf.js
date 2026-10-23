@@ -17,6 +17,17 @@ const VERDE_OK = rgb(0x2E / 255, 0x7D / 255, 0x32 / 255);
 const AMBAR = rgb(0xB4 / 255, 0x6A / 255, 0x00 / 255);
 const CINZA_BORDA = rgb(0.8, 0.8, 0.8);
 
+// Versão bem clara de uma cor, pra usar como fundo de caixa/linha sem
+// competir com o texto em cima — mistura com branco (fator 0 = cor pura,
+// 1 = branco puro).
+function tintClaro(cor, fator = 0.9) {
+  return rgb(
+    cor.red + (1 - cor.red) * fator,
+    cor.green + (1 - cor.green) * fator,
+    cor.blue + (1 - cor.blue) * fator,
+  );
+}
+
 // Mesmas 3 faixas usadas na tela (rel-pct-ok/rel-pct-baixo) — ≥80% verde,
 // 50–79% âmbar, <50% vermelho.
 function corPorPct(pct) {
@@ -114,11 +125,14 @@ function desenharTabela(w, negrito, regular, subtitulo, cols, linhas) {
 }
 
 // Capa: 4 caixas com número grande + label, 2x2 — mesmos 4 KPIs já exibidos
-// na tela (Total/Aceitaram/Pendentes/% Adesão), calculados globalmente.
+// na tela (Total/Aceitaram/Pendentes/% Adesão), calculados globalmente. Fundo
+// com tingimento bem claro da cor do KPI + barra de destaque no topo, pra dar
+// alguma identidade visual sem fugir do tom sóbrio/executivo.
 function desenharCardsCapa(w, negrito, regular, cards) {
   const gap = 14;
   const larguraCaixa = (CONTENT_W - gap) / 2;
-  const alturaCaixa = 64;
+  const alturaCaixa = 68;
+  const barraH = 4;
   w.garantirEspaco(alturaCaixa * 2 + gap * 2);
   const yInicio = w.y;
   cards.forEach((card, i) => {
@@ -126,11 +140,73 @@ function desenharCardsCapa(w, negrito, regular, cards) {
     const x = MARGIN + col * (larguraCaixa + gap);
     const yTopo = yInicio - lin * (alturaCaixa + gap);
     const yBase = yTopo - alturaCaixa;
+    const cor = card.cor || AZUL;
+    w.page.drawRectangle({ x, y: yBase, width: larguraCaixa, height: alturaCaixa, color: tintClaro(cor, 0.93) });
+    w.page.drawRectangle({ x, y: yTopo - barraH, width: larguraCaixa, height: barraH, color: cor });
     w.page.drawRectangle({ x, y: yBase, width: larguraCaixa, height: alturaCaixa, borderColor: CINZA_BORDA, borderWidth: 1 });
-    w.page.drawText(card.label, { x: x + 14, y: yTopo - 22, size: 9.5, font: regular, color: rgb(0.4, 0.4, 0.4) });
-    w.page.drawText(String(card.valor), { x: x + 14, y: yBase + 16, size: 24, font: negrito, color: card.cor || AZUL });
+    w.page.drawText(card.label, { x: x + 16, y: yTopo - 26, size: 9.5, font: regular, color: rgb(0.4, 0.4, 0.4) });
+    w.page.drawText(String(card.valor), { x: x + 16, y: yBase + 16, size: 26, font: negrito, color: cor });
   });
   w.y = yInicio - 2 * (alturaCaixa + gap) + gap;
+}
+
+// Legenda das 3 faixas de % de adesão (mesmos limiares de corPorPct) —
+// contexto rápido de leitura pra quem recebe o relatório impresso.
+function desenharLegendaFaixas(w, regular) {
+  const itens = [
+    { cor: VERDE_OK, texto: '80% ou mais — adesão alta' },
+    { cor: AMBAR, texto: '50% a 79% — atenção' },
+    { cor: VERMELHO_PENDENTE, texto: 'abaixo de 50% — crítico' },
+  ];
+  w.garantirEspaco(14);
+  let x = MARGIN;
+  itens.forEach(it => {
+    w.page.drawRectangle({ x, y: w.y - 7, width: 9, height: 9, color: it.cor });
+    w.page.drawText(it.texto, { x: x + 14, y: w.y - 6, size: 8.5, font: regular, color: rgb(0.4, 0.4, 0.4) });
+    x += 14 + regular.widthOfTextAtSize(it.texto, 8.5) + 22;
+  });
+  w.y -= 20;
+}
+
+// Tabela de resumo da capa — cabeçalho com fundo + linhas zebradas + colunas
+// numéricas alinhadas à direita. Visual mais executivo que a tabela simples
+// (desenharTabela) usada no detalhe por prazo/cidade.
+const COLS_RESUMO = [
+  { label: 'Prazo final', w: 160, alinhar: 'esq' },
+  { label: 'Total', w: 80, alinhar: 'dir' },
+  { label: 'Aceitaram', w: 100, alinhar: 'dir' },
+  { label: 'Pendentes', w: 100, alinhar: 'dir' },
+  { label: '% Adesão', w: 83, alinhar: 'dir' },
+];
+function desenharResumoPrazo(w, negrito, regular, grupos) {
+  const alturaLinha = 24;
+  const larguraTotal = COLS_RESUMO.reduce((s, c) => s + c.w, 0);
+  w.garantirEspaco(alturaLinha * (grupos.length + 1) + 6);
+
+  // Cada linha (cabeçalho ou dado) é desenhada com o mesmo pivô: `fundo`
+  // pinta o retângulo da linha ANTES do texto, com w.y marcando a posição
+  // da baseline do texto, sempre 8pt acima do fundo da linha — consistente
+  // entre cabeçalho e dados, nada de offset calculado 2x.
+  function linha(valores, size, fonteCol0, fonteResto, cores, corFundo) {
+    if (corFundo) w.page.drawRectangle({ x: MARGIN, y: w.y - 8, width: larguraTotal, height: alturaLinha, color: corFundo });
+    let x = MARGIN;
+    COLS_RESUMO.forEach((c, idx) => {
+      const texto = String(valores[idx]);
+      const font = idx === 0 ? fonteCol0 : fonteResto;
+      const largura = font.widthOfTextAtSize(texto, size);
+      const xFinal = c.alinhar === 'dir' ? x + c.w - 10 - largura : x + 10;
+      w.page.drawText(texto, { x: xFinal, y: w.y, size, font, color: cores[idx] });
+      x += c.w;
+    });
+    w.y -= alturaLinha;
+  }
+
+  linha(COLS_RESUMO.map(c => c.label), 9, negrito, negrito, COLS_RESUMO.map(() => AZUL), tintClaro(AZUL, 0.9));
+  grupos.forEach((g, i) => {
+    const valores = [g.prazo, g.total.total, g.total.aceitaram, g.total.pendentes, `${g.total.pct.toFixed(1)}%`];
+    const cores = [rgb(0, 0, 0), rgb(0, 0, 0), VERDE_OK, g.total.pendentes > 0 ? VERMELHO_PENDENTE : VERDE_OK, corPorPct(g.total.pct)];
+    linha(valores, 9.5, regular, negrito, cores, i % 2 === 1 ? rgb(0.97, 0.97, 0.97) : null);
+  });
 }
 
 function numerarPaginas(pdfDoc, regular) {
@@ -186,7 +262,9 @@ async function gerarPdfAdesaoRenovacao(dados, nomeGerador) {
 
   w.novaPagina();
   w.cabecalho(subtituloPagina);
-  w.titulo('Relatório de Adesão à Renovação — CEASA CONECTA');
+  w.titulo('Relatório de Adesão à Renovação — CEASA CONECTA', 16);
+  w.page.drawRectangle({ x: MARGIN, y: w.y + 10, width: 46, height: 3, color: AZUL });
+  w.espaco(6);
   w.paragrafo(`Gerado em ${dataHojeBr()} por ${nomeGerador}.`, 9);
   if (dados.importacao) {
     w.paragrafo(
@@ -194,7 +272,7 @@ async function gerarPdfAdesaoRenovacao(dados, nomeGerador) {
       `(${dados.importacao.total_linhas} linha(s), ${dados.importacao.nao_casados} sem contrato correspondente).`,
       8.5, rgb(0.5, 0.5, 0.5));
   }
-  w.espaco(10);
+  w.espaco(12);
   desenharCardsCapa(w, negrito, regular, [
     { label: 'Total de contratos', valor: totalGeral.total },
     { label: 'Aceitaram', valor: totalGeral.aceitaram, cor: VERDE_OK },
@@ -208,15 +286,11 @@ async function gerarPdfAdesaoRenovacao(dados, nomeGerador) {
   // public/js/secad-relatorios.js pro equivalente na tela.
 
   // ── Resumo por prazo (visão geral antes do detalhe página a página) ──────
-  w.espaco(10);
+  w.espaco(16);
   w.subtitulo('Resumo por prazo final');
-  desenharTabela(w, negrito, regular, `${subtituloPagina} (continuação)`, [
-    { label: 'Prazo final', w: 120 }, { label: 'Total', w: 90 }, { label: 'Aceitaram', w: 110 },
-    { label: 'Pendentes', w: 110 }, { label: '% Adesão', w: 73 },
-  ], dados.grupos.map(g => ({
-    valores: [g.prazo, g.total.total, g.total.aceitaram, g.total.pendentes, `${g.total.pct.toFixed(1)}%`],
-    coresCol: [undefined, undefined, undefined, undefined, corPorPct(g.total.pct)],
-  })));
+  desenharResumoPrazo(w, negrito, regular, dados.grupos);
+  w.espaco(6);
+  desenharLegendaFaixas(w, regular);
 
   // ── 1 página exclusiva por prazo — nunca começa no meio da anterior ──────
   dados.grupos.forEach(g => {
