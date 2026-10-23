@@ -151,8 +151,11 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeId) {
 
   // Reconciliação — sempre sobre o universo TOTAL (ignora os filtros de
   // prazo/cidade da tela), pra responder "os números fecham?" de forma
-  // auditável: planilha → casados/não casados → contratos ativos → quantos
-  // caem fora do intervalo de prazo previsto (2027–2032) e por quê.
+  // auditável: planilha → casados/não casados → contratos ativos. NINGUÉM
+  // fica de fora do total (precisa bater com a plataforma de contrato) — os
+  // sem prazo previsto (2027–2032) viram grupo próprio "Fora do prazo
+  // previsto" lá embaixo, em vez de sumir da conta.
+  const SEM_PRAZO = 'Fora do prazo previsto';
   const foraDoPrazo = [];
   contratos.forEach(c => {
     const ano = parseInt(String(c.data_vencimento || '').slice(0, 4), 10);
@@ -165,9 +168,8 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeId) {
     nao_casados_planilha: importacao.nao_casados,
     casados_planilha: importacao.total_linhas - importacao.nao_casados,
     total_contratos_ativos: contratos.length,
-    contratos_no_relatorio: contratos.length - foraDoPrazo.length,
-    contratos_fora_do_prazo: foraDoPrazo.length,
-    contratos_fora_do_prazo_detalhe: foraDoPrazo,
+    contratos_sem_prazo_previsto: foraDoPrazo.length,
+    contratos_sem_prazo_previsto_detalhe: foraDoPrazo,
   };
 
   // grupo[prazo] -> cidade[nome] -> {total, aceitaram, pendentes[]}
@@ -175,8 +177,7 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeId) {
   const datasAceiteFiltro = []; // alimenta "evolucao" — só dos contratos que passaram no filtro
   contratos.forEach(c => {
     const ano = parseInt(String(c.data_vencimento || '').slice(0, 4), 10);
-    const prazo = prazoFinalAdesao(ano);
-    if (!prazo) return; // fora do intervalo previsto — não entra no relatório
+    const prazo = prazoFinalAdesao(ano) || SEM_PRAZO;
     if (filtroPrazo && prazo !== filtroPrazo) return;
     if (filtroCidadeId && c.id_cidade !== filtroCidadeId) return;
     const cidadeNome = c.cidade || 'Sem cidade definida';
@@ -209,7 +210,7 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeId) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([data, quantidade]) => ({ data, quantidade }));
 
-  const ORDEM_PRAZO = ['30/10/2026', '18/12/2026'];
+  const ORDEM_PRAZO = ['30/10/2026', '18/12/2026', SEM_PRAZO];
   const grupos = [...porPrazo.entries()]
     .sort(([a], [b]) => ORDEM_PRAZO.indexOf(a) - ORDEM_PRAZO.indexOf(b))
     .map(([prazo, porCidade]) => {

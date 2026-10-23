@@ -292,22 +292,24 @@ function _relSvgTimeline(pontos, totalElegivel) {
 }
 
 // Responde "os números fecham?" de forma auditável — planilha → casados →
-// contratos ativos → quantos entram no relatório e por quê os outros ficam
-// de fora. Calculado no backend (reconciliacao), sempre sobre o universo
-// total, independente do filtro de prazo/cidade ativo na tela.
+// contratos ativos. O Total do painel SEMPRE bate com total_contratos_ativos
+// (nada fica de fora da conta — precisa bater com a plataforma de contrato);
+// quem não tem prazo previsto vira grupo próprio "Fora do prazo previsto"
+// mais abaixo, em vez de sumir. Calculado no backend (reconciliacao), sempre
+// sobre o universo total, independente do filtro de prazo/cidade ativo.
 function _relRenderReconciliacao(dados) {
   const r = dados.reconciliacao;
   const imp = dados.importacao;
   const base = `Base: importação #${imp.id} — "${imp.nome_arquivo || '—'}", ${_relFmtDataHora(imp.criado_em)}.`;
   const linha1 = `${r.total_linhas_planilha} linha(s) na planilha → ${r.casados_planilha} casaram com um contrato` +
     (r.nao_casados_planilha ? ` (${r.nao_casados_planilha} sem correspondência)` : '') + '.';
-  const linha2 = `Dos ${r.total_contratos_ativos} contrato(s) ativos, ${r.contratos_no_relatorio} estão no intervalo de prazo previsto (2027–2032) e aparecem no relatório abaixo.`;
-  const detalheFora = r.contratos_fora_do_prazo ? `
+  const linha2 = `Total de contratos ativos: ${r.total_contratos_ativos} — é esse número que deve bater com a plataforma de contrato.`;
+  const detalheFora = r.contratos_sem_prazo_previsto ? `
     <details style="margin-top:4px;">
-      <summary style="cursor:pointer;">${r.contratos_fora_do_prazo} contrato(s) ficam de fora do relatório (vencimento fora do intervalo) — ver quais</summary>
+      <summary style="cursor:pointer;">${r.contratos_sem_prazo_previsto} contrato(s) sem prazo previsto definido (vencimento fora de 2027–2032) — ver quais</summary>
       <table class="rel-grupo-cidades" style="margin-top:6px;">
         <thead><tr><th>Código</th><th>Concessionário</th><th>CCU</th><th>Vencimento</th></tr></thead>
-        <tbody>${r.contratos_fora_do_prazo_detalhe.map(c => `<tr><td>${c.codigo}</td><td>${c.concessionario}</td><td>${c.numero_ccu}</td><td>${c.data_vencimento}</td></tr>`).join('')}</tbody>
+        <tbody>${r.contratos_sem_prazo_previsto_detalhe.map(c => `<tr><td>${c.codigo}</td><td>${c.concessionario}</td><td>${c.numero_ccu}</td><td>${c.data_vencimento}</td></tr>`).join('')}</tbody>
       </table>
     </details>` : '';
   return `<div class="text-muted" style="font-size:12px;line-height:1.6;">${base}<br>${linha1}<br>${linha2}${detalheFora}</div>`;
@@ -368,7 +370,7 @@ function _relRenderGrupo(g) {
   `).join('');
   return `
     <div class="card" style="margin-bottom:16px;">
-      <div class="card-header"><span class="card-title">Prazo final: ${g.prazo}</span></div>
+      <div class="card-header"><span class="card-title">${g.prazo === 'Fora do prazo previsto' ? g.prazo : `Prazo final: ${g.prazo}`}</span></div>
       <div class="cards-grid" style="padding:14px 16px 0;">
         <div class="card" style="box-shadow:none;border:1px solid var(--cinza-b);"><div style="padding:14px;"><div class="text-muted" style="font-size:11px;text-transform:uppercase;">Total</div><div style="font-size:22px;font-weight:700;">${g.total.total}</div></div></div>
         <div class="card" style="box-shadow:none;border:1px solid var(--cinza-b);"><div style="padding:14px;"><div class="text-muted" style="font-size:11px;text-transform:uppercase;">Aceitaram</div><div style="font-size:22px;font-weight:700;color:var(--verde);">${g.total.aceitaram}</div></div></div>

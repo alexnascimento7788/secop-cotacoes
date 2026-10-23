@@ -209,10 +209,10 @@ async function gerarPdfAdesaoRenovacao(dados, nomeGerador) {
     w.subtitulo('De onde vêm esses números');
     w.paragrafo(`${r.total_linhas_planilha} linha(s) na planilha importada -> ${r.casados_planilha} casaram com um contrato existente` +
       (r.nao_casados_planilha ? ` (${r.nao_casados_planilha} sem contrato correspondente)` : '') + '.', 9.5);
-    w.paragrafo(`Dos ${r.total_contratos_ativos} contrato(s) ativos em Avaliação de Renovação, ${r.contratos_no_relatorio} estão dentro do intervalo de prazo previsto (2027–2032) e compõem este relatório.`, 9.5);
-    if (r.contratos_fora_do_prazo) {
-      w.paragrafo(`${r.contratos_fora_do_prazo} contrato(s) ficam de fora por terem vencimento fora desse intervalo:`, 9.5, rgb(0.5, 0.5, 0.5));
-      const linhasFora = r.contratos_fora_do_prazo_detalhe.map(c => ({
+    w.paragrafo(`Total de contratos ativos em Avaliação de Renovação: ${r.total_contratos_ativos} (esse é o número que deve bater com a plataforma de contrato).`, 9.5);
+    if (r.contratos_sem_prazo_previsto) {
+      w.paragrafo(`${r.contratos_sem_prazo_previsto} contrato(s) sem prazo previsto definido (vencimento fora de 2027–2032) - aparecem agrupados à parte, na última página:`, 9.5, rgb(0.5, 0.5, 0.5));
+      const linhasFora = r.contratos_sem_prazo_previsto_detalhe.map(c => ({
         valores: [c.codigo, c.concessionario, c.numero_ccu, c.data_vencimento],
       }));
       desenharTabela(w, negrito, regular, `${subtituloPagina} (continuação)`, [
@@ -236,7 +236,7 @@ async function gerarPdfAdesaoRenovacao(dados, nomeGerador) {
   dados.grupos.forEach(g => {
     w.novaPagina();
     w.cabecalho(subtituloPagina);
-    w.subtitulo(`Prazo final: ${g.prazo}`);
+    w.subtitulo(g.prazo === 'Fora do prazo previsto' ? g.prazo : `Prazo final: ${g.prazo}`);
     const linhasCidade = g.cidades.map(c => ({
       valores: [c.cidade, c.total, c.aceitaram, c.pendentes, `${c.pct.toFixed(1)}%`],
       coresCol: [undefined, undefined, undefined, undefined, corPorPct(c.pct)],
@@ -251,7 +251,7 @@ async function gerarPdfAdesaoRenovacao(dados, nomeGerador) {
 
     if (g.lista_pendentes.length) {
       w.garantirEspaco(30);
-      w.paragrafo(`Concessionários pendentes (prazo ${g.prazo}):`, 9.5, VERMELHO_PENDENTE);
+      w.paragrafo(g.prazo === 'Fora do prazo previsto' ? 'Concessionários pendentes (sem prazo previsto definido):' : `Concessionários pendentes (prazo ${g.prazo}):`, 9.5, VERMELHO_PENDENTE);
       // Sub-cabeçalho por cidade — lista_pendentes já vem ordenada
       // cidade→concessionário, só falta agrupar visualmente em blocos (sem
       // repetir a coluna Cidade — a largura liberada vai pro Concessionário).
