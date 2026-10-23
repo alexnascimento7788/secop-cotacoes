@@ -169,16 +169,24 @@ function perfilFerramenta(req) {
 // da flag "ver" do Perfil do usuário nas rotinas validacao/comunicados — quem
 // não tem "ver" numa delas nem enxerga aquela seção na tela.
 function secadCaps(req) {
-  if (req.user.username === 'master') return { is_master: true, is_consulta: false, pode_validar: true, pode_comunicados: true };
-  if (req.user.role === 'consulta') return { is_master: false, is_consulta: true, pode_validar: true, pode_comunicados: true };
-  if (!req.user.perfil_id) return { is_master: false, is_consulta: false, pode_validar: false, pode_comunicados: false };
+  // pode_relatorios: NÃO entra no bloco "consulta" como validacao/comunicados
+  // entram — pedido do Alex, 2026-10-23: "a parte de relatório é executiva, e
+  // não será liberada para todos" — só quem tiver a rotina explicitamente
+  // (ou master) vê, mesmo quem já é role 'consulta' pro resto do módulo.
+  // pode_importar_relatorios: importar a planilha é ferramenta de admin (ver
+  // requireAdminGlobal em routes/secad-relatorios.js), ortogonal à rotina —
+  // só master/admin_sistema, mesmo sem a rotina 'relatorios-renovacao'.
+  const podeImportar = req.user.username === 'master' || req.user.role === 'admin_sistema';
+  if (req.user.username === 'master') return { is_master: true, is_consulta: false, pode_validar: true, pode_comunicados: true, pode_relatorios: true, pode_importar_relatorios: podeImportar };
+  if (req.user.role === 'consulta') return { is_master: false, is_consulta: true, pode_validar: true, pode_comunicados: true, pode_relatorios: false, pode_importar_relatorios: podeImportar };
+  if (!req.user.perfil_id) return { is_master: false, is_consulta: false, pode_validar: false, pode_comunicados: false, pode_relatorios: false, pode_importar_relatorios: podeImportar };
   const rows = db.prepare(`
     SELECT r.slug, pr.ver
     FROM perfil_rotinas pr JOIN rotinas r ON r.id = pr.rotina_id
-    WHERE pr.perfil_id = ? AND r.slug IN ('validacao', 'comunicados')
+    WHERE pr.perfil_id = ? AND r.slug IN ('validacao', 'comunicados', 'relatorios-renovacao')
   `).all(req.user.perfil_id);
   const mapa = Object.fromEntries(rows.map(r => [r.slug, !!r.ver]));
-  return { is_master: false, is_consulta: false, pode_validar: !!mapa.validacao, pode_comunicados: !!mapa.comunicados };
+  return { is_master: false, is_consulta: false, pode_validar: !!mapa.validacao, pode_comunicados: !!mapa.comunicados, pode_relatorios: !!mapa['relatorios-renovacao'], pode_importar_relatorios: podeImportar };
 }
 
 // Trava ativa (com ping recente) de um contrato, ou null se livre/abandonada.
