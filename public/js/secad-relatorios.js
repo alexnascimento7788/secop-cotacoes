@@ -186,7 +186,7 @@ async function carregarRelatorioAdesao() {
       return;
     }
     const dados = await res.json();
-    info.textContent = `Base: importação #${dados.importacao.id} — "${dados.importacao.nome_arquivo || '—'}", ${_relFmtDataHora(dados.importacao.criado_em)}, ${dados.importacao.total_linhas} linha(s)${dados.importacao.nao_casados ? ` (${dados.importacao.nao_casados} sem contrato correspondente)` : ''}.`;
+    info.innerHTML = _relRenderReconciliacao(dados);
     if (!dados.grupos.length) {
       dashCard.style.display = 'none';
       cont.innerHTML = `<div class="card"><div style="padding:40px;text-align:center;color:var(--text-muted);">Nenhum contrato no intervalo de prazo previsto (2027–2032) com os filtros atuais.</div></div>`;
@@ -225,14 +225,16 @@ function _relSvgVelocimetro(pct) {
       stroke-dasharray="${comp.toFixed(1)} ${L.toFixed(1)}" stroke-dashoffset="${offset.toFixed(1)}"></path>`;
   };
   const theta = (180 - (p / 100) * 180) * Math.PI / 180;
-  const x2 = cx + 34 * Math.cos(theta), y2 = cy - 34 * Math.sin(theta);
-  return `<svg viewBox="0 0 100 68" width="200" height="136" style="flex-shrink:0;">
+  // Ponteiro mais curto que o raio do arco (24, não 34) — sobra uma faixa
+  // livre entre a ponta dele e o número grande abaixo, nunca cruzam.
+  const x2 = cx + 24 * Math.cos(theta), y2 = cy - 24 * Math.sin(theta);
+  return `<svg viewBox="0 0 100 86" width="220" height="189" style="flex-shrink:0;">
     ${zonas.map(arcoZona).join('')}
     <line x1="${cx}" y1="${cy}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round"></line>
     <circle cx="${cx}" cy="${cy}" r="4" fill="var(--text)"></circle>
-    <text x="4" y="63" font-size="7" fill="var(--text-muted)">0%</text>
-    <text x="96" y="63" font-size="7" fill="var(--text-muted)" text-anchor="end">100%</text>
-    <text x="${cx}" y="42" font-size="16" font-weight="800" text-anchor="middle" fill="var(--text)">${p.toFixed(1)}%</text>
+    <text x="4" y="62" font-size="7" fill="var(--text-muted)">0%</text>
+    <text x="96" y="62" font-size="7" fill="var(--text-muted)" text-anchor="end">100%</text>
+    <text x="${cx}" y="81" font-size="22" font-weight="800" text-anchor="middle" fill="var(--text)">${p.toFixed(1)}%</text>
   </svg>`;
 }
 
@@ -264,23 +266,51 @@ function _relSvgTimeline(pontos, totalElegivel) {
   if (!pontos.length || !totalElegivel) {
     return `<div class="text-muted" style="font-size:12px;padding:30px 10px;text-align:center;">Ainda sem datas de aceite suficientes pra desenhar a evolução.</div>`;
   }
-  const w = 640, h = 140, padL = 8, padR = 8, padT = 16, padB = 22;
+  const w = 640, h = 160, padL = 8, padR = 8, padT = 28, padB = 24;
   let acumulado = 0;
   const serie = pontos.map(p => { acumulado += p.quantidade; return { data: p.data, pct: (acumulado / totalElegivel) * 100 }; });
   const n = serie.length;
+  // Eixo Y ajustado à faixa real dos dados (não fixo 0–100%) — senão, com
+  // adesão ainda baixa, a linha fica espremida lá embaixo e o gráfico parece
+  // vazio. Sempre inclui 0% como piso (é de onde a curva parte).
+  const maxPct = Math.max(...serie.map(s => s.pct), 1);
+  const tetoEixo = Math.min(100, Math.ceil((maxPct * 1.15) / 5) * 5);
   const x = i => padL + (n > 1 ? (i / (n - 1)) * (w - padL - padR) : (w - padL - padR) / 2);
-  const y = pct => h - padB - (Math.min(100, pct) / 100) * (h - padT - padB);
+  const y = pct => h - padB - (Math.max(0, Math.min(tetoEixo, pct)) / tetoEixo) * (h - padT - padB);
   const pts = serie.map((s, i) => `${x(i).toFixed(1)},${y(s.pct).toFixed(1)}`).join(' ');
   const areaPath = `M ${x(0).toFixed(1)},${h - padB} L ${pts} L ${x(n - 1).toFixed(1)},${h - padB} Z`;
   const fmtData = iso => { const [, m, d] = String(iso).split('-'); return `${d}/${m}`; };
-  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none">
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="xMidYMid meet">
     <line x1="${padL}" y1="${h - padB}" x2="${w - padR}" y2="${h - padB}" stroke="var(--cinza-b)" stroke-width="1"></line>
-    <path d="${areaPath}" fill="var(--verde)" opacity="0.1"></path>
+    <path d="${areaPath}" fill="var(--verde)" opacity="0.12"></path>
     <polyline points="${pts}" fill="none" stroke="var(--verde)" stroke-width="2.5"></polyline>
+    <circle cx="${x(n - 1).toFixed(1)}" cy="${y(serie[n - 1].pct).toFixed(1)}" r="3.5" fill="var(--verde)"></circle>
     <text x="${padL}" y="${h - 6}" font-size="9" fill="var(--text-muted)">${fmtData(serie[0].data)}</text>
     <text x="${w - padR}" y="${h - 6}" font-size="9" fill="var(--text-muted)" text-anchor="end">${fmtData(serie[n - 1].data)}</text>
-    <text x="${padL}" y="${padT}" font-size="12" font-weight="700" fill="var(--text)">${serie[n - 1].pct.toFixed(1)}% acumulado</text>
+    <text x="${padL}" y="18" font-size="13" font-weight="700" fill="var(--text)">${serie[n - 1].pct.toFixed(1)}% acumulado</text>
   </svg>`;
+}
+
+// Responde "os números fecham?" de forma auditável — planilha → casados →
+// contratos ativos → quantos entram no relatório e por quê os outros ficam
+// de fora. Calculado no backend (reconciliacao), sempre sobre o universo
+// total, independente do filtro de prazo/cidade ativo na tela.
+function _relRenderReconciliacao(dados) {
+  const r = dados.reconciliacao;
+  const imp = dados.importacao;
+  const base = `Base: importação #${imp.id} — "${imp.nome_arquivo || '—'}", ${_relFmtDataHora(imp.criado_em)}.`;
+  const linha1 = `${r.total_linhas_planilha} linha(s) na planilha → ${r.casados_planilha} casaram com um contrato` +
+    (r.nao_casados_planilha ? ` (${r.nao_casados_planilha} sem correspondência)` : '') + '.';
+  const linha2 = `Dos ${r.total_contratos_ativos} contrato(s) ativos, ${r.contratos_no_relatorio} estão no intervalo de prazo previsto (2027–2032) e aparecem no relatório abaixo.`;
+  const detalheFora = r.contratos_fora_do_prazo ? `
+    <details style="margin-top:4px;">
+      <summary style="cursor:pointer;">${r.contratos_fora_do_prazo} contrato(s) ficam de fora do relatório (vencimento fora do intervalo) — ver quais</summary>
+      <table class="rel-grupo-cidades" style="margin-top:6px;">
+        <thead><tr><th>Código</th><th>Concessionário</th><th>CCU</th><th>Vencimento</th></tr></thead>
+        <tbody>${r.contratos_fora_do_prazo_detalhe.map(c => `<tr><td>${c.codigo}</td><td>${c.concessionario}</td><td>${c.numero_ccu}</td><td>${c.data_vencimento}</td></tr>`).join('')}</tbody>
+      </table>
+    </details>` : '';
+  return `<div class="text-muted" style="font-size:12px;line-height:1.6;">${base}<br>${linha1}<br>${linha2}${detalheFora}</div>`;
 }
 
 function _relRenderDashboard(dados) {
@@ -300,7 +330,7 @@ function _relRenderDashboard(dados) {
   if (!itensPizza.length) {
     elPizza.innerHTML = `<div class="text-muted" style="font-size:12px;padding:30px 10px;text-align:center;">Nenhum pendente — 100% de adesão.</div>`;
   } else {
-    const svg = _relSvgPizza(itensPizza, it => it.qtd, (it, i) => PALETA_REL_CIDADE[i % PALETA_REL_CIDADE.length], 56);
+    const svg = _relSvgPizza(itensPizza, it => it.qtd, (it, i) => PALETA_REL_CIDADE[i % PALETA_REL_CIDADE.length], 50);
     const legenda = itensPizza.map((it, i) => `
       <div style="display:flex;align-items:center;gap:6px;font-size:12px;margin-top:4px;">
         <span style="width:10px;height:10px;border-radius:2px;background:${PALETA_REL_CIDADE[i % PALETA_REL_CIDADE.length]};display:inline-block;"></span>
