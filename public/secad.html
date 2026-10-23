@@ -198,6 +198,20 @@
     .rel-grupo-cidades td, .rel-grupo-cidades th { padding: 6px 10px; font-size: 13px; }
     .rel-pct-ok { color: var(--verde); font-weight: 600; }
     .rel-pct-baixo { color: var(--vermelho); font-weight: 600; }
+    .rel-grupo-cidades tr.rel-subcab td {
+      padding: 10px 10px 4px; font-weight: 700; font-size: 12px; color: var(--text-muted);
+      text-transform: none; border-top: 1px solid var(--cinza-b);
+    }
+    #rel-tabs { margin-bottom: 16px; }
+    .rel-dash-grid {
+      display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto auto;
+      gap: 18px; padding: 16px;
+    }
+    .rel-dash-item-wide { grid-column: 1 / -1; }
+    .rel-dash-titulo { font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; }
+    .rel-dash-item { display: flex; flex-direction: column; align-items: center; }
+    .rel-dash-item-wide { align-items: stretch; }
+    @media (max-width: 760px) { .rel-dash-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body data-modulo="secad">
@@ -371,46 +385,78 @@
      <!-- ═══ VIEW: Relatórios (adesão à renovação) ═══ -->
      <div id="view-relatorios" style="display:none;">
 
-      <!-- Importação da planilha (só master/admin_sistema) -->
-      <div class="card" id="rel-card-importar" style="display:none;margin-bottom:16px;">
-        <div class="card-header"><span class="card-title">📥 Importar planilha de aceites</span></div>
-        <div style="padding:14px 16px;">
-          <p class="text-muted" style="font-size:12.5px;margin-bottom:12px;">
-            Colunas esperadas: <strong>Codigo</strong>, <strong>CpfCnpj</strong>, <strong>NumContrato</strong>, <strong>DataAceite</strong>.
-            Cada importação vira um lote novo — nada do histórico é apagado.
-          </p>
-          <div class="imp-dropzone" id="rel-dropzone" onclick="document.getElementById('rel-file-input').click()">
-            <span id="rel-dropzone-texto">Clique ou arraste o arquivo aqui (.xlsx)</span>
-            <input type="file" id="rel-file-input" accept=".xlsx,.xls" style="display:none" onchange="relArquivoSelecionado(this.files[0])">
-          </div>
-          <div style="margin-top:12px;display:flex;gap:10px;">
-            <button class="btn btn-secondary" id="rel-btn-simular" disabled onclick="relImportar(true)">🔍 Simular (sem gravar)</button>
-            <button class="btn btn-primary" id="rel-btn-confirmar" style="display:none;" onclick="relImportar(false)">Importar de verdade</button>
-          </div>
-          <div id="rel-import-msg" class="pac-msg" style="margin-top:10px;"></div>
-          <div id="rel-import-preview" style="margin-top:12px;display:none;"></div>
-        </div>
+      <div class="page-tabs" id="rel-tabs">
+        <button class="page-tab active" data-reltab="painel" onclick="relTrocarSubview('painel')">📊 Relatórios</button>
+        <button class="page-tab" id="rel-tab-importar" data-reltab="importar" onclick="relTrocarSubview('importar')" style="display:none;">📥 Importar planilha</button>
       </div>
 
-      <!-- Filtros + ações -->
-      <div class="card" style="margin-bottom:16px;">
-        <div style="padding:14px 16px;">
-          <div class="filters">
-            <select id="rel-filtro-importacao" class="filter-select"></select>
-            <select id="rel-filtro-prazo" class="filter-select">
-              <option value="">Todos os prazos</option>
-              <option value="30/10/2026">Prazo 30/10/2026</option>
-              <option value="18/12/2026">Prazo 18/12/2026</option>
-            </select>
-            <select id="rel-filtro-cidade" class="filter-select"><option value="">Todas as cidades</option></select>
-            <button class="btn btn-secondary btn-sm" onclick="carregarRelatorioAdesao()">🔄 Atualizar</button>
-            <button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="baixarPdfAdesao()">🖨️ Gerar PDF</button>
-          </div>
-        </div>
-      </div>
+      <!-- ── Sub-aba: Relatórios (dashboard) ── -->
+      <div id="rel-sub-painel">
 
-      <div id="rel-base-info" class="text-muted" style="font-size:12px;margin-bottom:10px;"></div>
-      <div id="rel-conteudo"></div>
+       <!-- Filtros + ações -->
+       <div class="card" style="margin-bottom:16px;">
+         <div style="padding:14px 16px;">
+           <div class="filters">
+             <select id="rel-filtro-importacao" class="filter-select"></select>
+             <select id="rel-filtro-prazo" class="filter-select">
+               <option value="">Todos os prazos</option>
+               <option value="30/10/2026">Prazo 30/10/2026</option>
+               <option value="18/12/2026">Prazo 18/12/2026</option>
+             </select>
+             <select id="rel-filtro-cidade" class="filter-select"><option value="">Todas as cidades</option></select>
+             <button class="btn btn-secondary btn-sm" onclick="carregarRelatorioAdesao()">🔄 Atualizar</button>
+             <button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="baixarPdfAdesao()">🖨️ Gerar PDF</button>
+           </div>
+         </div>
+       </div>
+
+       <div id="rel-base-info" class="text-muted" style="font-size:12px;margin-bottom:10px;"></div>
+
+       <!-- Painel interativo: velocímetro + pizza (pendentes por cidade) + timeline -->
+       <div class="card" id="rel-dash-card" style="margin-bottom:16px;">
+         <div class="card-header"><span class="card-title">📈 Panorama</span></div>
+         <div class="rel-dash-grid">
+           <div class="rel-dash-item">
+             <div class="rel-dash-titulo">% Adesão geral</div>
+             <div id="rel-gauge"></div>
+           </div>
+           <div class="rel-dash-item">
+             <div class="rel-dash-titulo">Pendentes por cidade</div>
+             <div id="rel-pizza"></div>
+           </div>
+           <div class="rel-dash-item rel-dash-item-wide">
+             <div class="rel-dash-titulo">Evolução dos aceites</div>
+             <div id="rel-timeline"></div>
+           </div>
+         </div>
+       </div>
+
+       <div id="rel-conteudo"></div>
+      </div><!-- /rel-sub-painel -->
+
+      <!-- ── Sub-aba: Importar planilha (só master/admin_sistema) ── -->
+      <div id="rel-sub-importar" style="display:none;">
+       <div class="card" id="rel-card-importar" style="margin-bottom:16px;">
+         <div class="card-header"><span class="card-title">📥 Importar planilha de aceites</span></div>
+         <div style="padding:14px 16px;">
+           <p class="text-muted" style="font-size:12.5px;margin-bottom:12px;">
+             Colunas esperadas: <strong>Codigo</strong>, <strong>CpfCnpj</strong>, <strong>NumContrato</strong>, <strong>DataAceite</strong>.
+             Cada importação vira um lote novo — nada do histórico é apagado.
+           </p>
+           <div class="imp-dropzone" id="rel-dropzone" onclick="document.getElementById('rel-file-input').click()">
+             <span id="rel-dropzone-texto">Clique ou arraste o arquivo aqui (.xlsx)</span>
+             <input type="file" id="rel-file-input" accept=".xlsx,.xls" style="display:none" onchange="relArquivoSelecionado(this.files[0])">
+           </div>
+           <div style="margin-top:12px;display:flex;gap:10px;">
+             <button class="btn btn-secondary" id="rel-btn-simular" disabled onclick="relImportar(true)">🔍 Simular (sem gravar)</button>
+             <button class="btn btn-primary" id="rel-btn-confirmar" style="display:none;" onclick="relImportar(false)">Importar de verdade</button>
+           </div>
+           <div id="rel-import-msg" class="pac-msg" style="margin-top:10px;"></div>
+           <div id="rel-import-preview" style="margin-top:12px;display:none;"></div>
+         </div>
+       </div>
+      </div><!-- /rel-sub-importar -->
+
      </div><!-- /view-relatorios -->
 
     </div>

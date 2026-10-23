@@ -151,6 +151,7 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeId) {
 
   // grupo[prazo] -> cidade[nome] -> {total, aceitaram, pendentes[]}
   const porPrazo = new Map();
+  const datasAceiteFiltro = []; // alimenta "evolucao" — só dos contratos que passaram no filtro
   contratos.forEach(c => {
     const ano = parseInt(String(c.data_vencimento || '').slice(0, 4), 10);
     const prazo = prazoFinalAdesao(ano);
@@ -161,6 +162,7 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeId) {
     const chave = `${c.codigo}|${normalizarCcu(c.numero_ccu)}`;
     const dataAceite = mapaAceite.get(chave);
     const aceitou = !!dataAceite;
+    if (aceitou) datasAceiteFiltro.push(dataAceite);
 
     if (!porPrazo.has(prazo)) porPrazo.set(prazo, new Map());
     const porCidade = porPrazo.get(prazo);
@@ -173,6 +175,18 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeId) {
       numero_ccu: c.numero_ccu || '—', cidade: cidadeNome,
     });
   });
+
+  // Evolução dos aceites por data (dentro do filtro ativo) — alimenta o
+  // gráfico de timeline na tela; o front soma pra montar a curva acumulada
+  // (não precisa de rota própria, usa o mesmo total já calculado abaixo).
+  const porData = new Map();
+  datasAceiteFiltro.forEach(d => {
+    const data = String(d).slice(0, 10);
+    porData.set(data, (porData.get(data) || 0) + 1);
+  });
+  const evolucao = [...porData.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([data, quantidade]) => ({ data, quantidade }));
 
   const ORDEM_PRAZO = ['30/10/2026', '18/12/2026'];
   const grupos = [...porPrazo.entries()]
@@ -197,7 +211,7 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeId) {
       };
     });
 
-  return { importacao, grupos };
+  return { importacao, grupos, evolucao };
 }
 
 router.get('/api/secad/relatorios/adesao', secad, requireRelatoriosVer, (req, res) => {
