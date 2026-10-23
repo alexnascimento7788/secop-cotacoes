@@ -202,24 +202,10 @@ async function gerarPdfAdesaoRenovacao(dados, nomeGerador) {
     { label: '% Adesão geral', valor: `${pctGeral.toFixed(1)}%`, cor: corPorPct(pctGeral) },
   ]);
 
-  // ── Reconciliação: responde "os números fecham?" — mesma lógica da tela ──
-  const r = dados.reconciliacao;
-  if (r) {
-    w.espaco(14);
-    w.subtitulo('De onde vêm esses números');
-    w.paragrafo(`${r.total_linhas_planilha} linha(s) na planilha importada -> ${r.casados_planilha} casaram com um contrato existente` +
-      (r.nao_casados_planilha ? ` (${r.nao_casados_planilha} sem contrato correspondente)` : '') + '.', 9.5);
-    w.paragrafo(`Total de contratos ativos em Avaliação de Renovação: ${r.total_contratos_ativos} (esse é o número que deve bater com a plataforma de contrato).`, 9.5);
-    if (r.contratos_sem_prazo_previsto) {
-      w.paragrafo(`${r.contratos_sem_prazo_previsto} contrato(s) sem prazo previsto definido (vencimento fora de 2027–2032) - aparecem agrupados à parte, na última página:`, 9.5, rgb(0.5, 0.5, 0.5));
-      const linhasFora = r.contratos_sem_prazo_previsto_detalhe.map(c => ({
-        valores: [c.codigo, c.concessionario, c.numero_ccu, c.data_vencimento],
-      }));
-      desenharTabela(w, negrito, regular, `${subtituloPagina} (continuação)`, [
-        { label: 'Código', w: 60 }, { label: 'Concessionário', w: 240 }, { label: 'CCU', w: 110 }, { label: 'Vencimento', w: 93 },
-      ], linhasFora);
-    }
-  }
+  // Reconciliação ("de onde vêm esses números") é só da TELA — o Alex foi
+  // explícito: o PDF é o relatório executivo, não leva esse texto de
+  // metodologia/auditoria. Ver `_relRenderReconciliacao` em
+  // public/js/secad-relatorios.js pro equivalente na tela.
 
   // ── Resumo por prazo (visão geral antes do detalhe página a página) ──────
   w.espaco(10);
