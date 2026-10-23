@@ -149,6 +149,27 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeId) {
     LEFT JOIN ClienteConcessionario cli ON cli.codigo = a.codigo
   `).all().filter(a => !removidos.has(a.codigo));
 
+  // Reconciliação — sempre sobre o universo TOTAL (ignora os filtros de
+  // prazo/cidade da tela), pra responder "os números fecham?" de forma
+  // auditável: planilha → casados/não casados → contratos ativos → quantos
+  // caem fora do intervalo de prazo previsto (2027–2032) e por quê.
+  const foraDoPrazo = [];
+  contratos.forEach(c => {
+    const ano = parseInt(String(c.data_vencimento || '').slice(0, 4), 10);
+    if (!prazoFinalAdesao(ano)) {
+      foraDoPrazo.push({ codigo: c.codigo, numero_ccu: c.numero_ccu || '—', concessionario: c.cliente || '—', data_vencimento: c.data_vencimento || '—' });
+    }
+  });
+  const reconciliacao = {
+    total_linhas_planilha: importacao.total_linhas,
+    nao_casados_planilha: importacao.nao_casados,
+    casados_planilha: importacao.total_linhas - importacao.nao_casados,
+    total_contratos_ativos: contratos.length,
+    contratos_no_relatorio: contratos.length - foraDoPrazo.length,
+    contratos_fora_do_prazo: foraDoPrazo.length,
+    contratos_fora_do_prazo_detalhe: foraDoPrazo,
+  };
+
   // grupo[prazo] -> cidade[nome] -> {total, aceitaram, pendentes[]}
   const porPrazo = new Map();
   const datasAceiteFiltro = []; // alimenta "evolucao" — só dos contratos que passaram no filtro
@@ -211,7 +232,7 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeId) {
       };
     });
 
-  return { importacao, grupos, evolucao };
+  return { importacao, grupos, evolucao, reconciliacao };
 }
 
 router.get('/api/secad/relatorios/adesao', secad, requireRelatoriosVer, (req, res) => {
