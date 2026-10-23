@@ -198,6 +198,12 @@
     .rel-grupo-cidades td, .rel-grupo-cidades th { padding: 6px 10px; font-size: 13px; }
     .rel-pct-ok { color: var(--verde); font-weight: 600; }
     .rel-pct-baixo { color: var(--vermelho); font-weight: 600; }
+    .rel-badge {
+      display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .3px;
+      padding: 1px 6px; border-radius: 3px; vertical-align: middle; margin-left: 4px;
+    }
+    .rel-badge-removido { background: #6c757d; color: #fff; }
+    .rel-badge-teste { background: #6C5CE7; color: #fff; }
     .rel-grupo-cidades tr.rel-subcab td {
       padding: 10px 10px 4px; font-weight: 700; font-size: 12px; color: var(--text-muted);
       text-transform: none; border-top: 1px solid var(--cinza-b);
@@ -412,6 +418,7 @@
        </div>
 
        <div id="rel-base-info" class="text-muted" style="font-size:12px;margin-bottom:10px;"></div>
+       <div id="rel-destaques" style="margin-bottom:16px;"></div>
 
        <!-- Painel interativo: velocímetro + pizza (pendentes por cidade) + timeline -->
        <div class="card" id="rel-dash-card" style="margin-bottom:16px;">

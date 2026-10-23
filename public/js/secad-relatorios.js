@@ -175,18 +175,21 @@ function _relFmtDataHora(iso) {
 
 async function carregarRelatorioAdesao() {
   const info = document.getElementById('rel-base-info');
+  const destaques = document.getElementById('rel-destaques');
   const cont = document.getElementById('rel-conteudo');
   const dashCard = document.getElementById('rel-dash-card');
   try {
     const res = await fetch(`/api/secad/relatorios/adesao?${_relParamsAtuais().toString()}`);
     if (res.status === 404) {
       info.textContent = '';
+      destaques.innerHTML = '';
       dashCard.style.display = 'none';
       cont.innerHTML = `<div class="card"><div style="padding:40px;text-align:center;color:var(--text-muted);">Nenhuma importação feita ainda.</div></div>`;
       return;
     }
     const dados = await res.json();
     info.innerHTML = _relRenderReconciliacao(dados);
+    destaques.innerHTML = _relRenderDestaques(dados);
     if (!dados.grupos.length) {
       dashCard.style.display = 'none';
       cont.innerHTML = `<div class="card"><div style="padding:40px;text-align:center;color:var(--text-muted);">Nenhum contrato no intervalo de prazo previsto (2027–2032) com os filtros atuais.</div></div>`;
@@ -197,9 +200,36 @@ async function carregarRelatorioAdesao() {
     cont.innerHTML = dados.grupos.map(_relRenderGrupo).join('');
   } catch {
     info.textContent = '';
+    destaques.innerHTML = '';
     dashCard.style.display = 'none';
     cont.innerHTML = `<div class="card"><div style="padding:40px;text-align:center;color:var(--vermelho);">Erro ao carregar o relatório.</div></div>`;
   }
+}
+
+// Lista à parte de removidos/teste (destaques) — aparece mesmo se o
+// contrato já "aceitou" (não ficaria visível na lista de pendentes).
+function _relRenderDestaques(dados) {
+  const lista = dados.destaques || [];
+  if (!lista.length) return '';
+  const linhas = lista.map(d => {
+    const badge = d.situacao === 'removido'
+      ? `<span class="rel-badge rel-badge-removido" title="${d.motivo || ''}">REMOVIDO</span>`
+      : `<span class="rel-badge rel-badge-teste">TESTE</span>`;
+    const status = d.aceitou
+      ? `<span style="color:var(--verde);font-weight:600;">Aceito</span>`
+      : `<span style="color:var(--vermelho);font-weight:600;">Pendente</span>`;
+    return `<tr><td>${badge}</td><td>${d.codigo}</td><td>${d.concessionario}</td><td>${d.cidade}</td><td>${d.prazo}</td><td>${status}</td></tr>`;
+  }).join('');
+  return `
+    <div class="card">
+      <div class="card-header"><span class="card-title">⚠️ Registros destacados (${lista.length})</span></div>
+      <div class="table-wrap" style="padding:14px 16px;">
+        <table class="rel-grupo-cidades">
+          <thead><tr><th></th><th>Código</th><th>Concessionário</th><th>Cidade</th><th>Prazo</th><th>Status</th></tr></thead>
+          <tbody>${linhas}</tbody>
+        </table>
+      </div>
+    </div>`;
 }
 
 // ── Painel interativo: velocímetro + pizza + timeline ───────────────────────
@@ -303,7 +333,11 @@ function _relRenderReconciliacao(dados) {
   const base = `Base: importação #${imp.id} — "${imp.nome_arquivo || '—'}", ${_relFmtDataHora(imp.criado_em)}.`;
   const linha1 = `${r.total_linhas_planilha} linha(s) na planilha → ${r.casados_planilha} casaram com um contrato` +
     (r.nao_casados_planilha ? ` (${r.nao_casados_planilha} sem correspondência)` : '') + '.';
-  const linha2 = `Total de contratos ativos: ${r.total_contratos_ativos} — é esse número que deve bater com a plataforma de contrato.`;
+  const partesDestaque = [];
+  if (r.contratos_removidos) partesDestaque.push(`${r.contratos_removidos} de concessionário(s) removido(s) do sistema`);
+  if (r.contratos_teste) partesDestaque.push(`${r.contratos_teste} registro(s) de teste`);
+  const linha2 = `Total de contratos: ${r.total_contratos_ativos} — é esse número que deve bater com a plataforma de contrato` +
+    (partesDestaque.length ? ` (inclui ${partesDestaque.join(' e ')}, destacados abaixo)` : '') + '.';
   const detalheFora = r.contratos_sem_prazo_previsto ? `
     <details style="margin-top:4px;">
       <summary style="cursor:pointer;">${r.contratos_sem_prazo_previsto} contrato(s) sem prazo previsto definido (vencimento fora de 2027–2032) — ver quais</summary>
@@ -364,9 +398,12 @@ function _relRenderGrupo(g) {
       <td>${c.cidade}</td><td>${c.total}</td><td>${c.aceitaram}</td><td>${c.pendentes}</td>
       <td class="${classePct(c.pct)}">${c.pct.toFixed(1)}%</td>
     </tr>`).join('');
+  const badgeSituacao = p => p.situacao === 'removido'
+    ? ` <span class="rel-badge rel-badge-removido" title="${p.motivo || ''}">REMOVIDO</span>`
+    : (p.situacao === 'teste' ? ` <span class="rel-badge rel-badge-teste">TESTE</span>` : '');
   const linhasPendentes = _relAgruparPorCidade(g.lista_pendentes).map(bloco => `
     <tr class="rel-subcab"><td colspan="4">${bloco.cidade} (${bloco.itens.length})</td></tr>
-    ${bloco.itens.map(p => `<tr><td>${p.codigo}</td><td>${p.concessionario}</td><td>${p.cnpj}</td><td>${p.numero_ccu}</td></tr>`).join('')}
+    ${bloco.itens.map(p => `<tr><td>${p.codigo}</td><td>${p.concessionario}${badgeSituacao(p)}</td><td>${p.cnpj}</td><td>${p.numero_ccu}</td></tr>`).join('')}
   `).join('');
   return `
     <div class="card" style="margin-bottom:16px;">

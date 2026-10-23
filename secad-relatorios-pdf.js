@@ -16,6 +16,8 @@ const VERMELHO_PENDENTE = rgb(0xC0 / 255, 0x39 / 255, 0x2B / 255);
 const VERDE_OK = rgb(0x2E / 255, 0x7D / 255, 0x32 / 255);
 const AMBAR = rgb(0xB4 / 255, 0x6A / 255, 0x00 / 255);
 const CINZA_BORDA = rgb(0.8, 0.8, 0.8);
+const CINZA_REMOVIDO = rgb(0x6C / 255, 0x75 / 255, 0x7D / 255);
+const ROXO_TESTE = rgb(0x6C / 255, 0x5C / 255, 0xE7 / 255);
 
 // Versão bem clara de uma cor, pra usar como fundo de caixa/linha sem
 // competir com o texto em cima — mistura com branco (fator 0 = cor pura,
@@ -292,6 +294,20 @@ async function gerarPdfAdesaoRenovacao(dados, nomeGerador) {
   w.espaco(6);
   desenharLegendaFaixas(w, regular);
 
+  // ── Registros destacados (removidos/teste) — mesmo se já aceitaram ───────
+  if (dados.destaques && dados.destaques.length) {
+    w.espaco(10);
+    w.subtitulo(`Registros destacados (${dados.destaques.length})`, VERMELHO_PENDENTE);
+    const linhasDestaque = dados.destaques.map(d => ({
+      valores: [d.situacao === 'removido' ? 'REMOVIDO' : 'TESTE', d.codigo, d.concessionario, d.cidade, d.aceitou ? 'Aceito' : 'Pendente'],
+      cor: d.situacao === 'removido' ? CINZA_REMOVIDO : ROXO_TESTE,
+    }));
+    desenharTabela(w, negrito, regular, `${subtituloPagina} (continuação)`, [
+      { label: 'Situação', w: 80 }, { label: 'Código', w: 60 }, { label: 'Concessionário', w: 230 },
+      { label: 'Cidade', w: 100 }, { label: 'Status', w: 70 },
+    ], linhasDestaque);
+  }
+
   // ── 1 página exclusiva por prazo — nunca começa no meio da anterior ──────
   dados.grupos.forEach(g => {
     w.novaPagina();
@@ -325,7 +341,13 @@ async function gerarPdfAdesaoRenovacao(dados, nomeGerador) {
       blocosPorCidade.forEach(bloco => {
         w.garantirEspaco(18);
         w.paragrafo(`${bloco.cidade} (${bloco.itens.length})`, 9.5, AZUL);
-        const linhasPend = bloco.itens.map(p => ({ valores: [p.codigo, p.concessionario || '—', p.cnpj || '—', p.numero_ccu || '—'] }));
+        const linhasPend = bloco.itens.map(p => {
+          const sufixo = p.situacao === 'removido' ? ' (REMOVIDO)' : (p.situacao === 'teste' ? ' (TESTE)' : '');
+          return {
+            valores: [p.codigo, (p.concessionario || '—') + sufixo, p.cnpj || '—', p.numero_ccu || '—'],
+            cor: p.situacao === 'removido' ? CINZA_REMOVIDO : (p.situacao === 'teste' ? ROXO_TESTE : undefined),
+          };
+        });
         desenharTabela(w, negrito, regular, `${subtituloPagina} (continuação)`, COLS_PENDENTES, linhasPend);
       });
     } else {
