@@ -204,7 +204,11 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeId) {
     const chave = `${c.codigo}|${normalizarCcu(c.numero_ccu)}`;
     const dataAceite = mapaAceite.get(chave);
     const aceitou = !!dataAceite;
-    if (aceitou) datasAceiteFiltro.push(dataAceite);
+    // "Fora do prazo previsto" nunca entra na evolução — esse grupo só
+    // aparece na aba de Verificação (tela), nunca nos indicadores
+    // operacionais do Panorama. Independente de filtroPrazo ter sido
+    // passado ou não (a tela não manda mais esse filtro).
+    if (aceitou && prazo !== SEM_PRAZO) datasAceiteFiltro.push(dataAceite);
     const situacao = removidos.has(c.codigo) ? 'removido' : (CODIGOS_TESTE.has(c.codigo) ? 'teste' : null);
 
     if (!porPrazo.has(prazo)) porPrazo.set(prazo, new Map());
