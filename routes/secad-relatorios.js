@@ -130,9 +130,19 @@ router.get('/api/secad/relatorios/importacoes', secad, requireRelatoriosVer, (re
 
 // ── Relatório de adesão ───────────────────────────────────────────────────────
 
+// cidade_id na query string pode vir com vários ids separados por vírgula
+// (pedido do Alex: PDF por "uma ou umas" cidades) — devolve um Set ou null
+// (null = sem filtro, mesmo comportamento de sempre).
+function parseCidadeIds(valorQuery) {
+  if (!valorQuery) return null;
+  const ids = String(valorQuery).split(',').map(s => Number(s.trim())).filter(n => Number.isInteger(n) && n > 0);
+  return ids.length ? new Set(ids) : null;
+}
+
 // Monta os dados do relatório pra UM lote de importação (o mais recente, se
 // nenhum id for passado) — mesma função usada pela tela (JSON) e pelo PDF.
-function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeId) {
+// filtroCidadeIds: Set<number> ou null (sem filtro).
+function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeIds) {
   const importacao = importacaoId
     ? db.prepare(`SELECT id, nome_arquivo, total_linhas, nao_casados, criado_em FROM renovacao_aceites_importacao WHERE id = ?`).get(importacaoId)
     : db.prepare(`SELECT id, nome_arquivo, total_linhas, nao_casados, criado_em FROM renovacao_aceites_importacao ORDER BY id DESC LIMIT 1`).get();
@@ -199,7 +209,7 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeId) {
     const ano = parseInt(String(c.data_vencimento || '').slice(0, 4), 10);
     const prazo = prazoFinalAdesao(ano) || SEM_PRAZO;
     if (filtroPrazo && prazo !== filtroPrazo) return;
-    if (filtroCidadeId && c.id_cidade !== filtroCidadeId) return;
+    if (filtroCidadeIds && filtroCidadeIds.size && !filtroCidadeIds.has(c.id_cidade)) return;
     const cidadeNome = c.cidade || 'Sem cidade definida';
     const chave = `${c.codigo}|${normalizarCcu(c.numero_ccu)}`;
     const dataAceite = mapaAceite.get(chave);
@@ -264,12 +274,18 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeId) {
       };
     });
 
-  return { importacao, grupos, evolucao, reconciliacao, destaques };
+  // Nomes das cidades do filtro ativo — só pro cabeçalho do PDF avisar que o
+  // documento está recortado (a tela não usa isso hoje).
+  const filtroCidadesNomes = filtroCidadeIds && filtroCidadeIds.size
+    ? depopDb.prepare(`SELECT descricao FROM Cidade WHERE id IN (${[...filtroCidadeIds].join(',')}) ORDER BY descricao`).all().map(r => r.descricao)
+    : [];
+
+  return { importacao, grupos, evolucao, reconciliacao, destaques, filtro_cidades: filtroCidadesNomes };
 }
 
 router.get('/api/secad/relatorios/adesao', secad, requireRelatoriosVer, (req, res) => {
   const importacaoId = req.query.importacao_id ? Number(req.query.importacao_id) : null;
-  const dados = montarRelatorioAdesao(importacaoId, req.query.prazo || null, req.query.cidade_id ? Number(req.query.cidade_id) : null);
+  const dados = montarRelatorioAdesao(importacaoId, req.query.prazo || null, parseCidadeIds(req.query.cidade_id));
   if (!dados) return res.status(404).json({ error: 'Nenhuma importação encontrada ainda.' });
   res.json(dados);
 });
@@ -281,7 +297,7 @@ router.get('/api/secad/relatorios/cidades', secad, requireRelatoriosVer, (req, r
 router.get('/api/secad/relatorios/adesao/pdf', secad, requireRelatoriosVer, async (req, res) => {
   try {
     const importacaoId = req.query.importacao_id ? Number(req.query.importacao_id) : null;
-    const dados = montarRelatorioAdesao(importacaoId, req.query.prazo || null, req.query.cidade_id ? Number(req.query.cidade_id) : null);
+    const dados = montarRelatorioAdesao(importacaoId, req.query.prazo || null, parseCidadeIds(req.query.cidade_id));
     if (!dados) return res.status(404).json({ error: 'Nenhuma importação encontrada ainda.' });
     const nomeGerador = req.user.nome_completo || req.user.username;
     const bytes = await gerarPdfAdesaoRenovacao(dados, nomeGerador);

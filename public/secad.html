@@ -416,7 +416,7 @@
          <div style="padding:14px 16px;">
            <div class="filters">
              <select id="rel-filtro-importacao" class="filter-select"></select>
-             <button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="baixarPdfAdesao()">🖨️ Gerar PDF</button>
+             <button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="abrirModalPdfCidades()">🖨️ Gerar PDF</button>
            </div>
          </div>
        </div>
@@ -593,6 +593,19 @@
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
       <button class="btn btn-secondary btn-sm" onclick="fecharModal('dp-modal-cancelar')">Voltar</button>
       <button class="btn btn-danger btn-sm" id="dp-btn-cancelar-assin" onclick="confirmarCancelamento()">Cancelar assinatura</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: gerar PDF do relatório de adesão, com recorte opcional por cidade -->
+<div id="rel-modal-pdf-cidades" class="modal-overlay">
+  <div class="modal-box">
+    <h3>Gerar PDF</h3>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">Sem marcar nenhuma, o PDF sai com todas as cidades. Marque uma ou mais pra recortar o relatório.</p>
+    <div id="rel-pdf-cidades-lista" style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:7px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary btn-sm" onclick="fecharModal('rel-modal-pdf-cidades')">Cancelar</button>
+      <button class="btn btn-primary btn-sm" onclick="confirmarGerarPdfAdesao()">🖨️ Gerar PDF</button>
     </div>
   </div>
 </div>
