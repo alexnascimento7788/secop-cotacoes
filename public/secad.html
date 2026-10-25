@@ -209,15 +209,25 @@
       text-transform: none; border-top: 1px solid var(--cinza-b);
     }
     #rel-tabs { margin-bottom: 16px; }
-    .rel-dash-grid {
-      display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto auto;
-      gap: 18px; padding: 16px; align-items: start;
+    .rel-panorama-row {
+      display: flex; gap: 18px; padding: 16px 16px 0; align-items: flex-start; flex-wrap: wrap;
     }
-    .rel-dash-item-wide { grid-column: 1 / -1; }
+    .rel-panorama-row:last-child { padding-bottom: 16px; }
+    .rel-panorama-row.rel-panorama-row-wide { align-items: stretch; }
     .rel-dash-titulo { font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; }
-    .rel-dash-item { display: flex; flex-direction: column; align-items: center; }
-    .rel-dash-item-wide { align-items: stretch; }
-    @media (max-width: 760px) { .rel-dash-grid { grid-template-columns: 1fr; } }
+    .rel-dash-item { display: flex; flex-direction: column; align-items: center; flex: 1 1 220px; }
+    .rel-dash-item-wide { align-items: stretch; flex: 1 1 100%; }
+    .rel-bar-track { flex: 1; height: 10px; background: var(--surface-2); border-radius: 4px; overflow: hidden; min-width: 60px; }
+    .rel-bar-fill { height: 100%; border-radius: 4px; transition: width .4s ease; }
+    .rel-bar-fill.rel-faixa-baixa { background: var(--vermelho); }
+    .rel-bar-fill.rel-faixa-media { background: var(--amarelo); }
+    .rel-bar-fill.rel-faixa-alta { background: var(--verde); }
+    .rel-faixa-baixa { color: var(--vermelho); font-weight: 600; }
+    .rel-faixa-media { color: var(--amarelo); font-weight: 600; }
+    .rel-faixa-alta { color: var(--verde); font-weight: 600; }
+    .rel-tabela-cel-barra { display: flex; align-items: center; gap: 8px; min-width: 90px; }
+    .rel-seta { font-size: 11px; margin-right: 2px; }
+    @media (max-width: 760px) { .rel-panorama-row { flex-direction: column; } .rel-dash-item { flex-basis: auto; } }
   </style>
 </head>
 <body data-modulo="secad">
@@ -393,54 +403,87 @@
 
       <div class="page-tabs" id="rel-tabs">
         <button class="page-tab active" data-reltab="painel" onclick="relTrocarSubview('painel')">📊 Relatórios</button>
+        <button class="page-tab" data-reltab="historico" onclick="relTrocarSubview('historico')">🕑 Histórico de Importações</button>
+        <button class="page-tab" data-reltab="verificar" onclick="relTrocarSubview('verificar')">⚠️ Dados Registrados e a Verificar</button>
         <button class="page-tab" id="rel-tab-importar" data-reltab="importar" onclick="relTrocarSubview('importar')" style="display:none;">📥 Importar planilha</button>
       </div>
 
-      <!-- ── Sub-aba: Relatórios (dashboard) ── -->
+      <!-- ── Sub-aba: Relatórios (Panorama + tabela unificada) ── -->
       <div id="rel-sub-painel">
 
-       <!-- Filtros + ações -->
+       <!-- Filtro + ação -->
        <div class="card" style="margin-bottom:16px;">
          <div style="padding:14px 16px;">
            <div class="filters">
              <select id="rel-filtro-importacao" class="filter-select"></select>
-             <select id="rel-filtro-prazo" class="filter-select">
-               <option value="">Todos os prazos</option>
-               <option value="30/10/2026">Prazo 30/10/2026</option>
-               <option value="18/12/2026">Prazo 18/12/2026</option>
-               <option value="Fora do prazo previsto">Fora do prazo previsto</option>
-             </select>
-             <select id="rel-filtro-cidade" class="filter-select"><option value="">Todas as cidades</option></select>
-             <button class="btn btn-secondary btn-sm" onclick="carregarRelatorioAdesao()">🔄 Atualizar</button>
              <button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="baixarPdfAdesao()">🖨️ Gerar PDF</button>
            </div>
          </div>
        </div>
 
-       <div id="rel-base-info" class="text-muted" style="font-size:12px;margin-bottom:10px;"></div>
-       <div id="rel-destaques" style="margin-bottom:16px;"></div>
-
-       <!-- Painel interativo: velocímetro + pizza (pendentes por cidade) + timeline -->
+       <!-- Panorama: 3 velocímetros + 2 pizzas + evolução (quantidade/dia + bateria) -->
        <div class="card" id="rel-dash-card" style="margin-bottom:16px;">
          <div class="card-header"><span class="card-title">📈 Panorama</span></div>
-         <div class="rel-dash-grid">
+         <div class="rel-panorama-row">
            <div class="rel-dash-item">
              <div class="rel-dash-titulo">% Adesão geral</div>
-             <div id="rel-gauge"></div>
+             <div id="rel-gauge-geral"></div>
            </div>
            <div class="rel-dash-item">
-             <div class="rel-dash-titulo">Pendentes por cidade</div>
-             <div id="rel-pizza"></div>
+             <div class="rel-dash-titulo">1º vencimento — 30/10/2026</div>
+             <div id="rel-gauge-1"></div>
            </div>
+           <div class="rel-dash-item">
+             <div class="rel-dash-titulo">2º vencimento — 18/12/2026</div>
+             <div id="rel-gauge-2"></div>
+           </div>
+         </div>
+         <div class="rel-panorama-row">
+           <div class="rel-dash-item">
+             <div class="rel-dash-titulo">Efetivado por cidade</div>
+             <div id="rel-pizza-efetivado"></div>
+           </div>
+           <div class="rel-dash-item">
+             <div class="rel-dash-titulo">Pendente por cidade</div>
+             <div id="rel-pizza-pendente"></div>
+           </div>
+         </div>
+         <div class="rel-panorama-row rel-panorama-row-wide">
            <div class="rel-dash-item rel-dash-item-wide">
              <div class="rel-dash-titulo">Evolução dos aceites</div>
              <div id="rel-timeline"></div>
+             <div id="rel-bateria" style="margin-top:10px;"></div>
            </div>
          </div>
        </div>
 
-       <div id="rel-conteudo"></div>
+       <!-- Tabela unificada por cidade -->
+       <div class="card" style="margin-bottom:16px;">
+         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+           <span class="card-title">Indicadores por cidade</span>
+           <select id="rel-filtro-data-tabela" class="filter-select">
+             <option value="">Total</option>
+             <option value="30/10/2026">30/10/2026</option>
+             <option value="18/12/2026">18/12/2026</option>
+           </select>
+         </div>
+         <div id="rel-tabela-unificada"></div>
+       </div>
       </div><!-- /rel-sub-painel -->
+
+      <!-- ── Sub-aba: Histórico de Importações ── -->
+      <div id="rel-sub-historico" style="display:none;">
+       <div class="card">
+         <div class="card-header"><span class="card-title">🕑 Histórico de Importações</span></div>
+         <div id="rel-base-info" class="text-muted" style="font-size:12.5px;line-height:1.6;padding:14px 16px;"></div>
+       </div>
+      </div><!-- /rel-sub-historico -->
+
+      <!-- ── Sub-aba: Dados Registrados e a Verificar ── -->
+      <div id="rel-sub-verificar" style="display:none;">
+       <div id="rel-destaques" style="margin-bottom:16px;"></div>
+       <div id="rel-fora-prazo"></div>
+      </div><!-- /rel-sub-verificar -->
 
       <!-- ── Sub-aba: Importar planilha (só master/admin_sistema) ── -->
       <div id="rel-sub-importar" style="display:none;">
