@@ -360,7 +360,9 @@ function _relSvgBateria(pct) {
   const faixa = _relFaixaPct(p);
   const w = 300, h = 34, corpoW = 236, corpoH = 24, x0 = 2, y0 = (h - corpoH) / 2;
   const fillW = Math.max(0, (corpoW - 6) * (p / 100));
-  return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="flex-shrink:0;">
+  // width="100%" (em vez de fixo em px) — agora divide linha com a Evolução
+  // dos aceites num container mais estreito, precisa encolher com ele.
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" style="max-width:${w}px;" preserveAspectRatio="xMidYMid meet">
     <rect x="${x0}" y="${y0}" width="${corpoW}" height="${corpoH}" rx="3" fill="none" stroke="var(--cinza-b)" stroke-width="2"></rect>
     <rect x="${x0 + corpoW + 2}" y="${y0 + corpoH / 2 - 6}" width="6" height="12" rx="2" fill="var(--cinza-b)"></rect>
     <rect x="${x0 + 3}" y="${y0 + 3}" width="${fillW.toFixed(1)}" height="${corpoH - 6}" rx="2" fill="${faixa.cor}"></rect>
@@ -438,9 +440,9 @@ function _relRenderDashboard(dados) {
   _relPorCidadePizza('rel-pizza-pendente', gruposOp, c => c.pendentes, 'Nenhum pendente — 100% de adesão.');
 
   document.getElementById('rel-timeline').innerHTML = _relSvgTimeline(dados.evolucao || [], totalGeral.total);
-  document.getElementById('rel-bateria').innerHTML = `
-    <div class="rel-dash-titulo" style="margin-bottom:6px;">% adesão geral (carga)</div>
-    ${_relSvgBateria(pctGeral)}`;
+  // Título "% Adesão geral (carga)" já vem do HTML (secad.html) — os 2
+  // indicadores ficam na mesma linha, por isso não duplica o título aqui.
+  document.getElementById('rel-bateria').innerHTML = _relSvgBateria(pctGeral);
 }
 
 // Tabela unificada por cidade (substitui a repetição de _relRenderGrupo por
