@@ -274,6 +274,12 @@ async function gerarPdfAdesaoRenovacao(dados, nomeGerador) {
       `(${dados.importacao.total_linhas} linha(s), ${dados.importacao.nao_casados} sem contrato correspondente).`,
       8.5, rgb(0.5, 0.5, 0.5));
   }
+  // Avisa no documento quando ele foi recortado por cidade — quem recebe o
+  // PDF precisa saber que não é o universo inteiro (pedido do Alex: gerar
+  // por "uma ou umas" cidades).
+  if (dados.filtro_cidades && dados.filtro_cidades.length) {
+    w.paragrafo(`Filtrado por cidade: ${dados.filtro_cidades.join(', ')}.`, 8.5, AMBAR);
+  }
   w.espaco(12);
   desenharCardsCapa(w, negrito, regular, [
     { label: 'Total de contratos', valor: totalGeral.total },

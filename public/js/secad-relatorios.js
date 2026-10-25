@@ -569,6 +569,33 @@ function _relRenderGrupo(g) {
   `;
 }
 
-function baixarPdfAdesao() {
-  window.open(`/api/secad/relatorios/adesao/pdf?${_relParamsAtuais().toString()}`, '_blank');
+// Gerar PDF ganhou recorte opcional por cidade (pedido do Alex, "uma ou
+// umas") — abre um modal de checkbox (mesmo padrão de seletor multi do
+// Concessionários Cadastro) antes de abrir o PDF de fato. Sem nenhuma
+// marcada = sem filtro, igual já era o comportamento.
+let _relCidadesDisponiveis = [];
+
+async function abrirModalPdfCidades() {
+  const lista = document.getElementById('rel-pdf-cidades-lista');
+  if (!_relCidadesDisponiveis.length) {
+    lista.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">Carregando...</div>';
+    document.getElementById('rel-modal-pdf-cidades').classList.add('open');
+    try {
+      const res = await fetch('/api/secad/relatorios/cidades');
+      _relCidadesDisponiveis = res.ok ? await res.json() : [];
+    } catch { /* mantém vazio, cai no fallback abaixo */ }
+  }
+  lista.innerHTML = _relCidadesDisponiveis.map(c => `
+    <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:400;">
+      <input type="checkbox" value="${c.id}" /> ${c.descricao}
+    </label>`).join('') || '<div style="color:var(--text-muted);font-size:13px;">Nenhuma cidade disponível.</div>';
+  document.getElementById('rel-modal-pdf-cidades').classList.add('open');
+}
+
+function confirmarGerarPdfAdesao() {
+  const marcados = Array.from(document.querySelectorAll('#rel-pdf-cidades-lista input[type=checkbox]:checked')).map(cb => cb.value);
+  const params = _relParamsAtuais();
+  if (marcados.length) params.set('cidade_id', marcados.join(','));
+  window.open(`/api/secad/relatorios/adesao/pdf?${params.toString()}`, '_blank');
+  fecharModal('rel-modal-pdf-cidades');
 }
