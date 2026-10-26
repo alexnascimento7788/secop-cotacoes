@@ -47,7 +47,6 @@
       display: flex; gap: 18px; padding: 16px 16px 0; align-items: flex-start; flex-wrap: wrap;
     }
     .rel-panorama-row:last-child { padding-bottom: 16px; }
-    .rel-panorama-row.rel-panorama-row-wide { align-items: stretch; }
     .rel-dash-titulo { font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; }
     .rel-dash-item { display: flex; flex-direction: column; align-items: center; flex: 1 1 220px; }
     .rel-dash-item-wide { align-items: stretch; flex: 1 1 100%; }
@@ -114,8 +113,16 @@
         🖨️ Baixar PDF
       </button>
 
-      <div class="card" id="rel-dash-card" style="margin-bottom:16px;">
+      <div class="card" id="rel-dash-card" style="margin-bottom:0;">
         <div class="card-header"><span class="card-title">📈 Panorama</span></div>
+        <!-- Pedido do Alex (repetido 3x): o indicador de Adesão geral vem
+             ANTES dos "cronômetros" (velocímetros), sozinho em destaque. -->
+        <div class="rel-panorama-row">
+          <div class="rel-dash-item rel-dash-item-wide" style="flex:1 1 100%;">
+            <div class="rel-dash-titulo" style="text-align:center;">% Adesão geral (carga)</div>
+            <div id="rel-bateria" style="display:flex;justify-content:center;"></div>
+          </div>
+        </div>
         <div class="rel-panorama-row">
           <div class="rel-dash-item">
             <div class="rel-dash-titulo">% Adesão geral</div>
@@ -140,17 +147,15 @@
             <div id="rel-pizza-pendente"></div>
           </div>
         </div>
-        <div class="rel-panorama-row rel-panorama-row-wide">
-          <div class="rel-dash-item rel-dash-item-wide" style="flex:2 1 420px;">
+        <div class="rel-panorama-row">
+          <div class="rel-dash-item rel-dash-item-wide" style="flex:1 1 100%;">
             <div class="rel-dash-titulo">Evolução dos aceites</div>
             <div id="rel-timeline"></div>
           </div>
-          <div class="rel-dash-item" style="flex:1 1 220px;">
-            <div class="rel-dash-titulo">% Adesão geral (carga)</div>
-            <div id="rel-bateria"></div>
-          </div>
         </div>
       </div>
+      <!-- Sem margem entre o Panorama e a tabela abaixo — pedido explícito do
+           Alex de não ter distância depois de "Evolução dos aceites". -->
 
       <div class="card" style="margin-bottom:16px;">
         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">

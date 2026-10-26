@@ -459,8 +459,9 @@ function _relRenderDashboard(dados) {
   _relPorCidadePizza('rel-pizza-pendente', gruposOp, c => c.pendentes, 'Nenhum pendente — 100% de adesão.');
 
   document.getElementById('rel-timeline').innerHTML = _relSvgTimeline(dados.evolucao || [], totalGeral.total);
-  // Título "% Adesão geral (carga)" já vem do HTML (secad.html) — os 2
-  // indicadores ficam na mesma linha, por isso não duplica o título aqui.
+  // Título "% Adesão geral (carga)" já vem do HTML de cada página — a posição
+  // desse indicador na grade varia por página (secad.html x página pública),
+  // por isso não duplica o título aqui.
   document.getElementById('rel-bateria').innerHTML = _relSvgBateria(pctGeral);
 }
 
