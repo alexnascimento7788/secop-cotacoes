@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-modulo="secad">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Adesão à Renovação — CEASAMINAS</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+  <link rel="manifest" href="manifest-relatorio-publico.webmanifest">
+  <meta name="theme-color" content="#1565C0">
+  <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
+  <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');</script>
+  <style>
+    /* Página pública (sem login) do relatório de Adesão à Renovação — pedido
+       do Alex, 2026-10-26. Bloco .rel-* COPIADO de secad.html de propósito
+       (mesma convenção já usada no projeto pra arquivos de PDF/SVG — cada
+       consumidor tem a própria cópia), nunca mexer em secad.html por causa
+       desta página. */
+    .relpub-wrap { max-width: 900px; margin: 0 auto; padding: 18px 16px 40px; }
+    .relpub-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+    .relpub-header img { height: 36px; }
+    .relpub-header h1 { font-size: 17px; font-weight: 700; color: var(--text); }
+    .relpub-tela { display: none; }
+    .relpub-tela.active { display: block; }
+    .relpub-card-centro { max-width: 420px; margin: 60px auto; text-align: center; padding: 28px 22px; }
+    .relpub-icone { font-size: 38px; margin-bottom: 10px; }
+    .relpub-msg { font-size: 14px; color: var(--text-muted); line-height: 1.6; margin-bottom: 18px; }
+    .rel-grupo-cidades td, .rel-grupo-cidades th { padding: 6px 10px; font-size: 13px; }
+    .rel-pct-ok { color: var(--verde); font-weight: 600; }
+    .rel-pct-baixo { color: var(--vermelho); font-weight: 600; }
+    .rel-badge {
+      display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .3px;
+      padding: 1px 6px; border-radius: 3px; vertical-align: middle; margin-left: 4px;
+    }
+    .rel-badge-removido { background: #6c757d; color: #fff; }
+    .rel-badge-teste { background: #6C5CE7; color: #fff; }
+    .rel-grupo-cidades tr.rel-subcab td {
+      padding: 10px 10px 4px; font-weight: 700; font-size: 12px; color: var(--text-muted);
+      text-transform: none; border-top: 1px solid var(--cinza-b);
+    }
+    .rel-panorama-row {
+      display: flex; gap: 18px; padding: 16px 16px 0; align-items: flex-start; flex-wrap: wrap;
+    }
+    .rel-panorama-row:last-child { padding-bottom: 16px; }
+    .rel-panorama-row.rel-panorama-row-wide { align-items: stretch; }
+    .rel-dash-titulo { font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; }
+    .rel-dash-item { display: flex; flex-direction: column; align-items: center; flex: 1 1 220px; }
+    .rel-dash-item-wide { align-items: stretch; flex: 1 1 100%; }
+    .rel-bar-track { flex: 1; height: 10px; background: var(--surface-2); border-radius: 4px; overflow: hidden; min-width: 60px; }
+    .rel-bar-fill { height: 100%; border-radius: 4px; transition: width .4s ease; }
+    .rel-bar-fill.rel-faixa-baixa { background: var(--vermelho); }
+    .rel-bar-fill.rel-faixa-media { background: var(--amarelo); }
+    .rel-bar-fill.rel-faixa-alta { background: var(--verde); }
+    .rel-faixa-baixa { color: var(--vermelho); font-weight: 600; }
+    .rel-faixa-media { color: var(--amarelo); font-weight: 600; }
+    .rel-faixa-alta { color: var(--verde); font-weight: 600; }
+    .rel-tabela-cel-barra { display: flex; align-items: center; gap: 8px; min-width: 90px; }
+    .rel-seta { font-size: 11px; margin-right: 2px; }
+    @media (max-width: 760px) { .rel-panorama-row { flex-direction: column; } .rel-dash-item { flex-basis: auto; } }
+  </style>
+</head>
+<body>
+  <div class="relpub-wrap">
+    <div class="relpub-header">
+      <img src="img/Logo Ceasa TI_transp.png" alt="CEASAMINAS" onerror="this.style.display='none'">
+      <h1>Adesão à Renovação — acompanhamento</h1>
+    </div>
+
+    <!-- Tela 1: formulário (aparelho novo) -->
+    <div class="relpub-tela" id="relpub-tela-novo">
+      <div class="card relpub-card-centro">
+        <div class="relpub-icone">📱</div>
+        <div class="relpub-msg">Pra acompanhar o relatório de adesão neste aparelho, informe seu telefone — sua solicitação será analisada antes de liberar o acesso.</div>
+        <input type="text" id="relpub-telefone" class="filter-input" style="width:100%;margin-bottom:14px;" placeholder="(31) 9XXXX-XXXX">
+        <div id="relpub-novo-msg" style="font-size:12.5px;font-weight:600;color:var(--vermelho);min-height:16px;margin-bottom:10px;"></div>
+        <button class="btn btn-primary" style="width:100%;" onclick="relpubEnviarSolicitacao()">Solicitar acesso</button>
+      </div>
+    </div>
+
+    <!-- Tela 2: aguardando aprovação -->
+    <div class="relpub-tela" id="relpub-tela-pendente">
+      <div class="card relpub-card-centro">
+        <div class="relpub-icone">⏳</div>
+        <div class="relpub-msg">Solicitação enviada. Assim que for liberada no painel, esta página libera sozinha — pode deixar aberta.</div>
+      </div>
+    </div>
+
+    <!-- Tela 3: expirado/rejeitado — reenvia sem telefone -->
+    <div class="relpub-tela" id="relpub-tela-reenviar">
+      <div class="card relpub-card-centro">
+        <div class="relpub-icone">🔒</div>
+        <div class="relpub-msg" id="relpub-reenviar-msg"></div>
+        <button class="btn btn-primary" style="width:100%;" onclick="relpubSolicitarNovamente()">Solicitar acesso novamente</button>
+      </div>
+    </div>
+
+    <!-- Tela 4: dashboard (aprovado e ativo) -->
+    <div class="relpub-tela" id="relpub-tela-dashboard">
+      <div class="card" style="margin-bottom:16px;">
+        <div style="padding:14px 16px;display:flex;justify-content:flex-end;">
+          <button class="btn btn-secondary btn-sm" onclick="relpubBaixarPdf()">🖨️ Baixar PDF</button>
+        </div>
+      </div>
+
+      <div class="card" id="rel-dash-card" style="margin-bottom:16px;">
+        <div class="card-header"><span class="card-title">📈 Panorama</span></div>
+        <div class="rel-panorama-row">
+          <div class="rel-dash-item">
+            <div class="rel-dash-titulo">% Adesão geral</div>
+            <div id="rel-gauge-geral"></div>
+          </div>
+          <div class="rel-dash-item">
+            <div class="rel-dash-titulo">1º vencimento — 30/10/2026</div>
+            <div id="rel-gauge-1"></div>
+          </div>
+          <div class="rel-dash-item">
+            <div class="rel-dash-titulo">2º vencimento — 18/12/2026</div>
+            <div id="rel-gauge-2"></div>
+          </div>
+        </div>
+        <div class="rel-panorama-row">
+          <div class="rel-dash-item">
+            <div class="rel-dash-titulo">Efetivado por cidade</div>
+            <div id="rel-pizza-efetivado"></div>
+          </div>
+          <div class="rel-dash-item">
+            <div class="rel-dash-titulo">Pendente por cidade</div>
+            <div id="rel-pizza-pendente"></div>
+          </div>
+        </div>
+        <div class="rel-panorama-row rel-panorama-row-wide">
+          <div class="rel-dash-item rel-dash-item-wide" style="flex:2 1 420px;">
+            <div class="rel-dash-titulo">Evolução dos aceites</div>
+            <div id="rel-timeline"></div>
+          </div>
+          <div class="rel-dash-item" style="flex:1 1 220px;align-self:center;">
+            <div class="rel-dash-titulo">% Adesão geral (carga)</div>
+            <div id="rel-bateria"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+          <span class="card-title">Indicadores por cidade</span>
+          <select id="rel-filtro-data-tabela" class="filter-select">
+            <option value="">Total</option>
+            <option value="30/10/2026">30/10/2026</option>
+            <option value="18/12/2026">18/12/2026</option>
+          </select>
+        </div>
+        <div id="rel-tabela-unificada"></div>
+      </div>
+    </div>
+
+    <div id="app-footer" style="margin-top:24px;"></div>
+  </div>
+
+  <script src="js/pwa.js"></script>
+  <script src="js/telefone-br.js"></script>
+  <script src="js/secad-relatorios.js"></script>
+  <script src="js/relatorio-publico.js"></script>
+</body>
+</html>

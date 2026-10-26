@@ -10,7 +10,7 @@
 // reaproveita secad_cidade_usuarios — confirmado com o Alex, 2026-10-23).
 const express = require('express');
 const { db, depopDb } = require('../database');
-const { registrarLog, requireModulo } = require('../middleware');
+const { registrarLog, requireModulo, requireAdminAny } = require('../middleware');
 const { gerarPdfAdesaoRenovacao } = require('../secad-relatorios-pdf');
 
 const router = express.Router();
@@ -309,6 +309,129 @@ router.get('/api/secad/relatorios/adesao/pdf', secad, requireRelatoriosVer, asyn
     console.error('[secad-relatorios] erro gerando PDF:', e);
     res.status(500).json({ error: 'Erro ao gerar o PDF: ' + e.message });
   }
+});
+
+// ── Acesso público (PWA, sem login) — pedido do Alex, 2026-10-26 ────────────
+// Página própria (public/relatorio-adesao-publico.html), endereço diferente,
+// SEM sessão — as 4 rotas abaixo são explicitamente isentas do gate global
+// de auth em server.js (`req.path.startsWith('/secad/relatorios/publico/')`).
+// Em vez de login, cada navegador/aparelho gera um `device_token` aleatório
+// (localStorage) e manda em toda chamada; o controle de quem pode ver é
+// telefone + aprovação manual do Alex (tabela `relatorio_publico_acessos`,
+// aba nova em Admin). NUNCA aceitar esse token como prova de identidade
+// forte — é só "aparelho conhecido", a aprovação humana é a trava real.
+
+const UM_DIA_MS = 24 * 60 * 60 * 1000;
+
+// `ultimo_acesso_em IS NULL` = aprovado mas AINDA NÃO acessou nenhuma vez —
+// não é "expirado" (a janela de 24h só começa a contar depois do 1º acesso).
+// Único lugar com essa conta — reaproveitado tanto na checagem pública
+// quanto na listagem do Admin, pra nunca divergir.
+function calcExpirado(row) {
+  return row.status === 'aprovado' && !!row.ultimo_acesso_em &&
+    (Date.now() - new Date(row.ultimo_acesso_em.replace(' ', 'T') + 'Z').getTime()) > UM_DIA_MS;
+}
+
+// Resolve o estado de um device_token: null = não existe ('novo'); senão a
+// própria linha + `expirado` calculado (nunca gravado — ver nota na tabela
+// em database.js). Único lugar que decide "pode ver ou não".
+function resolverAcessoPublico(token) {
+  if (!token) return null;
+  const row = db.prepare(`SELECT * FROM relatorio_publico_acessos WHERE device_token = ?`).get(token);
+  if (!row) return null;
+  return { ...row, expirado: calcExpirado(row) };
+}
+
+router.get('/api/secad/relatorios/publico/dados', (req, res) => {
+  const acesso = resolverAcessoPublico(req.query.token);
+  if (!acesso) return res.status(404).json({ state: 'novo' });
+  if (acesso.status === 'rejeitado') return res.status(403).json({ state: 'rejeitado' });
+  if (acesso.status === 'pendente') return res.status(403).json({ state: 'pendente' });
+  if (acesso.expirado) return res.status(403).json({ state: 'expirado' });
+  db.prepare(`UPDATE relatorio_publico_acessos SET ultimo_acesso_em = datetime('now') WHERE id = ?`).run(acesso.id);
+  // Lote mais recente, sem filtro de prazo/cidade — a página pública não tem
+  // seletor de lote (sempre o dado atual).
+  const dados = montarRelatorioAdesao(null, null, null);
+  if (!dados) return res.status(404).json({ state: 'sem_dados' });
+  res.json(dados);
+});
+
+router.get('/api/secad/relatorios/publico/pdf', async (req, res) => {
+  try {
+    const acesso = resolverAcessoPublico(req.query.token);
+    if (!acesso) return res.status(404).json({ state: 'novo' });
+    if (acesso.status === 'rejeitado') return res.status(403).json({ state: 'rejeitado' });
+    if (acesso.status === 'pendente') return res.status(403).json({ state: 'pendente' });
+    if (acesso.expirado) return res.status(403).json({ state: 'expirado' });
+    const dados = montarRelatorioAdesao(null, null, null);
+    if (!dados) return res.status(404).json({ state: 'sem_dados' });
+    const nomeGerador = `Acesso público — ${acesso.telefone || 'telefone não informado'}`;
+    const bytes = await gerarPdfAdesaoRenovacao(dados, nomeGerador);
+    db.prepare(`UPDATE relatorio_publico_acessos SET ultimo_acesso_em = datetime('now') WHERE id = ?`).run(acesso.id);
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', 'inline; filename="relatorio-adesao-renovacao.pdf"');
+    res.send(bytes);
+  } catch (e) {
+    console.error('[secad-relatorios] erro gerando PDF público:', e);
+    res.status(500).json({ error: 'Erro ao gerar o PDF.' });
+  }
+});
+
+router.post('/api/secad/relatorios/publico/solicitar', (req, res) => {
+  const { token, telefone, telefone_ddd } = req.body || {};
+  if (!token || !telefone) return res.status(400).json({ error: 'Telefone não informado.' });
+  const userAgent = String(req.headers['user-agent'] || '').slice(0, 300);
+  db.prepare(`
+    INSERT INTO relatorio_publico_acessos (device_token, telefone, telefone_ddd, status, user_agent)
+    VALUES (?, ?, ?, 'pendente', ?)
+    ON CONFLICT(device_token) DO UPDATE SET
+      telefone = excluded.telefone, telefone_ddd = excluded.telefone_ddd,
+      status = 'pendente', respondido_por = NULL, respondido_em = NULL, user_agent = excluded.user_agent
+  `).run(token, String(telefone).trim(), telefone_ddd || null, userAgent);
+  registrarLog(req, 'SECAD', 'SOLICITOU_ACESSO_RELATORIO_PUBLICO', `Solicitou acesso ao relatório público (tel. ${telefone})`, 'acesso-publico', null);
+  res.json({ ok: true, state: 'pendente' });
+});
+
+router.post('/api/secad/relatorios/publico/solicitar-novamente', (req, res) => {
+  const { token } = req.body || {};
+  const row = token && db.prepare(`SELECT id FROM relatorio_publico_acessos WHERE device_token = ?`).get(token);
+  if (!row) return res.status(404).json({ state: 'novo' });
+  db.prepare(`UPDATE relatorio_publico_acessos SET status = 'pendente', respondido_por = NULL, respondido_em = NULL WHERE id = ?`).run(row.id);
+  registrarLog(req, 'SECAD', 'REENVIOU_SOLICITACAO_RELATORIO_PUBLICO', 'Reenviou solicitação de acesso ao relatório público', 'acesso-publico', null);
+  res.json({ ok: true, state: 'pendente' });
+});
+
+// ── Admin: aprovar/rejeitar solicitações de acesso público ──────────────────
+router.get('/api/admin/relatorio-publico/solicitacoes', requireAdminAny, (req, res) => {
+  const rows = db.prepare(`
+    SELECT a.*, u.nome_completo, u.username
+    FROM relatorio_publico_acessos a LEFT JOIN users u ON u.id = a.respondido_por
+    ORDER BY (a.status = 'pendente') DESC, a.criado_em DESC
+  `).all();
+  res.json(rows.map(r => ({
+    ...r,
+    respondido_por_nome: r.nome_completo || r.username || null,
+    expirado: calcExpirado(r),
+  })));
+});
+
+router.patch('/api/admin/relatorio-publico/solicitacoes/:id', requireAdminAny, (req, res) => {
+  const { acao } = req.body || {};
+  if (!['aprovar', 'rejeitar'].includes(acao)) return res.status(400).json({ error: 'Ação inválida.' });
+  const status = acao === 'aprovar' ? 'aprovado' : 'rejeitado';
+  // Zera ultimo_acesso_em ao (re)aprovar — senão uma aprovação depois de um
+  // ciclo expirado herdava o timestamp velho (>24h) e caía "expirado" nascendo,
+  // antes do aparelho sequer ter acessado desta vez. A janela de 24h sempre
+  // recomeça do zero a cada aprovação nova.
+  const info = db.prepare(`
+    UPDATE relatorio_publico_acessos SET status = ?, respondido_por = ?, respondido_em = datetime('now'),
+      ultimo_acesso_em = CASE WHEN ? = 'aprovado' THEN NULL ELSE ultimo_acesso_em END
+    WHERE id = ?
+  `).run(status, req.user.user_id, status, req.params.id);
+  if (!info.changes) return res.status(404).json({ error: 'Solicitação não encontrada.' });
+  registrarLog(req, 'SECAD', acao === 'aprovar' ? 'APROVOU_ACESSO_RELATORIO_PUBLICO' : 'REJEITOU_ACESSO_RELATORIO_PUBLICO',
+    `${acao === 'aprovar' ? 'Aprovou' : 'Rejeitou'} solicitação #${req.params.id} de acesso ao relatório público`);
+  res.json({ ok: true });
 });
 
 module.exports = router;
