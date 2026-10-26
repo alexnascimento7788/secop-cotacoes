@@ -1067,10 +1067,10 @@
           <div class="table-wrap">
             <table class="users-table" id="relpub-table">
               <thead>
-                <tr><th>Telefone</th><th>Status</th><th>Solicitado em</th><th>Respondido por</th><th>Aparelho</th><th></th></tr>
+                <tr><th>Nome</th><th>Telefone</th><th>Status</th><th>Solicitado em</th><th>Respondido por</th><th>Aparelho</th><th></th></tr>
               </thead>
               <tbody id="relpub-tbody">
-                <tr><td colspan="6" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
+                <tr><td colspan="7" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
               </tbody>
             </table>
           </div>
@@ -3360,6 +3360,13 @@ function copiarLinkRelatorioPublico() {
   }
 }
 
+// Nome/telefone vêm de um formulário SEM login (qualquer um na internet
+// pode mandar) — diferente dos outros campos desta tela (preenchidos por
+// usuário autenticado), então escapa antes de jogar no innerHTML.
+function _relpubEsc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 async function carregarRelatorioPublicoAdmin() {
   const linkInput = document.getElementById('relpub-link-input');
   if (linkInput) linkInput.value = relpubLinkPublico();
@@ -3370,8 +3377,8 @@ async function carregarRelatorioPublicoAdmin() {
     tbody.innerHTML = rows.length ? rows.map(r => {
       const statusLabel = r.expirado ? 'Expirado' : RELPUB_LABEL_STATUS[r.status];
       const statusCor = r.status === 'rejeitado' || r.expirado ? 'var(--vermelho)' : (r.status === 'aprovado' ? 'var(--verde)' : 'var(--amarelo)');
-      const telefone = [r.telefone_ddd ? `(${r.telefone_ddd})` : '', r.telefone || '—'].filter(Boolean).join(' ');
-      const respondido = r.respondido_por_nome ? `${r.respondido_por_nome} — ${fmtDataHora(r.respondido_em)}` : '—';
+      const telefone = _relpubEsc([r.telefone_ddd ? `(${r.telefone_ddd})` : '', r.telefone || '—'].filter(Boolean).join(' '));
+      const respondido = r.respondido_por_nome ? `${_relpubEsc(r.respondido_por_nome)} — ${fmtDataHora(r.respondido_em)}` : '—';
       const acoes = (r.status === 'pendente' || r.expirado)
         ? `<button class="btn btn-primary btn-sm" onclick="responderSolicitacaoRelatorio(${r.id},'aprovar')">Aprovar</button>
            <button class="btn btn-secondary btn-sm" onclick="responderSolicitacaoRelatorio(${r.id},'rejeitar')">Rejeitar</button>`
@@ -3379,16 +3386,17 @@ async function carregarRelatorioPublicoAdmin() {
           ? `<button class="btn btn-secondary btn-sm" onclick="responderSolicitacaoRelatorio(${r.id},'rejeitar')">Revogar</button>`
           : `<button class="btn btn-primary btn-sm" onclick="responderSolicitacaoRelatorio(${r.id},'aprovar')">Aprovar</button>`);
       return `<tr>
+        <td>${_relpubEsc(r.nome) || '—'}</td>
         <td>${telefone}</td>
         <td style="color:${statusCor};font-weight:600;">${statusLabel}</td>
         <td>${fmtDataHora(r.criado_em)}</td>
         <td>${respondido}</td>
-        <td title="${r.device_token}" style="font-family:monospace;font-size:11px;">${r.device_token.slice(0, 8)}…</td>
+        <td title="${_relpubEsc(r.device_token)}" style="font-family:monospace;font-size:11px;">${_relpubEsc(r.device_token.slice(0, 8))}…</td>
         <td style="text-align:right;white-space:nowrap;">${acoes}</td>
       </tr>`;
-    }).join('') : '<tr><td colspan="6" style="padding:20px;text-align:center;color:#aaa;">Nenhuma solicitação ainda.</td></tr>';
+    }).join('') : '<tr><td colspan="7" style="padding:20px;text-align:center;color:#aaa;">Nenhuma solicitação ainda.</td></tr>';
   } catch {
-    tbody.innerHTML = '<tr><td colspan="6" style="padding:20px;text-align:center;color:#aaa;">Erro ao carregar.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="padding:20px;text-align:center;color:#aaa;">Erro ao carregar.</td></tr>';
   }
 }
 

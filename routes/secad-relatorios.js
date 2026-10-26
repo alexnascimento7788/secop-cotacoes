@@ -365,7 +365,7 @@ router.get('/api/secad/relatorios/publico/pdf', async (req, res) => {
     if (acesso.expirado) return res.status(403).json({ state: 'expirado' });
     const dados = montarRelatorioAdesao(null, null, null);
     if (!dados) return res.status(404).json({ state: 'sem_dados' });
-    const nomeGerador = `Acesso público — ${acesso.telefone || 'telefone não informado'}`;
+    const nomeGerador = `Acesso público — ${acesso.nome || 'nome não informado'} (${acesso.telefone || 'telefone não informado'})`;
     const bytes = await gerarPdfAdesaoRenovacao(dados, nomeGerador);
     db.prepare(`UPDATE relatorio_publico_acessos SET ultimo_acesso_em = datetime('now') WHERE id = ?`).run(acesso.id);
     res.set('Content-Type', 'application/pdf');
@@ -378,17 +378,17 @@ router.get('/api/secad/relatorios/publico/pdf', async (req, res) => {
 });
 
 router.post('/api/secad/relatorios/publico/solicitar', (req, res) => {
-  const { token, telefone, telefone_ddd } = req.body || {};
-  if (!token || !telefone) return res.status(400).json({ error: 'Telefone não informado.' });
+  const { token, nome, telefone, telefone_ddd } = req.body || {};
+  if (!token || !nome || !telefone) return res.status(400).json({ error: 'Nome e telefone são obrigatórios.' });
   const userAgent = String(req.headers['user-agent'] || '').slice(0, 300);
   db.prepare(`
-    INSERT INTO relatorio_publico_acessos (device_token, telefone, telefone_ddd, status, user_agent)
-    VALUES (?, ?, ?, 'pendente', ?)
+    INSERT INTO relatorio_publico_acessos (device_token, nome, telefone, telefone_ddd, status, user_agent)
+    VALUES (?, ?, ?, ?, 'pendente', ?)
     ON CONFLICT(device_token) DO UPDATE SET
-      telefone = excluded.telefone, telefone_ddd = excluded.telefone_ddd,
+      nome = excluded.nome, telefone = excluded.telefone, telefone_ddd = excluded.telefone_ddd,
       status = 'pendente', respondido_por = NULL, respondido_em = NULL, user_agent = excluded.user_agent
-  `).run(token, String(telefone).trim(), telefone_ddd || null, userAgent);
-  registrarLog(req, 'SECAD', 'SOLICITOU_ACESSO_RELATORIO_PUBLICO', `Solicitou acesso ao relatório público (tel. ${telefone})`, 'acesso-publico', null);
+  `).run(token, String(nome).trim(), String(telefone).trim(), telefone_ddd || null, userAgent);
+  registrarLog(req, 'SECAD', 'SOLICITOU_ACESSO_RELATORIO_PUBLICO', `Solicitou acesso ao relatório público (${nome}, tel. ${telefone})`, 'acesso-publico', null);
   res.json({ ok: true, state: 'pendente' });
 });
 

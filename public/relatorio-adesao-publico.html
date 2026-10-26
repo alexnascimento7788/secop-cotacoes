@@ -18,8 +18,13 @@
        desta página. */
     .relpub-wrap { max-width: 900px; margin: 0 auto; padding: 18px 16px 40px; }
     .relpub-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
-    .relpub-header img { height: 36px; }
-    .relpub-header h1 { font-size: 17px; font-weight: 700; color: var(--text); }
+    .relpub-header img { height: 36px; flex-shrink: 0; }
+    .relpub-header h1 { font-size: 17px; font-weight: 700; color: var(--text); line-height: 1.3; min-width: 0; }
+    .relpub-header h1 .relpub-subtitulo { font-weight: 600; color: var(--text-muted); }
+    @media (max-width: 480px) {
+      .relpub-header h1 { font-size: 15px; }
+      .relpub-header h1 .relpub-subtitulo { display: block; font-size: 12px; margin-top: 2px; }
+    }
     .relpub-tela { display: none; }
     .relpub-tela.active { display: block; }
     .relpub-card-centro { max-width: 420px; margin: 60px auto; text-align: center; padding: 28px 22px; }
@@ -56,21 +61,29 @@
     .rel-faixa-alta { color: var(--verde); font-weight: 600; }
     .rel-tabela-cel-barra { display: flex; align-items: center; gap: 8px; min-width: 90px; }
     .rel-seta { font-size: 11px; margin-right: 2px; }
-    @media (max-width: 760px) { .rel-panorama-row { flex-direction: column; } .rel-dash-item { flex-basis: auto; } }
+    @media (max-width: 760px) {
+      /* align-items: flex-start acima é pensado pra layout em linha (desktop);
+         virando coluna no celular, esse MESMO align-items passa a controlar o
+         eixo horizontal e encolhe/empurra cada item pra esquerda — por isso os
+         velocímetros e as pizzas apareciam desalinhados no celular. */
+      .rel-panorama-row { flex-direction: column; align-items: stretch; }
+      .rel-dash-item { flex-basis: auto; }
+    }
   </style>
 </head>
 <body>
   <div class="relpub-wrap">
     <div class="relpub-header">
       <img src="img/Logo Ceasa TI_transp.png" alt="CEASAMINAS" onerror="this.style.display='none'">
-      <h1>Adesão à Renovação — acompanhamento</h1>
+      <h1>Adesão à Renovação <span class="relpub-subtitulo">— acompanhamento</span></h1>
     </div>
 
     <!-- Tela 1: formulário (aparelho novo) -->
     <div class="relpub-tela" id="relpub-tela-novo">
       <div class="card relpub-card-centro">
         <div class="relpub-icone">📱</div>
-        <div class="relpub-msg">Pra acompanhar o relatório de adesão neste aparelho, informe seu telefone — sua solicitação será analisada antes de liberar o acesso.</div>
+        <div class="relpub-msg">Pra acompanhar o relatório de adesão neste aparelho, informe seu nome e telefone — sua solicitação será analisada antes de liberar o acesso.</div>
+        <input type="text" id="relpub-nome" class="filter-input" style="width:100%;margin-bottom:10px;" placeholder="Seu nome">
         <input type="text" id="relpub-telefone" class="filter-input" style="width:100%;margin-bottom:14px;" placeholder="(31) 9XXXX-XXXX">
         <div id="relpub-novo-msg" style="font-size:12.5px;font-weight:600;color:var(--vermelho);min-height:16px;margin-bottom:10px;"></div>
         <button class="btn btn-primary" style="width:100%;" onclick="relpubEnviarSolicitacao()">Solicitar acesso</button>
@@ -96,11 +109,10 @@
 
     <!-- Tela 4: dashboard (aprovado e ativo) -->
     <div class="relpub-tela" id="relpub-tela-dashboard">
-      <div class="card" style="margin-bottom:16px;">
-        <div style="padding:14px 16px;display:flex;justify-content:flex-end;">
-          <button class="btn btn-secondary btn-sm" onclick="relpubBaixarPdf()">🖨️ Baixar PDF</button>
-        </div>
-      </div>
+      <button class="btn btn-primary" onclick="relpubBaixarPdf()" title="Baixar o relatório em PDF"
+        style="position:fixed;bottom:24px;right:24px;z-index:50;border-radius:999px;box-shadow:0 2px 10px rgba(0,0,0,.25);padding:14px 20px;">
+        🖨️ Baixar PDF
+      </button>
 
       <div class="card" id="rel-dash-card" style="margin-bottom:16px;">
         <div class="card-header"><span class="card-title">📈 Panorama</span></div>
@@ -133,7 +145,7 @@
             <div class="rel-dash-titulo">Evolução dos aceites</div>
             <div id="rel-timeline"></div>
           </div>
-          <div class="rel-dash-item" style="flex:1 1 220px;align-self:center;">
+          <div class="rel-dash-item" style="flex:1 1 220px;">
             <div class="rel-dash-titulo">% Adesão geral (carga)</div>
             <div id="rel-bateria"></div>
           </div>
