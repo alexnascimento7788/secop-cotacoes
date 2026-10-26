@@ -363,7 +363,13 @@ function _relFaixaPct(pct) {
 function _relSvgBateria(pct) {
   const p = Math.max(0, Math.min(100, pct));
   const faixa = _relFaixaPct(p);
-  const w = 300, h = 34, corpoW = 236, corpoH = 24, x0 = 2, y0 = (h - corpoH) / 2;
+  // Percentual ficava fora da barra, à direita — com a barra ocupando o
+  // espaço restante, o "corpo" da pilha parecia descentralizado em relação
+  // ao título acima (que fica centralizado). Agora a pilha inteira (corpo +
+  // terminal) é desenhada centralizada no viewBox, e o percentual vai embaixo
+  // (centralizado também), igual ao número grande dos velocímetros — os dois
+  // dividem o mesmo eixo central.
+  const w = 280, h = 62, corpoW = 256, corpoH = 26, x0 = (w - (corpoW + 8)) / 2, y0 = 6;
   const fillW = Math.max(0, (corpoW - 6) * (p / 100));
   // width="100%" (em vez de fixo em px) — agora divide linha com a Evolução
   // dos aceites num container mais estreito, precisa encolher com ele.
@@ -373,7 +379,7 @@ function _relSvgBateria(pct) {
     <rect x="${x0}" y="${y0}" width="${corpoW}" height="${corpoH}" rx="3" fill="none" stroke="var(--cinza-b)" stroke-width="2"></rect>
     <rect x="${x0 + corpoW + 2}" y="${y0 + corpoH / 2 - 6}" width="6" height="12" rx="2" fill="var(--cinza-b)"></rect>
     <rect x="${x0 + 3}" y="${y0 + 3}" width="${fillW.toFixed(1)}" height="${corpoH - 6}" rx="2" fill="${faixa.cor}"></rect>
-    <text x="${x0 + corpoW + 16}" y="${y0 + corpoH / 2 + 4}" font-size="13" font-weight="700" fill="${faixa.cor}">${p.toFixed(1)}%</text>
+    <text x="${w / 2}" y="${y0 + corpoH + 28}" font-size="22" font-weight="800" text-anchor="middle" fill="${faixa.cor}">${p.toFixed(1)}%</text>
   </svg>`;
 }
 
