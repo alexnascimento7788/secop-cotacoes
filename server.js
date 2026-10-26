@@ -41,12 +41,16 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-// Protege todas as rotas /api/ exceto /api/auth/* e /api/version (metadado
+// Protege todas as rotas /api/ exceto /api/auth/*, /api/version (metadado
 // público, sem dado sensível — precisa ficar acessível ANTES do login pra
 // login.html mostrar a versão no rodapé, o mesmo endpoint que a sidebar já
-// usa depois de autenticado).
+// usa depois de autenticado) e /api/secad/relatorios/publico/* (página
+// pública sem login, pedido do Alex 2026-10-26 — ver
+// routes/secad-relatorios.js; o controle de acesso ali é por telefone/
+// aparelho aprovado no Admin, não por sessão).
 app.use('/api', (req, res, next) => {
-  if (req.path.startsWith('/auth/') || req.path === '/version') return next();
+  if (req.path.startsWith('/auth/') || req.path === '/version'
+      || req.path.startsWith('/secad/relatorios/publico/')) return next();
   requireAuth(req, res, next);
 });
 

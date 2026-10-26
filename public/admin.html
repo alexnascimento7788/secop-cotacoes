@@ -210,6 +210,7 @@
       <button class="admin-tab" onclick="mudarAba('acessos')">Acessos</button>
       <button class="admin-tab" id="tab-comunicacao" onclick="mudarAba('comunicacao')">📧 Comunicação<span id="comm-tab-badge"></span></button>
       <button class="admin-tab" id="tab-homolog" style="display:none;" onclick="mudarAba('homolog')">🛠️ Atualização na base</button>
+      <button class="admin-tab" id="tab-relatorio-publico" onclick="mudarAba('relatorio-publico')">📱 Acesso Relatório Público<span id="relpub-tab-badge"></span></button>
     </div>
 
     <!-- Aba Tipos de Contratação -->
@@ -1047,6 +1048,31 @@
       </button>
     </div>
 
+    <!-- Aba Acesso Relatório Público (PWA sem login — relatorio-adesao-publico.html) -->
+    <div class="admin-pane" id="pane-relatorio-publico">
+      <div class="admin-card">
+        <div class="admin-section">
+          <div class="admin-section-title">Acesso público ao relatório de Adesão à Renovação</div>
+          <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.5;">
+            Página sem login (<code>/relatorio-adesao-publico.html</code>) — cada aparelho que abrir pede o
+            telefone e fica <strong>pendente</strong> até ser aprovado aqui. Aparelho aprovado some sozinho
+            do acesso depois de <strong>24h sem uso</strong> (vira "Expirado" abaixo) — precisa reenviar a
+            solicitação e ser aprovado de novo.
+          </p>
+          <div class="table-wrap">
+            <table class="users-table" id="relpub-table">
+              <thead>
+                <tr><th>Telefone</th><th>Status</th><th>Solicitado em</th><th>Respondido por</th><th>Aparelho</th><th></th></tr>
+              </thead>
+              <tbody id="relpub-tbody">
+                <tr><td colspan="6" style="padding:20px;text-align:center;color:#aaa;">Carregando...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Aba Módulos -->
     <div class="admin-pane" id="pane-modulos">
       <div class="admin-card">
@@ -1333,7 +1359,7 @@ function toast(msg, type='') {
   setTimeout(() => { el.className = ''; }, 3000);
 }
 
-const _abas = ['usuarios', 'departamentos', 'modulos', 'rotinas', 'perfis', 'tipos', 'extras', 'parametros', 'banco', 'lixeira', 'concessionarios-removidos', 'logs', 'acessos', 'comunicacao', 'homolog'];
+const _abas = ['usuarios', 'departamentos', 'modulos', 'rotinas', 'perfis', 'tipos', 'extras', 'parametros', 'banco', 'lixeira', 'concessionarios-removidos', 'logs', 'acessos', 'comunicacao', 'homolog', 'relatorio-publico'];
 function mudarAba(aba) {
   document.querySelectorAll('.admin-tab').forEach((t, i) => t.classList.toggle('active', _abas[i] === aba));
   _abas.forEach(a => document.getElementById(`pane-${a}`).classList.toggle('active', a === aba));
@@ -1352,6 +1378,7 @@ function mudarAba(aba) {
   if (aba === 'acessos') carregarRelatorioAcessos();
   if (aba === 'comunicacao') mudarSubabaComm(_commSubaba);
   if (aba === 'homolog') carregarMigracoes();
+  if (aba === 'relatorio-publico') carregarRelatorioPublicoAdmin();
 }
 
 // ── Gate de reautenticação ───────────────────────────────────────────────────
@@ -1701,6 +1728,7 @@ async function salvarParametros() {
   } else {
     carregarBadgeComunicacao();
   }
+  carregarBadgeAcessoPublico();
   // Aba "Atualização na base": só master E só em homolog (o marcador .homolog
   // existe no servidor). Em produção o /api/version devolve homolog:false → some.
   if (user.username === 'master') {
@@ -3289,6 +3317,65 @@ async function carregarBadgeComunicacao() {
     const badge = document.getElementById('comm-tab-badge');
     if (badge) badge.innerHTML = total > 0 ? `<span class="comm-badge">${total}</span>` : '';
   } catch {}
+}
+
+// ── Acesso Relatório Público (PWA sem login) ────────────────────────────────
+// Pedido do Alex, 2026-10-26 — ver routes/secad-relatorios.js (seção "Acesso
+// público") e public/relatorio-adesao-publico.html/js/relatorio-publico.js.
+async function carregarBadgeAcessoPublico() {
+  try {
+    const r = await fetch('/api/admin/relatorio-publico/solicitacoes');
+    if (!r.ok) return;
+    const rows = await r.json();
+    const pendentes = rows.filter(x => x.status === 'pendente').length;
+    const badge = document.getElementById('relpub-tab-badge');
+    if (badge) badge.innerHTML = pendentes > 0 ? `<span class="comm-badge">${pendentes}</span>` : '';
+  } catch {}
+}
+
+const RELPUB_LABEL_STATUS = { pendente: 'Pendente', aprovado: 'Aprovado', rejeitado: 'Rejeitado' };
+
+async function carregarRelatorioPublicoAdmin() {
+  const tbody = document.getElementById('relpub-tbody');
+  try {
+    const res = await fetch('/api/admin/relatorio-publico/solicitacoes');
+    const rows = res.ok ? await res.json() : [];
+    tbody.innerHTML = rows.length ? rows.map(r => {
+      const statusLabel = r.expirado ? 'Expirado' : RELPUB_LABEL_STATUS[r.status];
+      const statusCor = r.status === 'rejeitado' || r.expirado ? 'var(--vermelho)' : (r.status === 'aprovado' ? 'var(--verde)' : 'var(--amarelo)');
+      const telefone = [r.telefone_ddd ? `(${r.telefone_ddd})` : '', r.telefone || '—'].filter(Boolean).join(' ');
+      const respondido = r.respondido_por_nome ? `${r.respondido_por_nome} — ${fmtDataHora(r.respondido_em)}` : '—';
+      const acoes = (r.status === 'pendente' || r.expirado)
+        ? `<button class="btn btn-primary btn-sm" onclick="responderSolicitacaoRelatorio(${r.id},'aprovar')">Aprovar</button>
+           <button class="btn btn-secondary btn-sm" onclick="responderSolicitacaoRelatorio(${r.id},'rejeitar')">Rejeitar</button>`
+        : (r.status === 'aprovado'
+          ? `<button class="btn btn-secondary btn-sm" onclick="responderSolicitacaoRelatorio(${r.id},'rejeitar')">Revogar</button>`
+          : `<button class="btn btn-primary btn-sm" onclick="responderSolicitacaoRelatorio(${r.id},'aprovar')">Aprovar</button>`);
+      return `<tr>
+        <td>${telefone}</td>
+        <td style="color:${statusCor};font-weight:600;">${statusLabel}</td>
+        <td>${fmtDataHora(r.criado_em)}</td>
+        <td>${respondido}</td>
+        <td title="${r.device_token}" style="font-family:monospace;font-size:11px;">${r.device_token.slice(0, 8)}…</td>
+        <td style="text-align:right;white-space:nowrap;">${acoes}</td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="6" style="padding:20px;text-align:center;color:#aaa;">Nenhuma solicitação ainda.</td></tr>';
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:20px;text-align:center;color:#aaa;">Erro ao carregar.</td></tr>';
+  }
+}
+
+async function responderSolicitacaoRelatorio(id, acao) {
+  try {
+    const res = await fetch(`/api/admin/relatorio-publico/solicitacoes/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acao }),
+    });
+    if (!res.ok) { toast('Erro ao atualizar a solicitação', 'error'); return; }
+    carregarRelatorioPublicoAdmin();
+    carregarBadgeAcessoPublico();
+  } catch {
+    toast('Erro ao atualizar a solicitação', 'error');
+  }
 }
 
 function mudarSubabaComm(nome, btn) {

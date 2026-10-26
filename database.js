@@ -789,6 +789,30 @@ function setupDb() {
     );
   `);
 
+  // ── Relatórios: acesso público (PWA, sem login) por telefone+aparelho ───────
+  // Pedido do Alex, 2026-10-26: página separada (relatorio-adesao-publico.html)
+  // pra ver o MESMO relatório de adesão sem conta no CEASA CONECTA. Controle
+  // não é login — é telefone + aparelho (device_token gerado no navegador,
+  // guardado em localStorage) aprovado manualmente aqui no Admin.
+  // `status` só tem 'pendente'/'aprovado'/'rejeitado' — "expirado" (aparelho
+  // aprovado mas sem acesso há 24h) é CALCULADO na hora (ver
+  // resolverAcessoPublico em routes/secad-relatorios.js), nunca gravado, pra
+  // não precisar de job de limpeza nem arriscar estado divergente.
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS relatorio_publico_acessos (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_token     TEXT NOT NULL UNIQUE,
+      telefone         TEXT,
+      telefone_ddd     TEXT,
+      status           TEXT NOT NULL DEFAULT 'pendente',
+      criado_em        DATETIME NOT NULL DEFAULT (datetime('now')),
+      respondido_por   INTEGER REFERENCES users(id),
+      respondido_em    DATETIME,
+      ultimo_acesso_em DATETIME,
+      user_agent       TEXT
+    );
+  `);
+
   // ── PAC/DEPLA: DFD (Documento de Formalização de Demanda) ────────────────────
   // Cada setor lança itens de demanda dentro de um DFD criado pelo DEPLA. Colunas
   // do DFD são configuráveis por documento (dfd_colunas_ativas escolhe, de um
