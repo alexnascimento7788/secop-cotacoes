@@ -1059,6 +1059,11 @@
             do acesso depois de <strong>24h sem uso</strong> (vira "Expirado" abaixo) — precisa reenviar a
             solicitação e ser aprovado de novo.
           </p>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;max-width:560px;">
+            <input type="text" id="relpub-link-input" readonly
+              style="flex:1;font-size:13px;padding:8px 10px;border:1px solid #ddd;border-radius:6px;background:#f8f8f8;color:#333;">
+            <button class="btn btn-secondary" onclick="copiarLinkRelatorioPublico()">📋 Copiar link</button>
+          </div>
           <div class="table-wrap">
             <table class="users-table" id="relpub-table">
               <thead>
@@ -3335,7 +3340,29 @@ async function carregarBadgeAcessoPublico() {
 
 const RELPUB_LABEL_STATUS = { pendente: 'Pendente', aprovado: 'Aprovado', rejeitado: 'Rejeitado' };
 
+// O celular troca http->https sozinho (HSTS) se o link for copiado com https.
+// O servidor só fala http nessa porta, então o link tem que ser gerado
+// forçando http:// mesmo que o admin.html em si tenha sido aberto com outro esquema.
+function relpubLinkPublico() {
+  const porta = window.location.port ? `:${window.location.port}` : '';
+  return `http://${window.location.hostname}${porta}/relatorio-adesao-publico.html`;
+}
+
+function copiarLinkRelatorioPublico() {
+  const link = relpubLinkPublico();
+  const input = document.getElementById('relpub-link-input');
+  const feito = () => { if (input) { input.select(); } };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(link).then(feito).catch(() => { if (input) { input.select(); document.execCommand('copy'); } });
+  } else if (input) {
+    input.select();
+    document.execCommand('copy');
+  }
+}
+
 async function carregarRelatorioPublicoAdmin() {
+  const linkInput = document.getElementById('relpub-link-input');
+  if (linkInput) linkInput.value = relpubLinkPublico();
   const tbody = document.getElementById('relpub-tbody');
   try {
     const res = await fetch('/api/admin/relatorio-publico/solicitacoes');
