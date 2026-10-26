@@ -334,7 +334,12 @@ function _relSvgTimeline(pontos, totalElegivel) {
   const rotulos = serie.map((s, i) => (i % passo === 0 || i === n - 1) ? `
     <circle cx="${x(i).toFixed(1)}" cy="${y(s.pct).toFixed(1)}" r="2.5" fill="${REL_VERDE_CEASA}"></circle>
     <text x="${x(i).toFixed(1)}" y="${(y(s.pct) - 7).toFixed(1)}" font-size="8" text-anchor="middle" fill="var(--text-muted)">${s.quantidade}</text>` : '').join('');
-  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="xMidYMid meet">
+  // height="${h}" fixo + width="100%" deixava "sobrando" caixa vazia (letterbox)
+  // em telas estreitas, onde a largura disponível encolhe mas a altura ficava
+  // travada em 170 — o viewBox então desenhava o gráfico bem menor que a caixa,
+  // com espaço em branco acima/abaixo. aspect-ratio mantém a proporção certa
+  // em qualquer largura, sem sobra.
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" style="display:block;aspect-ratio:${w}/${h};" preserveAspectRatio="xMidYMid meet">
     <line x1="${padL}" y1="${h - padB}" x2="${w - padR}" y2="${h - padB}" stroke="var(--cinza-b)" stroke-width="1"></line>
     <path d="${areaPath}" fill="${REL_VERDE_CEASA}" opacity="0.12"></path>
     <polyline points="${pts}" fill="none" stroke="${REL_VERDE_CEASA}" stroke-width="2.5"></polyline>
@@ -362,7 +367,9 @@ function _relSvgBateria(pct) {
   const fillW = Math.max(0, (corpoW - 6) * (p / 100));
   // width="100%" (em vez de fixo em px) — agora divide linha com a Evolução
   // dos aceites num container mais estreito, precisa encolher com ele.
-  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" style="max-width:${w}px;" preserveAspectRatio="xMidYMid meet">
+  // aspect-ratio (em vez de height fixo) evita letterbox/sobra vertical quando
+  // a largura disponível encolhe (mesmo motivo do fix em _relSvgTimeline).
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" style="display:block;max-width:${w}px;aspect-ratio:${w}/${h};" preserveAspectRatio="xMidYMid meet">
     <rect x="${x0}" y="${y0}" width="${corpoW}" height="${corpoH}" rx="3" fill="none" stroke="var(--cinza-b)" stroke-width="2"></rect>
     <rect x="${x0 + corpoW + 2}" y="${y0 + corpoH / 2 - 6}" width="6" height="12" rx="2" fill="var(--cinza-b)"></rect>
     <rect x="${x0 + 3}" y="${y0 + 3}" width="${fillW.toFixed(1)}" height="${corpoH - 6}" rx="2" fill="${faixa.cor}"></rect>
@@ -409,6 +416,15 @@ function _relPorCidadePizza(elId, grupos, valorFn, vazioMsg) {
   }));
   const itens = [...mapa.entries()].sort((a, b) => b[1] - a[1]).map(([cidade, qtd]) => ({ cidade, qtd }));
   const el = document.getElementById(elId);
+  // align-self:stretch (em vez de herdar o align-items:center do .rel-dash-item
+  // pai) — o pai centraliza cada filho pelo tamanho do PRÓPRIO conteúdo, então
+  // com justify-content:center dentro de uma caixa "encolhida pro conteúdo" o
+  // centro não tem efeito nenhum (não sobra espaço pra distribuir), e o grupo
+  // svg+legenda acaba ficando num ponto diferente em "Efetivado" e "Pendente"
+  // (cada um com legenda de tamanho diferente). Esticando o item pro total da
+  // coluna, o círculo fica numa fatia de largura FIXA sempre no mesmo lugar —
+  // as duas pizzas alinham entre si, não dependem do texto da legenda.
+  el.style.alignSelf = 'stretch';
   if (!itens.length) {
     el.innerHTML = `<div class="text-muted" style="font-size:12px;padding:30px 10px;text-align:center;">${vazioMsg}</div>`;
     return;
@@ -419,7 +435,10 @@ function _relPorCidadePizza(elId, grupos, valorFn, vazioMsg) {
       <span style="width:10px;height:10px;border-radius:2px;background:${PALETA_REL_CIDADE[i % PALETA_REL_CIDADE.length]};display:inline-block;"></span>
       ${it.cidade} — ${it.qtd}
     </div>`).join('');
-  el.innerHTML = `<div style="display:flex;gap:16px;align-items:center;justify-content:center;flex-wrap:wrap;">${svg}<div>${legenda}</div></div>`;
+  el.innerHTML = `<div style="display:flex;gap:16px;align-items:center;">
+    <div style="flex:0 0 auto;">${svg}</div>
+    <div style="flex:1 1 auto;min-width:0;">${legenda}</div>
+  </div>`;
 }
 
 function _relRenderDashboard(dados) {
