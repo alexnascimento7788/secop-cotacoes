@@ -434,4 +434,22 @@ router.patch('/api/admin/relatorio-publico/solicitacoes/:id', requireAdminAny, (
   res.json({ ok: true });
 });
 
+router.put('/api/admin/relatorio-publico/solicitacoes/:id', requireAdminAny, (req, res) => {
+  const { nome, telefone, telefone_ddd } = req.body || {};
+  if (!nome || !telefone) return res.status(400).json({ error: 'Nome e telefone são obrigatórios.' });
+  const info = db.prepare(`
+    UPDATE relatorio_publico_acessos SET nome = ?, telefone = ?, telefone_ddd = ? WHERE id = ?
+  `).run(String(nome).trim(), String(telefone).trim(), telefone_ddd || null, req.params.id);
+  if (!info.changes) return res.status(404).json({ error: 'Solicitação não encontrada.' });
+  registrarLog(req, 'SECAD', 'EDITOU_ACESSO_RELATORIO_PUBLICO', `Editou dados da solicitação #${req.params.id} de acesso ao relatório público`);
+  res.json({ ok: true });
+});
+
+router.delete('/api/admin/relatorio-publico/solicitacoes/:id', requireAdminAny, (req, res) => {
+  const info = db.prepare(`DELETE FROM relatorio_publico_acessos WHERE id = ?`).run(req.params.id);
+  if (!info.changes) return res.status(404).json({ error: 'Solicitação não encontrada.' });
+  registrarLog(req, 'SECAD', 'EXCLUIU_ACESSO_RELATORIO_PUBLICO', `Excluiu o aparelho #${req.params.id} do acesso ao relatório público`);
+  res.json({ ok: true });
+});
+
 module.exports = router;

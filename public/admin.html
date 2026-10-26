@@ -3367,6 +3367,8 @@ function _relpubEsc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+let _relpubRows = [];
+
 async function carregarRelatorioPublicoAdmin() {
   const linkInput = document.getElementById('relpub-link-input');
   if (linkInput) linkInput.value = relpubLinkPublico();
@@ -3374,12 +3376,13 @@ async function carregarRelatorioPublicoAdmin() {
   try {
     const res = await fetch('/api/admin/relatorio-publico/solicitacoes');
     const rows = res.ok ? await res.json() : [];
+    _relpubRows = rows;
     tbody.innerHTML = rows.length ? rows.map(r => {
       const statusLabel = r.expirado ? 'Expirado' : RELPUB_LABEL_STATUS[r.status];
       const statusCor = r.status === 'rejeitado' || r.expirado ? 'var(--vermelho)' : (r.status === 'aprovado' ? 'var(--verde)' : 'var(--amarelo)');
       const telefone = _relpubEsc([r.telefone_ddd ? `(${r.telefone_ddd})` : '', r.telefone || '—'].filter(Boolean).join(' '));
       const respondido = r.respondido_por_nome ? `${_relpubEsc(r.respondido_por_nome)} — ${fmtDataHora(r.respondido_em)}` : '—';
-      const acoes = (r.status === 'pendente' || r.expirado)
+      const acaoStatus = (r.status === 'pendente' || r.expirado)
         ? `<button class="btn btn-primary btn-sm" onclick="responderSolicitacaoRelatorio(${r.id},'aprovar')">Aprovar</button>
            <button class="btn btn-secondary btn-sm" onclick="responderSolicitacaoRelatorio(${r.id},'rejeitar')">Rejeitar</button>`
         : (r.status === 'aprovado'
@@ -3392,12 +3395,44 @@ async function carregarRelatorioPublicoAdmin() {
         <td>${fmtDataHora(r.criado_em)}</td>
         <td>${respondido}</td>
         <td title="${_relpubEsc(r.device_token)}" style="font-family:monospace;font-size:11px;">${_relpubEsc(r.device_token.slice(0, 8))}…</td>
-        <td style="text-align:right;white-space:nowrap;">${acoes}</td>
+        <td style="text-align:right;white-space:nowrap;">
+          ${acaoStatus}
+          <button class="btn btn-secondary btn-sm" onclick="editarSolicitacaoRelatorio(${r.id})">✏️ Editar</button>
+          <button class="btn btn-secondary btn-sm" style="color:var(--vermelho);" onclick="excluirSolicitacaoRelatorio(${r.id})">🗑️ Excluir</button>
+        </td>
       </tr>`;
     }).join('') : '<tr><td colspan="7" style="padding:20px;text-align:center;color:#aaa;">Nenhuma solicitação ainda.</td></tr>';
   } catch {
     tbody.innerHTML = '<tr><td colspan="7" style="padding:20px;text-align:center;color:#aaa;">Erro ao carregar.</td></tr>';
   }
+}
+
+async function editarSolicitacaoRelatorio(id) {
+  const r = _relpubRows.find(x => x.id === id);
+  if (!r) return;
+  const nome = prompt('Nome:', r.nome || '');
+  if (nome === null) return;
+  const telefone = prompt('Telefone:', r.telefone || '');
+  if (telefone === null) return;
+  if (!nome.trim() || !telefone.trim()) { alert('Nome e telefone são obrigatórios.'); return; }
+  try {
+    const res = await fetch(`/api/admin/relatorio-publico/solicitacoes/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome: nome.trim(), telefone: telefone.trim(), telefone_ddd: r.telefone_ddd || null }),
+    });
+    if (!res.ok) { alert('Erro ao salvar.'); return; }
+    carregarRelatorioPublicoAdmin();
+  } catch { alert('Erro ao salvar.'); }
+}
+
+async function excluirSolicitacaoRelatorio(id) {
+  if (!confirm('Excluir este aparelho? Se ele tentar acessar de novo, vai cair como solicitação nova (pedindo nome e telefone outra vez).')) return;
+  try {
+    const res = await fetch(`/api/admin/relatorio-publico/solicitacoes/${id}`, { method: 'DELETE' });
+    if (!res.ok) { alert('Erro ao excluir.'); return; }
+    carregarRelatorioPublicoAdmin();
+    carregarBadgeAcessoPublico();
+  } catch { alert('Erro ao excluir.'); }
 }
 
 async function responderSolicitacaoRelatorio(id, acao) {
