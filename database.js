@@ -802,6 +802,7 @@ function setupDb() {
     CREATE TABLE IF NOT EXISTS relatorio_publico_acessos (
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
       device_token     TEXT NOT NULL UNIQUE,
+      nome             TEXT,
       telefone         TEXT,
       telefone_ddd     TEXT,
       status           TEXT NOT NULL DEFAULT 'pendente',
@@ -812,6 +813,7 @@ function setupDb() {
       user_agent       TEXT
     );
   `);
+  try { _db.exec(`ALTER TABLE relatorio_publico_acessos ADD COLUMN nome TEXT`); } catch {}
 
   // ── PAC/DEPLA: DFD (Documento de Formalização de Demanda) ────────────────────
   // Cada setor lança itens de demanda dentro de um DFD criado pelo DEPLA. Colunas

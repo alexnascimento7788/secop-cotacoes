@@ -69,13 +69,15 @@ async function relpubVerificarAcesso() {
 async function relpubEnviarSolicitacao() {
   const msg = document.getElementById('relpub-novo-msg');
   msg.textContent = '';
+  const nome = document.getElementById('relpub-nome').value.trim();
   const telefone = document.getElementById('relpub-telefone').value.trim();
+  if (!nome) { msg.textContent = 'Informe seu nome.'; return; }
   if (!telefone) { msg.textContent = 'Informe seu telefone.'; return; }
   const telefone_ddd = _relpubTelWidget ? _relpubTelWidget.getDDD() : null;
   try {
     const res = await fetch('/api/secad/relatorios/publico/solicitar', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: relpubToken(), telefone, telefone_ddd }),
+      body: JSON.stringify({ token: relpubToken(), nome, telefone, telefone_ddd }),
     });
     if (!res.ok) { msg.textContent = 'Erro ao enviar a solicitação.'; return; }
     relpubMostrarTela('pendente');
