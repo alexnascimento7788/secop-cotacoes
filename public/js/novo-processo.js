@@ -64,7 +64,9 @@ async function carregarProcessoParaEdicao() {
     document.getElementById('objeto').value            = p.objeto || '';
     document.getElementById('setor_solicitante').value = p.setor_solicitante || '';
     document.getElementById('tipo_contratacao').value  = p.tipo_contratacao || '';
-    document.getElementById('responsavel').value       = p.responsavel || '';
+    // Responsável é fixo (Rogério Diniz, por questão jurídica — ver
+    // RESPONSAVEL_FIXO em routes/secop.js) — o backend ignora qualquer valor
+    // enviado, o campo nem carrega o que está salvo (sempre o mesmo).
     document.getElementById('data_abertura').value     = p.data_abertura ? p.data_abertura.split('T')[0] : '';
     document.getElementById('previsao_inicio').value   = p.previsao_inicio ? p.previsao_inicio.split('T')[0] : '';
     document.getElementById('previsao_termino').value  = p.previsao_termino ? p.previsao_termino.split('T')[0] : '';
@@ -543,5 +545,4 @@ function confirmarImportacaoExcel() {
 carregarTiposContratacao().then(carregarProcessoParaEdicao);
 initDatalistAutocomplete('objeto',             'objeto');
 initDatalistAutocomplete('setor_solicitante',  'setor_solicitante');
-initDatalistAutocomplete('responsavel',        'responsavel');
 initSuggestAutocomplete('descricao', 'descricao');

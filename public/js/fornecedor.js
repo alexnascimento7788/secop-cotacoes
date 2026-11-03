@@ -98,6 +98,9 @@ let tiposExtra    = []; // catálogo Unidade+Descrição (Configurações → It
 let currentFornId = null;
 let podeEditarForn = true;
 let fornecedorAtivo = false; // só true depois de clicar "+ Novo fornecedor" ou "Editar" — trava edição acidental antes disso
+let _lockMine = false; // se a trava de concorrência do processo (ver middleware.js) é minha
+let _pingTimer = null;
+let _avisoSomenteLeitura = 'Somente visualização — você não tem permissão para editar esta cotação.';
 
 function campoHabilitado() {
   return podeEditarForn && fornecedorAtivo;
@@ -148,7 +151,7 @@ function aplicarPermissaoUI() {
 
   const aviso = document.createElement('div');
   aviso.style.cssText = 'background:#FFF8E1;border:1px solid #FFE082;border-radius:6px;padding:10px 14px;font-size:13px;color:#795548;margin-bottom:16px;line-height:1.5;';
-  aviso.textContent = 'Somente visualização — você não tem permissão para editar esta cotação.';
+  aviso.textContent = _avisoSomenteLeitura;
   document.getElementById('content').prepend(aviso);
 }
 
@@ -195,6 +198,28 @@ async function carregar() {
     // Concluído trava edição pra todo mundo — reabrir só existe no Quadro (cotacao.html).
     podeEditarForn = data.status !== 'Concluído' && !!user &&
       (edicaoLivre || ['admin', 'admin_sistema', 'admin_operacional'].includes(user.role) || data.criado_por_id === user.id);
+
+    // Trava de CONCORRÊNCIA (pedido do Alex, 2026-10-29): com edicaoLivre
+    // ligado não existe mais dono — só não deixa dois usuários editando o
+    // mesmo processo (aqui ou no Quadro) ao mesmo tempo. Mesma trava
+    // processo_lock usada por cotacao.html — ver routes/secop.js.
+    if (podeEditarForn) {
+      try {
+        const r = await fetch(`/api/processos/${processoId}/abrir`, { method: 'POST' });
+        const d = await r.json();
+        if (r.ok) {
+          _lockMine = !!(d.lock && d.lock.por_mim);
+          if (_lockMine) {
+            clearInterval(_pingTimer);
+            _pingTimer = setInterval(() => fetch(`/api/processos/${processoId}/ping`, { method: 'POST' }).catch(() => {}), 30000);
+          }
+        } else {
+          podeEditarForn = false;
+          _lockMine = false;
+          _avisoSomenteLeitura = `Somente visualização — este processo está em edição por ${d.em_uso_por || 'outro usuário'} agora.`;
+        }
+      } catch {}
+    }
 
     document.getElementById('bread-processo').textContent =
       `Processo ${processo.numero_processo} — ${processo.objeto}`;
@@ -881,6 +906,11 @@ tipoFlags.forEach(id => {
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────
+
+// Libera a trava de concorrência ao sair da página (navegar ou fechar a aba).
+window.addEventListener('beforeunload', () => {
+  if (_lockMine && navigator.sendBeacon) navigator.sendBeacon(`/api/processos/${processoId}/fechar`);
+});
 
 carregar();
 initDatalistAutocomplete('f-nome',     'fornecedor_nome');

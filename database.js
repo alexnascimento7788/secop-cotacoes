@@ -2034,6 +2034,42 @@ function setupDb() {
       } catch {}
     });
   }
+
+  // ── SECOP: edição sem dono + trava de concorrência + rastro do último editor
+  // (pedido do Alex, 2026-10-29) ────────────────────────────────────────────
+  // A trava histórica "só dono/admin edita" (podeEditarProcesso, routes/secop.js)
+  // dá lugar a secop_edicao_livre sempre ligado — a única trava que resta é de
+  // CONCORRÊNCIA: dois usuários não editam o mesmo processo ao mesmo tempo.
+  // Mesmo padrão ping/TTL do validacao_lock do Depop (routes/secad.js).
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS processo_lock (
+      processo_id INTEGER PRIMARY KEY,
+      user_id     INTEGER NOT NULL,
+      nome        TEXT,
+      aberto_em   DATETIME DEFAULT CURRENT_TIMESTAMP,
+      ultimo_ping DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+  // Último usuário a alterar o processo (qualquer escrita, ver requireEditProcesso
+  // em routes/secop.js) — aparece em vermelho ao lado de "Criado por".
+  try { _db.exec(`ALTER TABLE processos ADD COLUMN atualizado_por_id INTEGER REFERENCES users(id)`); } catch {}
+  try { _db.prepare(`INSERT INTO config (chave, valor) VALUES ('secop_edicao_livre', '1')`).run(); } catch {}
+
+  // Responsável pela elaboração passa a ser SEMPRE Rogério Diniz (pedido do
+  // Alex, 2026-10-29, por questão jurídica — quem assina/responde pelo
+  // processo não é necessariamente quem o cadastrou). Campo texto livre
+  // (processos.responsavel) é fixado no backend a partir de agora (ver
+  // POST/PUT /api/processos em routes/secop.js); aqui só a correção
+  // retroativa dos processos já cadastrados, uma vez só (pedido explícito do
+  // Alex de reescrever também o histórico).
+  try {
+    const jaFeito = _db.prepare(`SELECT valor FROM config WHERE chave = 'secop_responsavel_fixo_aplicado'`).get();
+    if (!jaFeito) {
+      _db.prepare(`UPDATE processos SET responsavel = 'Rogerio Diniz'`).run();
+      _db.prepare(`INSERT INTO config (chave, valor) VALUES ('secop_responsavel_fixo_aplicado', '1')`).run();
+    }
+  } catch {}
 }
 
 setupDb();

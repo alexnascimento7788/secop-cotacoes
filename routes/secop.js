@@ -33,11 +33,35 @@ function podeEditarProcesso(user, processoId) {
   return !!proc && proc.criado_por_id === user.user_id;
 }
 
+// Responsável pela elaboração — pedido do Alex, 2026-10-29: por questão
+// jurídica, não é mais quem cadastra/edita (campo de texto livre antigo), e
+// sim sempre a mesma pessoa, em todo processo (novo ou já existente — ver
+// correção retroativa em database.js).
+const RESPONSAVEL_FIXO = 'Rogerio Diniz';
+
+// Trava de CONCORRÊNCIA (pedido do Alex, 2026-10-29): com secop_edicao_livre
+// sempre ligado (ver middleware.js), não existe mais dono — a única trava que
+// resta é não deixar dois usuários editando o MESMO processo ao mesmo tempo.
+// Mesmo padrão ping/TTL do validacao_lock do Depop (routes/secad.js).
+const LOCK_TTL_SEG = 120; // trava sem ping por mais que isso = abandonada (libera)
+function travaAtivaProcesso(processoId) {
+  const l = db.prepare(`
+    SELECT processo_id, user_id, nome,
+           CAST((julianday('now') - julianday(ultimo_ping)) * 86400 AS INTEGER) AS idade
+    FROM processo_lock WHERE processo_id = ?`).get(processoId);
+  if (!l || l.idade > LOCK_TTL_SEG) return null;
+  return l;
+}
+
 // Processo concluído trava TODA edição (itens/fornecedores/preços/status/etc.)
 // até ser reaberto — reabertura é uma ação própria (admin, ver
 // POST /api/processos/:id/reabrir), não passa por aqui. Checado antes da
 // permissão de usuário porque "concluído" é um estado do processo, não um
 // privilégio: nem o criador nem um admin editam direto, têm que reabrir primeiro.
+// Depois da trava de concorrência, registra quem fez a alteração
+// (atualizado_por_id — aparece em vermelho no cabeçalho da cotação) só se a
+// rota de fato terminou em sucesso (res.on('finish'), único ponto pra todas
+// as rotas de escrita de processos/fornecedores/itens/preços).
 function requireEditProcesso(resolveId) {
   return (req, res, next) => {
     const id = resolveId(req);
@@ -49,9 +73,55 @@ function requireEditProcesso(resolveId) {
     if (!podeEditarProcesso(req.user, id)) {
       return res.status(403).json({ error: 'Você não tem permissão para editar esta cotação' });
     }
+    const trava = travaAtivaProcesso(id);
+    if (trava && trava.user_id !== req.user.user_id) {
+      return res.status(409).json({ error: `Processo em uso por ${trava.nome || 'outro usuário'} — aguarde encerrar a edição.`, em_uso_por: trava.nome });
+    }
+    res.on('finish', () => {
+      if (res.statusCode < 400) {
+        try { db.prepare(`UPDATE processos SET atualizado_por_id = ? WHERE id = ?`).run(req.user.user_id, id); } catch {}
+      }
+    });
     next();
   };
 }
+
+// Abre/mantém/libera a trava de concorrência enquanto a cotação (Quadro) ou a
+// tela de fornecedores está aberta pra edição — mesmo trio abrir/ping/fechar
+// do Depop (routes/secad.js). Concluído e perfil consulta nunca travam (só
+// leitura mesmo). Chamado pelo front só quando o usuário PODE editar (ver
+// podeEditarCotacao/podeEditarForn) — quem só visualiza nunca disputa a trava.
+router.post('/api/processos/:id/abrir', secop, (req, res) => {
+  const id = req.params.id;
+  const proc = db.prepare(`SELECT status FROM processos WHERE id = ? AND excluido_em IS NULL`).get(id);
+  if (!proc) return res.status(404).json({ error: 'Não encontrado' });
+  if (proc.status === 'Concluído' || req.user.role === 'consulta' || !podeEditarProcesso(req.user, id)) {
+    return res.json({ lock: null });
+  }
+
+  const trava = travaAtivaProcesso(id);
+  if (trava && trava.user_id !== req.user.user_id) {
+    return res.status(409).json({ error: `Processo em uso por ${trava.nome || 'outro usuário'}.`, em_uso_por: trava.nome });
+  }
+  db.prepare(`
+    INSERT INTO processo_lock (processo_id, user_id, nome, aberto_em, ultimo_ping)
+    VALUES (?, ?, ?, datetime('now'), datetime('now'))
+    ON CONFLICT(processo_id) DO UPDATE SET
+      user_id = excluded.user_id, nome = excluded.nome, ultimo_ping = datetime('now')`)
+    .run(id, req.user.user_id, req.user.nome_completo || req.user.username);
+  res.json({ lock: { por_mim: true } });
+});
+
+router.post('/api/processos/:id/ping', secop, (req, res) => {
+  const info = db.prepare(`UPDATE processo_lock SET ultimo_ping = datetime('now') WHERE processo_id = ? AND user_id = ?`)
+    .run(req.params.id, req.user.user_id);
+  res.json({ ok: info.changes > 0 });
+});
+
+router.post('/api/processos/:id/fechar', secop, (req, res) => {
+  db.prepare(`DELETE FROM processo_lock WHERE processo_id = ? AND user_id = ?`).run(req.params.id, req.user.user_id);
+  res.json({ ok: true });
+});
 
 function ehAdminSecop(user) {
   return ['admin', 'admin_sistema', 'admin_operacional'].includes(user.role);
@@ -103,7 +173,7 @@ router.get('/api/processos', secop, (req, res) => {
 });
 
 router.post('/api/processos', secop, (req, res) => {
-  const { objeto, setor_solicitante, tipo_contratacao, responsavel, descricao,
+  const { objeto, setor_solicitante, tipo_contratacao, descricao,
           previsao_inicio, previsao_termino, observacoes, observacoes2, data_abertura } = req.body;
 
   if (!objeto) return res.status(400).json({ error: 'Objeto é obrigatório' });
@@ -113,7 +183,7 @@ router.post('/api/processos', secop, (req, res) => {
     INSERT INTO processos (numero_processo, objeto, setor_solicitante, tipo_contratacao,
       responsavel, descricao, previsao_inicio, previsao_termino, observacoes, observacoes2, data_abertura, criado_por_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(numero_processo, n(objeto), n(setor_solicitante), n(tipo_contratacao), n(responsavel),
+  `).run(numero_processo, n(objeto), n(setor_solicitante), n(tipo_contratacao), RESPONSAVEL_FIXO,
          n(descricao), n(previsao_inicio), n(previsao_termino), n(observacoes), n(observacoes2), n(data_abertura),
          req.user.user_id);
 
@@ -124,10 +194,11 @@ router.post('/api/processos', secop, (req, res) => {
 
 router.get('/api/processos/:id', secop, (req, res) => {
   const processo = db.prepare(`
-    SELECT p.*, u.username AS criado_por_username,
+    SELECT p.*, u.username AS criado_por_username, ua.username AS atualizado_por_username,
       CAST((julianday('now') - julianday(p.criado_em)) AS INTEGER) AS dias_em_aberto
     FROM processos p
-    LEFT JOIN users u ON u.id = p.criado_por_id
+    LEFT JOIN users u  ON u.id = p.criado_por_id
+    LEFT JOIN users ua ON ua.id = COALESCE(p.atualizado_por_id, p.criado_por_id)
     WHERE p.id = ? AND p.excluido_em IS NULL
   `).get(req.params.id);
   if (!processo) return res.status(404).json({ error: 'Não encontrado' });
@@ -157,7 +228,7 @@ router.post('/api/processos/:id/duplicar', secop, (req, res) => {
       mostrar_menor_preco, criado_por_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(numero_processo, original.objeto, original.setor_solicitante, original.tipo_contratacao,
-         original.responsavel, original.descricao, original.previsao_inicio, original.previsao_termino,
+         RESPONSAVEL_FIXO, original.descricao, original.previsao_inicio, original.previsao_termino,
          original.observacoes, original.observacoes2, original.mostrar_menor_preco, req.user.user_id);
   const novoId = info.lastInsertRowid;
 
@@ -182,7 +253,7 @@ router.post('/api/processos/:id/duplicar', secop, (req, res) => {
 });
 
 router.put('/api/processos/:id', secop, requireEditProcesso(req => req.params.id), (req, res) => {
-  const { objeto, setor_solicitante, tipo_contratacao, responsavel, descricao,
+  const { objeto, setor_solicitante, tipo_contratacao, descricao,
           previsao_inicio, previsao_termino, status, observacoes, observacoes2, data_abertura } = req.body;
 
   const existe = db.prepare(`SELECT id, numero_processo FROM processos WHERE id = ?`).get(req.params.id);
@@ -193,7 +264,7 @@ router.put('/api/processos/:id', secop, requireEditProcesso(req => req.params.id
       descricao=?, previsao_inicio=?, previsao_termino=?, status=?, observacoes=?,
       observacoes2=?, data_abertura=?, atualizado_em=CURRENT_TIMESTAMP
     WHERE id=?
-  `).run(n(objeto), n(setor_solicitante), n(tipo_contratacao), n(responsavel), n(descricao),
+  `).run(n(objeto), n(setor_solicitante), n(tipo_contratacao), RESPONSAVEL_FIXO, n(descricao),
          n(previsao_inicio), n(previsao_termino), n(status), n(observacoes),
          n(observacoes2), n(data_abertura), req.params.id);
 
@@ -475,7 +546,6 @@ const AUTOCOMPLETE_FIELDS = {
   objeto:                 { table: 'processos',    col: 'objeto' },
   descricao:              { table: 'processos',    col: 'descricao' },
   setor_solicitante:      { table: 'processos',    col: 'setor_solicitante' },
-  responsavel:            { table: 'processos',    col: 'responsavel' },
   observacoes:            { table: 'processos',    col: 'observacoes' },
   observacoes2:           { table: 'processos',    col: 'observacoes2' },
   fornecedor_nome:        { table: 'fornecedores', col: 'nome' },

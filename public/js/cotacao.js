@@ -67,6 +67,8 @@ let totaisForn        = {}; // { fornId: totalValue } — soma de tudo (R$ + per
 let totaisFornMoeda   = {}; // { fornId: totalValue } — só a parte em R$ (itens normais + extras fixos), usada só pra decidir o formato de exibição
 let podeEditarCotacao = true;
 let tiposExtra        = []; // catálogo Unidade+Descrição+Sinal (Configurações → Itens Extras)
+let _lockMine = false; // se a trava de concorrência do processo (ver middleware.js) é minha
+let _pingTimer = null;
 
 // Sinal (positivo/negativo) e tipo de valor (fixo em R$ ou percentual) vêm do
 // catálogo tipos_extra, amarrados à Unidade da linha extra
@@ -106,6 +108,18 @@ function aplicarPermissaoUI() {
   document.getElementById('btn-salvar-obs').style.display = podeEditarCotacao ? '' : 'none';
   document.getElementById('obs-geral').readOnly  = !podeEditarCotacao;
   document.getElementById('obs-portal').readOnly = !podeEditarCotacao;
+}
+
+// Banner de "em uso por outro usuário" — só aparece quando a trava de
+// concorrência (processo_lock, ver routes/secop.js) está com outra pessoa.
+function mostrarAvisoEmUso(nome) {
+  const existente = document.getElementById('aviso-trava-processo');
+  if (existente) existente.remove();
+  const aviso = document.createElement('div');
+  aviso.id = 'aviso-trava-processo';
+  aviso.style.cssText = 'background:#FFF8E1;border:1px solid #FFE082;border-radius:6px;padding:10px 14px;font-size:13px;color:#795548;margin-bottom:16px;line-height:1.5;';
+  aviso.textContent = `Somente visualização — este processo está em edição por ${nome || 'outro usuário'} agora.`;
+  document.getElementById('content').prepend(aviso);
 }
 
 // ── Labels de coluna (salvas no processo — editadas em fornecedor.html, valem
@@ -274,6 +288,29 @@ async function carregar() {
     // Concluído trava edição pra todo mundo, inclusive admin — só reabrindo
     // (botão abaixo, só aparece pro admin) é que volta a editar.
     podeEditarCotacao = !concluido && !!user && (edicaoLivre || ehAdmin || data.criado_por_id === user.id);
+
+    // Trava de CONCORRÊNCIA (pedido do Alex, 2026-10-29): com edicaoLivre
+    // ligado não existe mais dono — só não deixa dois usuários editando o
+    // mesmo processo ao mesmo tempo. Só disputa a trava quem pode editar;
+    // quem só visualiza nunca tenta abrir nem bloqueia ninguém.
+    if (podeEditarCotacao) {
+      try {
+        const r = await fetch(`/api/processos/${processoId}/abrir`, { method: 'POST' });
+        const d = await r.json();
+        if (r.ok) {
+          _lockMine = !!(d.lock && d.lock.por_mim);
+          if (_lockMine) {
+            clearInterval(_pingTimer);
+            _pingTimer = setInterval(() => fetch(`/api/processos/${processoId}/ping`, { method: 'POST' }).catch(() => {}), 30000);
+          }
+        } else {
+          podeEditarCotacao = false;
+          _lockMine = false;
+          mostrarAvisoEmUso(d.em_uso_por);
+        }
+      } catch {}
+    }
+
     aplicarPermissaoUI();
     document.getElementById('btn-reabrir-processo').style.display = (concluido && ehAdmin) ? '' : 'none';
 
@@ -323,10 +360,17 @@ function renderCabecalho() {
     { label: 'Início',         value: fmtBr(processo.previsao_inicio) },
     { label: 'Término',        value: fmtBr(processo.previsao_termino) },
     { label: 'Criado por',     value: processo.criado_por_username || 'Admin (legado)' },
+    // Última alteração (qualquer escrita — ver requireEditProcesso em
+    // routes/secop.js); antes da 1ª edição o backend retorna o próprio
+    // criador. Sempre em vermelho, pedido do Alex (2026-10-29), pra chamar
+    // atenção de quem passou por último no processo.
+    { label: 'Última alteração', value: processo.atualizado_por_username || processo.criado_por_username || 'Admin (legado)', vermelho: true },
   ];
 
   document.getElementById('ph-meta').innerHTML = meta
-    .map(m => `<span><strong>${m.label}:</strong> ${m.value}</span>`)
+    .map(m => m.vermelho
+      ? `<span style="color:#C62828;font-weight:700;">${m.label}: ${m.value}</span>`
+      : `<span><strong>${m.label}:</strong> ${m.value}</span>`)
     .join('');
 
   if (processo.descricao) {
@@ -926,6 +970,11 @@ document.getElementById('btn-print').addEventListener('click', () => {
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────
+
+// Libera a trava de concorrência ao sair da página (navegar ou fechar a aba).
+window.addEventListener('beforeunload', () => {
+  if (_lockMine && navigator.sendBeacon) navigator.sendBeacon(`/api/processos/${processoId}/fechar`);
+});
 
 carregar();
 initSuggestAutocomplete('obs-geral',  'observacoes');
