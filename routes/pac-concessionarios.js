@@ -265,12 +265,12 @@ router.get('/api/pac/concessionarios/resumido', pac, requireVer, (req, res) => {
     // metragem soma, mas a tarifa (atual_tarifa_uso/nova_tarifa_uso) e o
     // vencimento são o MESMO valor repetido em cada linha (confirmado: 0
     // divergência em 249 contratos com fan-out), então agrupar com MAX
-    // (nunca SUM) dá o valor único correto. atual_tarifa_uso = "Valor por m²"
-    // (tarifa vigente hoje, já em R$/m²); nova_tarifa_uso = "Tarifa de Uso"
-    // (nova tarifa negociada na renovação de 20 anos).
+    // (nunca SUM) dá o valor único correto. nova_tarifa_uso = "Valor por m²";
+    // atual_tarifa_uso = "Tarifa de Uso" (confirmado pelo Alex, 2026-11-04 —
+    // é a coluna "tarifa atual", não a nova).
     depopDb.prepare(`
       SELECT id_contrato, SUM(area_m2) AS area_total,
-             MAX(atual_tarifa_uso) AS valor_m2, MAX(nova_tarifa_uso) AS tarifa_media,
+             MAX(nova_tarifa_uso) AS valor_m2, MAX(atual_tarifa_uso) AS tarifa_media,
              MAX(data_vencimento) AS vencimento
       FROM TarifaContrato20Anos WHERE id_contrato IN (${placeholders}) GROUP BY id_contrato
     `).all(...idsContrato).forEach(r => {
