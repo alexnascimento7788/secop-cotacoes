@@ -308,11 +308,71 @@ function camposDepop(c, dados) {
 // depop (direto/data/manual), já que o módulo é focado em quem está no
 // programa de renovação de 20 anos. incluirDemais=true também traz os
 // 'sem_match' (concessionários fora do programa — ver flag "Demais" na tela).
+// Sem ORDER BY aqui — a ordenação de verdade (por prazo final de adesão,
+// depois código) só dá pra fazer depois de calcular prazo_final_adesao, ver
+// ordenarPorPrazoECodigo().
 function buscarContratos(importacaoId, incluirDemais) {
   const filtro = incluirDemais ? '' : `AND match_confianca != 'sem_match'`;
   return db.prepare(`
-    SELECT * FROM depla_concessionarios WHERE importacao_id = ? ${filtro} ORDER BY empresa, contrato_numero
+    SELECT * FROM depla_concessionarios WHERE importacao_id = ? ${filtro}
   `).all(importacaoId);
+}
+
+// Converte "dd/mm/yyyy" num número yyyymmdd pra dar pra comparar. Sem prazo
+// (fora do intervalo 2027–2032) vai pro fim da lista.
+function prazoParaOrdenacao(prazo) {
+  if (!prazo) return Infinity;
+  const [d, m, a] = prazo.split('/');
+  return Number(a) * 10000 + Number(m) * 100 + Number(d);
+}
+
+// Pedido do Alex, 2026-11-05: ordenar os relatórios por prazo final de
+// adesão (quem vence primeiro aparece primeiro) e, dentro do mesmo prazo,
+// por código do concessionário.
+function ordenarPorPrazoECodigo(linhas) {
+  return linhas.sort((a, b) =>
+    prazoParaOrdenacao(a.prazo_final_adesao) - prazoParaOrdenacao(b.prazo_final_adesao) ||
+    (a.codigo || 0) - (b.codigo || 0)
+  );
+}
+
+// "Preciso do validador informando que a quantidade de concessionários no
+// Depop bate com o que apresentamos aqui" (Alex, 2026-11-05). Compara o
+// total de CONTRATOS de 20 anos e de EMPRESAS distintas no depop.db contra o
+// que a importação atual conseguiu casar — e lista o que ficou de fora, pra
+// ele julgar se é esperado (ex: dado de teste no depop) ou um problema real.
+function validarContraDepop(importacaoId) {
+  // GROUP BY (não DISTINCT nas 4 colunas juntas) — 1 contrato (id 334) tem o
+  // nome do concessionário grafado diferente entre linhas do fan-out ("Ltda."
+  // vs "Ltda", sem ponto), o que inflava a contagem em 1 contrato fantasma.
+  const contratosDepop = depopDb.prepare(`
+    SELECT id_contrato, MIN(codigo) AS codigo, MIN(concessionario) AS concessionario, MIN(numero_ccu) AS numero_ccu
+    FROM TarifaContrato20Anos GROUP BY id_contrato
+  `).all();
+  const empresasDepop = new Set(contratosDepop.map(c => c.codigo));
+
+  const casados = db.prepare(`
+    SELECT DISTINCT id_contrato_depop FROM depla_concessionarios
+    WHERE importacao_id = ? AND id_contrato_depop IS NOT NULL
+  `).all(importacaoId).map(r => r.id_contrato_depop);
+  const casadosSet = new Set(casados);
+  const empresasCasadas = new Set(
+    db.prepare(`SELECT DISTINCT codigo FROM depla_concessionarios WHERE importacao_id = ? AND match_confianca != 'sem_match'`)
+      .all(importacaoId).map(r => r.codigo)
+  );
+
+  const contratosFaltando = contratosDepop.filter(c => !casadosSet.has(c.id_contrato));
+
+  return {
+    contratos_depop: contratosDepop.length,
+    contratos_apresentados: casados.length,
+    empresas_depop: empresasDepop.size,
+    empresas_apresentadas: empresasCasadas.size,
+    bate: contratosDepop.length === casados.length,
+    contratos_faltando: contratosFaltando.map(c => ({
+      id_contrato: c.id_contrato, codigo: c.codigo, concessionario: c.concessionario, numero_ccu: c.numero_ccu,
+    })),
+  };
 }
 
 // ── Relatório resumido ───────────────────────────────────────────────────────
@@ -335,28 +395,37 @@ router.get('/api/pac/concessionarios/resumido', pac, requireVer, (req, res) => {
   const idsContrato = [...new Set(contratos.map(c => c.id_contrato_depop).filter(Boolean))];
   const dadosDepop = carregarDadosDepop(idsContrato);
 
-  const linhas = contratos.map(c => ({
-    codigo: c.codigo,
-    empresa: c.empresa,
-    cnpj: c.cnpj,
-    contrato_numero: c.contrato_numero,
-    contrato_data_inicio: c.contrato_data_inicio,
-    ...camposDepop(c, dadosDepop),
-    match_confianca: c.match_confianca,
+  const linhas = ordenarPorPrazoECodigo(contratos.map(c => {
+    const depop = camposDepop(c, dadosDepop);
+    return {
+      codigo: c.codigo,
+      empresa: c.empresa,
+      cnpj: c.cnpj,
+      prazo_final_adesao: depop.prazo_final_adesao,
+      contrato_numero: c.contrato_numero,
+      contrato_data_inicio: c.contrato_data_inicio,
+      contrato_vencido_em: depop.contrato_vencido_em,
+      area_m2: depop.area_m2,
+      valor_m2: depop.valor_m2,
+      tarifa_uso: depop.tarifa_uso,
+      valor_ponto: depop.valor_ponto,
+      outorga: depop.outorga,
+      match_confianca: c.match_confianca,
+    };
   }));
 
-  res.json({ importacao_id: importacaoId, linhas, total_demais: totalDemais });
+  res.json({ importacao_id: importacaoId, linhas, total_demais: totalDemais, validador: validarContraDepop(importacaoId) });
 });
 
 // ── Relatório detalhado (secundário) ─────────────────────────────────────────
-// Em árvore: por concessionário, os mesmos dados do resumido + TODOS os itens
-// de tarifa não-nulos da planilha (descrição/valor, formato longo). Mesmo
-// filtro de "Demais" do resumido.
+// Cópia "larga" da planilha importada (1 coluna por tipo de tarifa, igual ao
+// CORPORE) + os mesmos campos calculados do depop que o resumido tem. Mesmo
+// filtro de "Demais" e mesma ordenação (prazo final de adesão, código).
 router.get('/api/pac/concessionarios/detalhado', pac, requireVer, (req, res) => {
   const importacaoId = req.query.importacao_id
     ? Number(req.query.importacao_id)
     : db.prepare(`SELECT MAX(id) AS id FROM depla_concessionarios_importacao`).get()?.id;
-  if (!importacaoId) return res.json({ importacao_id: null, linhas: [], total_demais: 0 });
+  if (!importacaoId) return res.json({ importacao_id: null, linhas: [], colunas_tarifa: [], total_demais: 0 });
 
   const incluirDemais = req.query.incluir_demais === '1';
   const contratos = buscarContratos(importacaoId, incluirDemais);
@@ -369,32 +438,47 @@ router.get('/api/pac/concessionarios/detalhado', pac, requireVer, (req, res) => 
 
   const idsConcessionario = contratos.map(c => c.id);
   const tarifasPorConcessionario = new Map();
+  const colunasTarifaSet = new Set();
   if (idsConcessionario.length) {
     const placeholders = idsConcessionario.map(() => '?').join(',');
     db.prepare(`
       SELECT concessionario_id, descricao, valor FROM depla_concessionarios_tarifa
-      WHERE concessionario_id IN (${placeholders}) ORDER BY descricao
+      WHERE concessionario_id IN (${placeholders})
     `).all(...idsConcessionario).forEach(r => {
-      if (!tarifasPorConcessionario.has(r.concessionario_id)) tarifasPorConcessionario.set(r.concessionario_id, []);
-      tarifasPorConcessionario.get(r.concessionario_id).push({ descricao: r.descricao, valor: r.valor });
+      if (!tarifasPorConcessionario.has(r.concessionario_id)) tarifasPorConcessionario.set(r.concessionario_id, {});
+      tarifasPorConcessionario.get(r.concessionario_id)[r.descricao] = r.valor;
+      colunasTarifaSet.add(r.descricao);
     });
   }
+  // Só as colunas de tarifa que de fato aparecem em algum concessionário
+  // apresentado — as 100% vazias já nem chegam a existir (agruparPorTermo só
+  // grava valor ≠ 0 na importação).
+  const colunasTarifa = [...colunasTarifaSet].sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
-  const linhas = contratos.map(c => {
+  const linhas = ordenarPorPrazoECodigo(contratos.map(c => {
     const depop = camposDepop(c, dadosDepop);
     return {
       codigo: c.codigo,
       empresa: c.empresa,
       cnpj: c.cnpj,
+      prazo_final_adesao: depop.prazo_final_adesao,
       contrato_numero: c.contrato_numero,
       contrato_data_inicio: c.contrato_data_inicio,
-      ...depop,
+      contrato_vencido_em: depop.contrato_vencido_em,
+      area_m2: depop.area_m2,
+      valor_m2: depop.valor_m2,
+      tarifa_uso: depop.tarifa_uso,
+      valor_ponto: depop.valor_ponto,
+      outorga: depop.outorga,
       match_confianca: c.match_confianca,
-      itens_planilha: tarifasPorConcessionario.get(c.id) || [],
+      itens: tarifasPorConcessionario.get(c.id) || {},
     };
-  });
+  }));
 
-  res.json({ importacao_id: importacaoId, linhas, total_demais: totalDemais });
+  res.json({
+    importacao_id: importacaoId, linhas, colunas_tarifa: colunasTarifa,
+    total_demais: totalDemais, validador: validarContraDepop(importacaoId),
+  });
 });
 
 module.exports = router;
