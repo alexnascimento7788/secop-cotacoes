@@ -49,7 +49,7 @@
     .dc-validador-detalhe li { margin: 2px 0 2px 18px; }
   </style>
 </head>
-<body data-modulo="pac" data-rotina="pac-concessionarios">
+<body data-modulo="relatorios-gerais" data-rotina="pac-concessionarios">
 <div class="layout">
 
   <!-- Sidebar -->
@@ -63,43 +63,14 @@
       <div class="logo-divider"></div>
     </div>
     <nav>
-      <a href="pac-lancamento.html" class="nav-item">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-        Lançamento
-      </a>
-      <a href="pac-acompanhamento.html" class="nav-item">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
-        Acompanhamento
-      </a>
-      <details class="pac-nav-galho" id="nav-gestao-galho">
-        <summary>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-5"/></svg>
-          Gestão
-          <svg class="pac-nav-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-        </summary>
-        <a href="pac-gestao.html#acompanhamento" class="nav-item pac-nav-sub">Acompanhamento</a>
-        <a href="pac-gestao.html#consolidacao" class="nav-item pac-nav-sub2">Consolidação</a>
-        <details class="pac-nav-galho">
-          <summary>Administração <svg class="pac-nav-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></summary>
-          <a href="pac-gestao.html#dfds" class="nav-item pac-nav-sub2">DFDs</a>
-          <a href="pac-gestao.html#solicitacoes" class="nav-item pac-nav-sub2">Solicitações</a>
-          <a href="pac-gestao.html#setores" class="nav-item pac-nav-sub2">Setores</a>
-          <a href="pac-gestao.html#parametros" class="nav-item pac-nav-sub2">Parâmetros</a>
-          <a href="pac-gestao.html#pedidos" class="nav-item pac-nav-sub2">Pedidos</a>
-        </details>
-        <a href="pac-importacao.html" class="nav-item pac-nav-sub" id="nav-pac-importacao" style="display:none;">Importação</a>
-      </details>
-      <details class="pac-nav-galho" id="nav-relatorios-galho" open>
+      <details class="pac-nav-galho" id="nav-concessionarios-galho" open>
         <summary>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-          Relatórios Gerais
+          Dados Concessionários
           <svg class="pac-nav-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
         </summary>
-        <details class="pac-nav-galho" id="nav-concessionarios-galho" open>
-          <summary>Dados Concessionários <svg class="pac-nav-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></summary>
-          <a href="pac-concessionarios.html" class="nav-item pac-nav-sub2 active">Resumido</a>
-          <a href="pac-concessionarios-detalhado.html" class="nav-item pac-nav-sub2">Detalhado</a>
-        </details>
+        <a href="pac-concessionarios.html" class="nav-item pac-nav-sub active">Resumido</a>
+        <a href="pac-concessionarios-detalhado.html" class="nav-item pac-nav-sub">Detalhado</a>
       </details>
     </nav>
     <div class="sidebar-footer">
