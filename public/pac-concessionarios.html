@@ -41,17 +41,12 @@
     .dc-num { text-align: right; }
     .dc-demais-nota { font-size: 12.5px; color: var(--text-muted); margin-bottom: 10px; }
     .dc-check-demais { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
-    .dc-det-parent { cursor: pointer; }
-    .dc-det-parent:hover { background: var(--surface-2); }
-    .dc-det-caret {
-      display: inline-block; width: 10px; font-size: 10px; color: var(--text-muted);
-      transition: transform .15s;
-    }
-    .dc-det-parent.open .dc-det-caret { transform: rotate(90deg); }
-    .dc-det-itens td { padding: 0 0 10px 0; background: var(--surface-2); }
-    .dc-det-itens table { margin: 0 0 0 28px; width: calc(100% - 28px); }
-    .dc-det-itens th, .dc-det-itens td { font-size: 12px; padding: 4px 10px; }
-    .dc-det-itens-vazio { padding: 8px 10px 8px 38px; font-size: 12px; color: var(--text-muted); font-style: italic; }
+    .dc-banner-ok { background: #dcfce7; color: #166534; }
+    [data-theme="dark"] .dc-banner-ok { background: rgba(22,101,52,.25); color: #86efac; }
+    .dc-banner-erro { background: #fee2e2; color: #991b1b; }
+    [data-theme="dark"] .dc-banner-erro { background: rgba(153,27,27,.25); color: #fca5a5; }
+    .dc-validador-detalhe { margin-top: 8px; font-weight: 400; font-size: 12.5px; }
+    .dc-validador-detalhe li { margin: 2px 0 2px 18px; }
   </style>
 </head>
 <body data-modulo="pac" data-rotina="pac-concessionarios">
@@ -94,10 +89,15 @@
         </details>
         <a href="pac-importacao.html" class="nav-item pac-nav-sub" id="nav-pac-importacao" style="display:none;">Importação</a>
       </details>
-      <a href="pac-concessionarios.html" class="nav-item active">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-        Dados Concessionários
-      </a>
+      <details class="pac-nav-galho" id="nav-concessionarios-galho" open>
+        <summary>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Dados Concessionários
+          <svg class="pac-nav-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </summary>
+        <a href="pac-concessionarios.html" class="nav-item pac-nav-sub active">Resumido</a>
+        <a href="pac-concessionarios-detalhado.html" class="nav-item pac-nav-sub">Detalhado</a>
+      </details>
     </nav>
     <div class="sidebar-footer">
       <span id="sidebar-username" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;">—</span>
@@ -161,6 +161,10 @@
       <div class="dc-demais-nota" id="dc-demais-nota"></div>
     </div>
 
+    <!-- Validador: confere se a quantidade de concessionários/contratos
+         apresentados bate com o total que existe no depop.db. -->
+    <div class="dc-banner" id="dc-validador" style="display:none;"></div>
+
     <!-- Relatório resumido -->
     <div class="pac-card">
       <div class="dc-filtros" style="margin-bottom:10px;">
@@ -171,33 +175,13 @@
         <table>
           <thead>
             <tr>
-              <th>Código</th><th>Nome</th><th>CNPJ</th><th>Nº Contrato</th><th>Data de Início</th>
-              <th>Vencido em</th><th>Prazo Final Adesão</th>
+              <th>Código</th><th>Nome</th><th>CNPJ</th><th>Prazo Final Adesão</th>
+              <th>Nº Contrato</th><th>Data de Início</th><th>Vencido em</th>
               <th class="dc-num">Área (m²)</th><th class="dc-num">Valor por m²</th><th class="dc-num">Tarifa de Uso</th>
               <th class="dc-num">Valor do Ponto</th><th class="dc-num">Outorga (30%)</th><th>Casamento</th>
             </tr>
           </thead>
           <tbody id="dc-tbody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Relatório detalhado (secundário) — em árvore: concessionário + itens de tarifa da planilha -->
-    <div class="pac-card">
-      <div class="dc-filtros" style="margin-bottom:10px;">
-        <div class="pac-card-title" style="margin:0;">Relatório detalhado</div>
-        <button class="btn btn-secondary" style="margin-left:auto;" onclick="dcExportarExcelDetalhado()">Exportar Excel</button>
-      </div>
-      <div class="dc-resultado-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th></th><th>Código</th><th>Nome</th><th>CNPJ</th><th>Nº Contrato</th><th>Data de Início</th>
-              <th class="dc-num">Área (m²)</th><th class="dc-num">Valor por m²</th><th class="dc-num">Tarifa de Uso</th>
-              <th class="dc-num">Valor do Ponto</th><th class="dc-num">Outorga (30%)</th><th>Casamento</th>
-            </tr>
-          </thead>
-          <tbody id="dc-det-tbody"></tbody>
         </table>
       </div>
     </div>
