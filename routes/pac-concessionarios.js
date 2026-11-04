@@ -284,8 +284,13 @@ function carregarDadosDepop(idsContrato) {
 function camposDepop(c, dados) {
   const area = dados.areaPorContrato.get(c.id_contrato_depop) || null;
   const aval = dados.avaliacaoPorContrato.get(c.id_contrato_depop) || null;
-  const valorPonto = aval ? aval.valor_ponto / 1000 : null;
-  const outorga = aval ? aval.valor_30_ceasa / 1000 : null;
+  // Sem divisão nenhuma — valor_ponto/valor_30_ceasa já são o valor real em
+  // R$ (mesma leitura direta que routes/secad.js faz pra essas 2 colunas,
+  // sem dividir por 1000 em lugar nenhum do app real). Achado do Alex,
+  // 2026-11-04: os valores batiam "resumidos" demais por causa da divisão
+  // indevida que eu tinha posto aqui.
+  const valorPonto = aval ? aval.valor_ponto : null;
+  const outorga = aval ? aval.valor_30_ceasa : null;
   const vencimento = dados.vencimentoPorContrato.get(c.id_contrato_depop) || null;
   const anoVencimento = vencimento ? parseInt(vencimento.slice(0, 4), 10) : null;
   return {
