@@ -269,6 +269,10 @@ app.use(require('./routes/pac'));
 // só) — ver routes/pac-importacao.js
 app.use(require('./routes/pac-importacao'));
 
+// Sub-módulo DEPLA "Dados Concessionários" (planilha CORPORE + depop.db) —
+// ver routes/pac-concessionarios.js
+app.use(require('./routes/pac-concessionarios'));
+
 // Rotas do DETIN (Gestão de Contratos) — ver routes/detin.js
 app.use(require('./routes/detin'));
 

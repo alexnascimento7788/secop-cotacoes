@@ -482,6 +482,10 @@ function setupDb() {
       ['pac',   'pac-gestao',         'Gestão',         2, 'ver,incluir,alterar,excluir'],
       ['pac',   'pac-solicitacoes',   'Solicitações',   3, 'ver,incluir,alterar,excluir'],
       ['pac',   'pac-acompanhamento', 'Acompanhamento', 4, 'ver'],
+      // "incluir" aqui não controla nada no backend — a importação é
+      // role-gated (master/admin_sistema), mesmo padrão de
+      // relatorios-renovacao/pac-importacao (ver routes/pac-concessionarios.js).
+      ['pac',   'pac-concessionarios', 'Dados Concessionários', 5, 'ver'],
       ['detin', 'detin-painel',    'Painel',                1, 'ver'],
       ['detin', 'detin-contratos', 'Contratos',             2, 'ver,incluir,alterar,excluir'],
       ['detin', 'detin-analise',   'Análise de Contratos',  3, 'ver,incluir'],
@@ -577,7 +581,7 @@ function setupDb() {
   seedPerfil('pac', 'Gestor de Área', 'Lança dados do PAC da própria área.',
     [['pac-lancamento', RW], ['pac-acompanhamento', SOVER]]);
   seedPerfil('pac', 'Analista DEPLA', 'Gestão completa do PAC; acompanha lançamentos.',
-    [['pac-gestao', TUDO], ['pac-lancamento', SOVER], ['pac-solicitacoes', TUDO]]);
+    [['pac-gestao', TUDO], ['pac-lancamento', SOVER], ['pac-solicitacoes', TUDO], ['pac-concessionarios', SOVER]]);
   // Papel novo (pedido do Alex, 2026-09-23): lança itens em nome de QUALQUER
   // setor do DFD, sem precisar pertencer a nenhum (setor_usuarios) — a
   // unidade dele (ver unidade_usuarios, atribuída em Gestão > Parâmetros >
@@ -2070,6 +2074,59 @@ function setupDb() {
       _db.prepare(`INSERT INTO config (chave, valor) VALUES ('secop_responsavel_fixo_aplicado', '1')`).run();
     }
   } catch {}
+
+  // ── DEPLA (módulo PAC): sub-módulo "Dados Concessionários" ─────────────────
+  // (pedido do Alex, 2026-11-04) ──────────────────────────────────────────────
+  // Planilha do CORPORE (uma linha por "termo"/contrato ZTERMO, com fan-out por
+  // área — ver ZAREATERMO — e ~250 colunas de tarifa média mensal por tipo,
+  // Jan–Out/2026) + dados de área/tarifa/ponto/outorga do depop.db
+  // (TarifaContrato20Anos/AvaliacaoAreaRenovacao). Importação NUNCA é
+  // destrutiva (mesmo padrão de renovacao_aceites_importacao): cada upload
+  // vira um lote novo; "atual" é sempre o MAX(id). Sem FK entre secop.db e
+  // depop.db de propósito — o cruzamento (id_contrato_depop/match_confianca)
+  // é recalculado a cada importação, nunca lido de volta do depop.db depois.
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS depla_concessionarios_importacao (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome_arquivo  TEXT,
+      total_linhas  INTEGER NOT NULL,
+      total_termos  INTEGER NOT NULL DEFAULT 0,
+      casados       INTEGER NOT NULL DEFAULT 0,
+      importado_por INTEGER REFERENCES users(id),
+      criado_em     DATETIME NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS depla_concessionarios (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      importacao_id         INTEGER NOT NULL REFERENCES depla_concessionarios_importacao(id),
+      cod_empresa           INTEGER,
+      codigo                INTEGER NOT NULL,
+      empresa               TEXT,
+      cnpj                  TEXT,
+      contrato_numero       TEXT,
+      contrato_data_inicio  TEXT,
+      cod_termo             TEXT NOT NULL,
+      cod_contrato_juridico TEXT,
+      metragem_planilha     REAL,
+      id_contrato_depop     INTEGER,
+      match_confianca       TEXT NOT NULL DEFAULT 'sem_match'
+    );
+  `);
+  _db.exec(`CREATE INDEX IF NOT EXISTS idx_depla_conc_importacao ON depla_concessionarios(importacao_id)`);
+  _db.exec(`CREATE INDEX IF NOT EXISTS idx_depla_conc_codigo     ON depla_concessionarios(codigo)`);
+  // Pivot da planilha (tipo de tarifa → valor médio) guardado em formato longo
+  // — as colunas mudam de mês a mês (a query do CORPORE gera uma coluna por
+  // PRD.DESCRICAO do período), então não dá pra fixar como colunas reais.
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS depla_concessionarios_tarifa (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      concessionario_id INTEGER NOT NULL REFERENCES depla_concessionarios(id) ON DELETE CASCADE,
+      descricao         TEXT NOT NULL,
+      valor             REAL NOT NULL
+    );
+  `);
+  _db.exec(`CREATE INDEX IF NOT EXISTS idx_depla_tarifa_conc ON depla_concessionarios_tarifa(concessionario_id)`);
 }
 
 setupDb();
