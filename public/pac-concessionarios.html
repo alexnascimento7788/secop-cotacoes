@@ -39,6 +39,19 @@
     .dc-resultado-wrap table { margin: 0; }
     .dc-resultado-wrap thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
     .dc-num { text-align: right; }
+    .dc-demais-nota { font-size: 12.5px; color: var(--text-muted); margin-bottom: 10px; }
+    .dc-check-demais { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+    .dc-det-parent { cursor: pointer; }
+    .dc-det-parent:hover { background: var(--surface-2); }
+    .dc-det-caret {
+      display: inline-block; width: 10px; font-size: 10px; color: var(--text-muted);
+      transition: transform .15s;
+    }
+    .dc-det-parent.open .dc-det-caret { transform: rotate(90deg); }
+    .dc-det-itens td { padding: 0 0 10px 0; background: var(--surface-2); }
+    .dc-det-itens table { margin: 0 0 0 28px; width: calc(100% - 28px); }
+    .dc-det-itens th, .dc-det-itens td { font-size: 12px; padding: 4px 10px; }
+    .dc-det-itens-vazio { padding: 8px 10px 8px 38px; font-size: 12px; color: var(--text-muted); font-style: italic; }
   </style>
 </head>
 <body data-modulo="pac" data-rotina="pac-concessionarios">
@@ -133,15 +146,26 @@
       </div>
     </details>
 
-    <!-- Relatório resumido -->
+    <!-- Filtros comuns aos 2 relatórios -->
     <div class="pac-card">
-      <div class="pac-card-title">Relatório resumido</div>
       <div class="dc-filtros">
         <div class="form-group">
           <label>Importação</label>
-          <select id="dc-select-importacao" onchange="dcCarregarResumido()"></select>
+          <select id="dc-select-importacao" onchange="dcTrocarImportacao()"></select>
         </div>
-        <button class="btn btn-secondary" onclick="dcExportarExcel()">Exportar Excel</button>
+        <label class="dc-check-demais">
+          <input type="checkbox" id="dc-check-demais" onchange="dcTrocarImportacao()">
+          Mostrar "Demais" (sem contrato de renovação de 20 anos)
+        </label>
+      </div>
+      <div class="dc-demais-nota" id="dc-demais-nota"></div>
+    </div>
+
+    <!-- Relatório resumido -->
+    <div class="pac-card">
+      <div class="dc-filtros" style="margin-bottom:10px;">
+        <div class="pac-card-title" style="margin:0;">Relatório resumido</div>
+        <button class="btn btn-secondary" style="margin-left:auto;" onclick="dcExportarExcelResumido()">Exportar Excel</button>
       </div>
       <div class="dc-resultado-wrap">
         <table>
@@ -154,6 +178,26 @@
             </tr>
           </thead>
           <tbody id="dc-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Relatório detalhado (secundário) — em árvore: concessionário + itens de tarifa da planilha -->
+    <div class="pac-card">
+      <div class="dc-filtros" style="margin-bottom:10px;">
+        <div class="pac-card-title" style="margin:0;">Relatório detalhado</div>
+        <button class="btn btn-secondary" style="margin-left:auto;" onclick="dcExportarExcelDetalhado()">Exportar Excel</button>
+      </div>
+      <div class="dc-resultado-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th></th><th>Código</th><th>Nome</th><th>CNPJ</th><th>Nº Contrato</th><th>Data de Início</th>
+              <th class="dc-num">Área (m²)</th><th class="dc-num">Valor por m²</th><th class="dc-num">Tarifa de Uso</th>
+              <th class="dc-num">Valor do Ponto</th><th class="dc-num">Outorga (30%)</th><th>Casamento</th>
+            </tr>
+          </thead>
+          <tbody id="dc-det-tbody"></tbody>
         </table>
       </div>
     </div>

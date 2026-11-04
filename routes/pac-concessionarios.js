@@ -246,82 +246,150 @@ router.get('/api/pac/concessionarios/importacoes', pac, requireVer, (req, res) =
   res.json(lista);
 });
 
+// Carrega os campos derivados do depop.db (área/tarifa/vencimento/avaliação)
+// pros id_contrato_depop pedidos — usado pelo resumido E pelo detalhado.
+function carregarDadosDepop(idsContrato) {
+  const areaPorContrato = new Map();
+  const tarifaUsoPorContrato = new Map();
+  const vencimentoPorContrato = new Map();
+  const avaliacaoPorContrato = new Map();
+  if (!idsContrato.length) return { areaPorContrato, tarifaUsoPorContrato, vencimentoPorContrato, avaliacaoPorContrato };
+  const placeholders = idsContrato.map(() => '?').join(',');
+  // TarifaContrato20Anos "quebra" (fan-out) a área de um mesmo contrato em
+  // várias linhas quando ele tem mais de uma área/sequencial — nesse caso a
+  // metragem soma, mas a tarifa (atual_tarifa_uso) e o vencimento são o MESMO
+  // valor repetido em cada linha (confirmado: 0 divergência em 249 contratos
+  // com fan-out), então agrupar com MAX (nunca SUM) dá o valor único correto.
+  // "Tarifa de Uso" = atual_tarifa_uso (confirmado pelo Alex, 2026-11-04).
+  // NÃO existe coluna real de "valor por m²" no depop — fica null por
+  // enquanto (Alex confirmou, 2026-11-04: "percebi que não temos").
+  depopDb.prepare(`
+    SELECT id_contrato, SUM(area_m2) AS area_total,
+           MAX(atual_tarifa_uso) AS tarifa_media, MAX(data_vencimento) AS vencimento
+    FROM TarifaContrato20Anos WHERE id_contrato IN (${placeholders}) GROUP BY id_contrato
+  `).all(...idsContrato).forEach(r => {
+    areaPorContrato.set(r.id_contrato, r.area_total);
+    tarifaUsoPorContrato.set(r.id_contrato, r.tarifa_media);
+    vencimentoPorContrato.set(r.id_contrato, r.vencimento);
+  });
+  depopDb.prepare(`
+    SELECT id_contrato, valor_ponto, valor_30_ceasa
+    FROM AvaliacaoAreaRenovacao WHERE id_contrato IN (${placeholders})
+  `).all(...idsContrato).forEach(r => avaliacaoPorContrato.set(r.id_contrato, r));
+  return { areaPorContrato, tarifaUsoPorContrato, vencimentoPorContrato, avaliacaoPorContrato };
+}
+
+// Monta os campos calculados (área/valor-m²/tarifa/ponto/outorga/vencimento)
+// de UM concessionário a partir dos mapas de carregarDadosDepop().
+function camposDepop(c, dados) {
+  const area = dados.areaPorContrato.get(c.id_contrato_depop) || null;
+  const aval = dados.avaliacaoPorContrato.get(c.id_contrato_depop) || null;
+  const valorPonto = aval ? aval.valor_ponto / 1000 : null;
+  const outorga = aval ? aval.valor_30_ceasa / 1000 : null;
+  const vencimento = dados.vencimentoPorContrato.get(c.id_contrato_depop) || null;
+  const anoVencimento = vencimento ? parseInt(vencimento.slice(0, 4), 10) : null;
+  return {
+    contrato_vencido_em: vencimento,
+    prazo_final_adesao: anoVencimento ? prazoFinalAdesao(anoVencimento) : null,
+    area_m2: area,
+    valor_m2: null, // sem coluna real no depop pra isso ainda (Alex, 2026-11-04)
+    tarifa_uso: dados.tarifaUsoPorContrato.get(c.id_contrato_depop) || null,
+    valor_ponto: valorPonto,
+    outorga,
+  };
+}
+
+// Busca os contratos de uma importação — por padrão só os CASADOS com o
+// depop (direto/data/manual), já que o módulo é focado em quem está no
+// programa de renovação de 20 anos. incluirDemais=true também traz os
+// 'sem_match' (concessionários fora do programa — ver flag "Demais" na tela).
+function buscarContratos(importacaoId, incluirDemais) {
+  const filtro = incluirDemais ? '' : `AND match_confianca != 'sem_match'`;
+  return db.prepare(`
+    SELECT * FROM depla_concessionarios WHERE importacao_id = ? ${filtro} ORDER BY empresa, contrato_numero
+  `).all(importacaoId);
+}
+
 // ── Relatório resumido ───────────────────────────────────────────────────────
-// Um linha por contrato (termo), com área/valor-por-m²/tarifa de uso/valor do
-// ponto/outorga calculados do depop.db a partir do id_contrato casado.
-// valor_ponto/valor_30_ceasa em AvaliacaoAreaRenovacao são guardados ×1000
-// (mesma convenção usada em toda a validação de contratos do Depop).
+// Uma linha por contrato (termo) CASADO com o depop, com área/tarifa de
+// uso/valor do ponto/outorga/vencimento calculados do depop.db. Concessionário
+// sem contrato de renovação ("Demais") fica de fora por padrão — só aparece
+// com ?incluir_demais=1.
 router.get('/api/pac/concessionarios/resumido', pac, requireVer, (req, res) => {
   const importacaoId = req.query.importacao_id
     ? Number(req.query.importacao_id)
     : db.prepare(`SELECT MAX(id) AS id FROM depla_concessionarios_importacao`).get()?.id;
-  if (!importacaoId) return res.json({ importacao_id: null, linhas: [] });
+  if (!importacaoId) return res.json({ importacao_id: null, linhas: [], total_demais: 0 });
 
-  const contratos = db.prepare(`
-    SELECT * FROM depla_concessionarios WHERE importacao_id = ? ORDER BY empresa, contrato_numero
-  `).all(importacaoId);
+  const incluirDemais = req.query.incluir_demais === '1';
+  const contratos = buscarContratos(importacaoId, incluirDemais);
+  const totalDemais = db.prepare(`
+    SELECT COUNT(*) n FROM depla_concessionarios WHERE importacao_id = ? AND match_confianca = 'sem_match'
+  `).get(importacaoId).n;
 
   const idsContrato = [...new Set(contratos.map(c => c.id_contrato_depop).filter(Boolean))];
-  const areaPorContrato = new Map();
-  const tarifaUsoPorContrato = new Map();
-  const valorM2PorContrato = new Map();
-  const vencimentoPorContrato = new Map();
-  if (idsContrato.length) {
-    const placeholders = idsContrato.map(() => '?').join(',');
-    // TarifaContrato20Anos "quebra" (fan-out) a área de um mesmo contrato em
-    // várias linhas quando ele tem mais de uma área/sequencial — nesse caso a
-    // metragem soma, mas a tarifa (atual_tarifa_uso/nova_tarifa_uso) e o
-    // vencimento são o MESMO valor repetido em cada linha (confirmado: 0
-    // divergência em 249 contratos com fan-out), então agrupar com MAX
-    // (nunca SUM) dá o valor único correto. nova_tarifa_uso = "Valor por m²";
-    // atual_tarifa_uso = "Tarifa de Uso" (confirmado pelo Alex, 2026-11-04 —
-    // é a coluna "tarifa atual", não a nova).
-    depopDb.prepare(`
-      SELECT id_contrato, SUM(area_m2) AS area_total,
-             MAX(nova_tarifa_uso) AS valor_m2, MAX(atual_tarifa_uso) AS tarifa_media,
-             MAX(data_vencimento) AS vencimento
-      FROM TarifaContrato20Anos WHERE id_contrato IN (${placeholders}) GROUP BY id_contrato
-    `).all(...idsContrato).forEach(r => {
-      areaPorContrato.set(r.id_contrato, r.area_total);
-      tarifaUsoPorContrato.set(r.id_contrato, r.tarifa_media);
-      valorM2PorContrato.set(r.id_contrato, r.valor_m2);
-      vencimentoPorContrato.set(r.id_contrato, r.vencimento);
+  const dadosDepop = carregarDadosDepop(idsContrato);
+
+  const linhas = contratos.map(c => ({
+    codigo: c.codigo,
+    empresa: c.empresa,
+    cnpj: c.cnpj,
+    contrato_numero: c.contrato_numero,
+    contrato_data_inicio: c.contrato_data_inicio,
+    ...camposDepop(c, dadosDepop),
+    match_confianca: c.match_confianca,
+  }));
+
+  res.json({ importacao_id: importacaoId, linhas, total_demais: totalDemais });
+});
+
+// ── Relatório detalhado (secundário) ─────────────────────────────────────────
+// Em árvore: por concessionário, os mesmos dados do resumido + TODOS os itens
+// de tarifa não-nulos da planilha (descrição/valor, formato longo). Mesmo
+// filtro de "Demais" do resumido.
+router.get('/api/pac/concessionarios/detalhado', pac, requireVer, (req, res) => {
+  const importacaoId = req.query.importacao_id
+    ? Number(req.query.importacao_id)
+    : db.prepare(`SELECT MAX(id) AS id FROM depla_concessionarios_importacao`).get()?.id;
+  if (!importacaoId) return res.json({ importacao_id: null, linhas: [], total_demais: 0 });
+
+  const incluirDemais = req.query.incluir_demais === '1';
+  const contratos = buscarContratos(importacaoId, incluirDemais);
+  const totalDemais = db.prepare(`
+    SELECT COUNT(*) n FROM depla_concessionarios WHERE importacao_id = ? AND match_confianca = 'sem_match'
+  `).get(importacaoId).n;
+
+  const idsContrato = [...new Set(contratos.map(c => c.id_contrato_depop).filter(Boolean))];
+  const dadosDepop = carregarDadosDepop(idsContrato);
+
+  const idsConcessionario = contratos.map(c => c.id);
+  const tarifasPorConcessionario = new Map();
+  if (idsConcessionario.length) {
+    const placeholders = idsConcessionario.map(() => '?').join(',');
+    db.prepare(`
+      SELECT concessionario_id, descricao, valor FROM depla_concessionarios_tarifa
+      WHERE concessionario_id IN (${placeholders}) ORDER BY descricao
+    `).all(...idsConcessionario).forEach(r => {
+      if (!tarifasPorConcessionario.has(r.concessionario_id)) tarifasPorConcessionario.set(r.concessionario_id, []);
+      tarifasPorConcessionario.get(r.concessionario_id).push({ descricao: r.descricao, valor: r.valor });
     });
-  }
-  const avaliacaoPorContrato = new Map();
-  if (idsContrato.length) {
-    const placeholders = idsContrato.map(() => '?').join(',');
-    depopDb.prepare(`
-      SELECT id_contrato, valor_ponto, valor_30_ceasa
-      FROM AvaliacaoAreaRenovacao WHERE id_contrato IN (${placeholders})
-    `).all(...idsContrato).forEach(r => avaliacaoPorContrato.set(r.id_contrato, r));
   }
 
   const linhas = contratos.map(c => {
-    const area = areaPorContrato.get(c.id_contrato_depop) || null;
-    const aval = avaliacaoPorContrato.get(c.id_contrato_depop) || null;
-    const valorPonto = aval ? aval.valor_ponto / 1000 : null;
-    const outorga = aval ? aval.valor_30_ceasa / 1000 : null;
-    const vencimento = vencimentoPorContrato.get(c.id_contrato_depop) || null;
-    const anoVencimento = vencimento ? parseInt(vencimento.slice(0, 4), 10) : null;
+    const depop = camposDepop(c, dadosDepop);
     return {
       codigo: c.codigo,
       empresa: c.empresa,
       cnpj: c.cnpj,
       contrato_numero: c.contrato_numero,
       contrato_data_inicio: c.contrato_data_inicio,
-      contrato_vencido_em: vencimento,
-      prazo_final_adesao: anoVencimento ? prazoFinalAdesao(anoVencimento) : null,
-      area_m2: area,
-      valor_m2: valorM2PorContrato.get(c.id_contrato_depop) || null,
-      tarifa_uso: tarifaUsoPorContrato.get(c.id_contrato_depop) || null,
-      valor_ponto: valorPonto,
-      outorga,
+      ...depop,
       match_confianca: c.match_confianca,
+      itens_planilha: tarifasPorConcessionario.get(c.id) || [],
     };
   });
 
-  res.json({ importacao_id: importacaoId, linhas });
+  res.json({ importacao_id: importacaoId, linhas, total_demais: totalDemais });
 });
 
 module.exports = router;

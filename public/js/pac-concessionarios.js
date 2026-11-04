@@ -1,6 +1,10 @@
 // PAC/DEPLA — Dados Concessionários: importação da planilha de tarifas do
-// CORPORE (aba "Result 1") + relatório resumido cruzado com depop.db.
-// Ver routes/pac-concessionarios.js pra lógica de casamento (match_confianca).
+// CORPORE (aba "Result 1") + relatórios resumido/detalhado cruzados com
+// depop.db. Ver routes/pac-concessionarios.js pra lógica de casamento
+// (match_confianca) e pros campos calculados (camposDepop/carregarDadosDepop).
+// Por padrão os 2 relatórios só mostram concessionários CASADOS com um
+// contrato de 20 anos no depop — o checkbox "Mostrar Demais" inclui o resto
+// (fora do programa de renovação, só existem na planilha do CORPORE).
 
 function toast(msg, tipo) {
   const t = document.getElementById('toast');
@@ -42,6 +46,18 @@ async function carregarXLSX() {
     s.onerror = () => reject(new Error('Falha ao carregar biblioteca Excel'));
     document.head.appendChild(s);
   });
+}
+
+// Aplica o formato de moeda (R$) nas células numéricas de 1+ colunas de uma
+// planilha SheetJS já montada — json_to_sheet não formata número nenhum
+// sozinho, só grava o valor cru.
+function aplicarFormatoMoeda(ws, colunasIdx, numLinhas) {
+  for (let linha = 1; linha <= numLinhas; linha++) {
+    colunasIdx.forEach(col => {
+      const ref = XLSX.utils.encode_cell({ r: linha, c: col });
+      if (ws[ref] && typeof ws[ref].v === 'number') ws[ref].z = '"R$" #,##0.00';
+    });
+  }
 }
 
 let _dcLinhasPlanilha = null;
@@ -137,22 +153,44 @@ async function dcCarregarImportacoes(selecionarId) {
     ).join('');
     if (lista.length) {
       sel.value = selecionarId || lista[0].id;
-      await dcCarregarResumido();
+      await dcTrocarImportacao();
     }
   } catch (e) {
     toast('Erro ao carregar importações: ' + e.message, 'error');
   }
 }
 
+// Dispara os 2 relatórios juntos (mesma importação + mesmo filtro "Demais").
+async function dcTrocarImportacao() {
+  await Promise.all([dcCarregarResumido(), dcCarregarDetalhado()]);
+}
+
+function dcParamsAtuais() {
+  const sel = document.getElementById('dc-select-importacao');
+  const incluirDemais = document.getElementById('dc-check-demais').checked;
+  if (!sel.value) return null;
+  return `importacao_id=${sel.value}${incluirDemais ? '&incluir_demais=1' : ''}`;
+}
+
+function dcAtualizarNotaDemais(totalDemais) {
+  const nota = document.getElementById('dc-demais-nota');
+  const incluirDemais = document.getElementById('dc-check-demais').checked;
+  if (!totalDemais) { nota.textContent = ''; return; }
+  nota.textContent = incluirDemais
+    ? `Mostrando os ${totalDemais} concessionário(s) sem contrato de renovação de 20 anos junto com os demais.`
+    : `${totalDemais} concessionário(s) da planilha não têm contrato de renovação de 20 anos no Depop — ficam fora dos relatórios (ative "Mostrar Demais" pra ver).`;
+}
+
 let _dcLinhasResumido = [];
 
 async function dcCarregarResumido() {
-  const sel = document.getElementById('dc-select-importacao');
-  if (!sel.value) { document.getElementById('dc-tbody').innerHTML = '<tr><td colspan="13">Nenhuma importação ainda.</td></tr>'; return; }
+  const params = dcParamsAtuais();
+  if (!params) { document.getElementById('dc-tbody').innerHTML = '<tr><td colspan="13">Nenhuma importação ainda.</td></tr>'; return; }
   try {
-    const res = await fetch(`/api/pac/concessionarios/resumido?importacao_id=${sel.value}`);
+    const res = await fetch(`/api/pac/concessionarios/resumido?${params}`);
     const r = await res.json();
     _dcLinhasResumido = r.linhas || [];
+    dcAtualizarNotaDemais(r.total_demais);
     const tbody = document.getElementById('dc-tbody');
     if (!_dcLinhasResumido.length) {
       tbody.innerHTML = '<tr><td colspan="13">Nenhum contrato nesta importação.</td></tr>';
@@ -176,32 +214,130 @@ async function dcCarregarResumido() {
       </tr>
     `).join('');
   } catch (e) {
-    toast('Erro ao carregar relatório: ' + e.message, 'error');
+    toast('Erro ao carregar relatório resumido: ' + e.message, 'error');
   }
 }
 
-async function dcExportarExcel() {
+let _dcLinhasDetalhado = [];
+
+async function dcCarregarDetalhado() {
+  const params = dcParamsAtuais();
+  if (!params) { document.getElementById('dc-det-tbody').innerHTML = '<tr><td colspan="12">Nenhuma importação ainda.</td></tr>'; return; }
+  try {
+    const res = await fetch(`/api/pac/concessionarios/detalhado?${params}`);
+    const r = await res.json();
+    _dcLinhasDetalhado = r.linhas || [];
+    const tbody = document.getElementById('dc-det-tbody');
+    if (!_dcLinhasDetalhado.length) {
+      tbody.innerHTML = '<tr><td colspan="12">Nenhum contrato nesta importação.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = _dcLinhasDetalhado.map((l, idx) => `
+      <tr class="dc-det-parent" id="dc-det-parent-${idx}" onclick="dcToggleDetalhe(${idx})">
+        <td><span class="dc-det-caret">▶</span></td>
+        <td>${l.codigo ?? '—'}</td>
+        <td>${l.empresa || '—'}</td>
+        <td>${l.cnpj || '—'}</td>
+        <td>${l.contrato_numero || '—'}</td>
+        <td>${fmtBrData(l.contrato_data_inicio)}</td>
+        <td class="dc-num">${l.area_m2 != null ? fmtNum(l.area_m2, 2) : '—'}</td>
+        <td class="dc-num">${fmtMoeda(l.valor_m2)}</td>
+        <td class="dc-num">${fmtMoeda(l.tarifa_uso)}</td>
+        <td class="dc-num">${fmtMoeda(l.valor_ponto)}</td>
+        <td class="dc-num">${fmtMoeda(l.outorga)}</td>
+        <td>${DC_BADGE[l.match_confianca] || l.match_confianca}</td>
+      </tr>
+      <tr class="dc-det-itens" id="dc-det-itens-${idx}" style="display:none;">
+        <td colspan="12">
+          ${l.itens_planilha.length ? `
+            <table>
+              <thead><tr><th>Item da planilha (CORPORE)</th><th class="dc-num">Valor</th></tr></thead>
+              <tbody>
+                ${l.itens_planilha.map(it => `<tr><td>${it.descricao}</td><td class="dc-num">${fmtMoeda(it.valor)}</td></tr>`).join('')}
+              </tbody>
+            </table>
+          ` : `<div class="dc-det-itens-vazio">Nenhum item de tarifa na planilha pra este contrato.</div>`}
+        </td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    toast('Erro ao carregar relatório detalhado: ' + e.message, 'error');
+  }
+}
+
+function dcToggleDetalhe(idx) {
+  const parent = document.getElementById(`dc-det-parent-${idx}`);
+  const itens  = document.getElementById(`dc-det-itens-${idx}`);
+  const aberto = itens.style.display !== 'none';
+  itens.style.display = aberto ? 'none' : '';
+  parent.classList.toggle('open', !aberto);
+}
+
+async function dcExportarExcelResumido() {
   if (!_dcLinhasResumido.length) { toast('Nada para exportar', 'error'); return; }
   try {
     const XLSX = await carregarXLSX();
     const dados = _dcLinhasResumido.map(l => ({
-      'Código':            l.codigo ?? '',
-      'Nome':              l.empresa || '',
-      'CNPJ':              l.cnpj || '',
-      'Nº Contrato':       l.contrato_numero || '',
-      'Data de Início':    fmtBrData(l.contrato_data_inicio),
+      'Código':             l.codigo ?? '',
+      'Nome':               l.empresa || '',
+      'CNPJ':               l.cnpj || '',
+      'Nº Contrato':        l.contrato_numero || '',
+      'Data de Início':     fmtBrData(l.contrato_data_inicio),
       'Vencido em':         fmtBrData(l.contrato_vencido_em),
       'Prazo Final Adesão': l.prazo_final_adesao || '',
-      'Área (m²)':         l.area_m2 != null ? Number(l.area_m2.toFixed(2)) : '',
-      'Valor por m²':      l.valor_m2 != null ? Number(l.valor_m2.toFixed(2)) : '',
-      'Tarifa de Uso':     l.tarifa_uso != null ? Number(l.tarifa_uso.toFixed(2)) : '',
-      'Valor do Ponto':    l.valor_ponto != null ? Number(l.valor_ponto.toFixed(2)) : '',
-      'Outorga (30%)':     l.outorga != null ? Number(l.outorga.toFixed(2)) : '',
+      'Área (m²)':          l.area_m2 != null ? Number(l.area_m2.toFixed(2)) : '',
+      'Valor por m²':       l.valor_m2 != null ? Number(l.valor_m2.toFixed(2)) : '',
+      'Tarifa de Uso':      l.tarifa_uso != null ? Number(l.tarifa_uso.toFixed(2)) : '',
+      'Valor do Ponto':     l.valor_ponto != null ? Number(l.valor_ponto.toFixed(2)) : '',
+      'Outorga (30%)':      l.outorga != null ? Number(l.outorga.toFixed(2)) : '',
+      'Casamento':          l.match_confianca || '',
     }));
     const ws = XLSX.utils.json_to_sheet(dados);
+    aplicarFormatoMoeda(ws, [8, 9, 10, 11], dados.length); // Valor por m², Tarifa de Uso, Valor do Ponto, Outorga
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Resumido');
     XLSX.writeFile(wb, `concessionarios-resumido-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  } catch (e) {
+    toast('Erro ao exportar: ' + e.message, 'error');
+  }
+}
+
+// Formato "tidy" (1 linha por item de tarifa) — mais fiel pra Excel do que
+// tentar replicar a árvore da tela, e continua agrupável/filtrável lá.
+async function dcExportarExcelDetalhado() {
+  if (!_dcLinhasDetalhado.length) { toast('Nada para exportar', 'error'); return; }
+  try {
+    const XLSX = await carregarXLSX();
+    const dados = [];
+    _dcLinhasDetalhado.forEach(l => {
+      const base = {
+        'Código':             l.codigo ?? '',
+        'Nome':               l.empresa || '',
+        'CNPJ':               l.cnpj || '',
+        'Nº Contrato':        l.contrato_numero || '',
+        'Data de Início':     fmtBrData(l.contrato_data_inicio),
+        'Vencido em':         fmtBrData(l.contrato_vencido_em),
+        'Prazo Final Adesão': l.prazo_final_adesao || '',
+        'Área (m²)':          l.area_m2 != null ? Number(l.area_m2.toFixed(2)) : '',
+        'Valor por m²':       l.valor_m2 != null ? Number(l.valor_m2.toFixed(2)) : '',
+        'Tarifa de Uso':      l.tarifa_uso != null ? Number(l.tarifa_uso.toFixed(2)) : '',
+        'Valor do Ponto':     l.valor_ponto != null ? Number(l.valor_ponto.toFixed(2)) : '',
+        'Outorga (30%)':      l.outorga != null ? Number(l.outorga.toFixed(2)) : '',
+        'Casamento':          l.match_confianca || '',
+      };
+      if (!l.itens_planilha.length) {
+        dados.push({ ...base, 'Item da Planilha': '', 'Valor do Item': '' });
+      } else {
+        l.itens_planilha.forEach(it => dados.push({
+          ...base, 'Item da Planilha': it.descricao, 'Valor do Item': Number(it.valor.toFixed(2)),
+        }));
+      }
+    });
+    const ws = XLSX.utils.json_to_sheet(dados);
+    aplicarFormatoMoeda(ws, [8, 9, 10, 11, 13], dados.length); // + Valor do Item
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Detalhado');
+    XLSX.writeFile(wb, `concessionarios-detalhado-${new Date().toISOString().slice(0, 10)}.xlsx`);
   } catch (e) {
     toast('Erro ao exportar: ' + e.message, 'error');
   }
