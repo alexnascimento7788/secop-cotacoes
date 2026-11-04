@@ -13,10 +13,12 @@
   <style>
     .pac-card { background: var(--surface); border: 1px solid var(--cinza-b); border-radius: 10px; padding: 20px 22px; margin-bottom: 18px; }
     .pac-card-title { font-size: 14px; font-weight: 700; margin-bottom: 14px; color: var(--text); }
-    .dc-dropzone {
-      border: 2px dashed var(--cinza-b); border-radius: 10px; padding: 24px; text-align: center;
-      cursor: pointer; color: var(--text-muted); font-size: 13px;
+    .dc-card-importar { padding: 0; }
+    .dc-card-importar-summary {
+      cursor: pointer; padding: 12px 22px; font-size: 13px; font-weight: 700; color: var(--text);
     }
+    .dc-card-importar-body { padding: 0 22px 16px; }
+    .dc-btn-pequeno { font-size: 12.5px; padding: 6px 14px; }
     .dc-resumo { display: flex; gap: 18px; flex-wrap: wrap; margin: 14px 0; }
     .dc-resumo-item { font-size: 13px; font-weight: 700; }
     .dc-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
@@ -106,29 +108,30 @@
       </div>
     </div>
 
-    <!-- Importação (admin global só) -->
-    <div class="pac-card" id="dc-card-importar" style="display:none;">
-      <div class="pac-card-title">Importar planilha</div>
-      <input type="file" id="dc-arquivo" accept=".xlsx,.xls" style="display:none" onchange="dcArquivoEscolhido(this)">
-      <div class="dc-dropzone" id="dc-dropzone" onclick="document.getElementById('dc-arquivo').click()">
-        Clique para escolher a planilha (.xlsx) — aba "Result 1"
-      </div>
-      <div id="dc-nome-arquivo" style="font-size:12.5px;color:var(--text-muted);margin-top:8px;"></div>
+    <!-- Importação (admin global só) — card compacto/recolhido por padrão;
+         não é o foco da tela, é só pra quando a planilha do CORPORE mudar. -->
+    <details class="pac-card dc-card-importar" id="dc-card-importar" style="display:none;">
+      <summary class="dc-card-importar-summary">Importar/atualizar planilha</summary>
+      <div class="dc-card-importar-body">
+        <input type="file" id="dc-arquivo" accept=".xlsx,.xls" style="display:none" onchange="dcArquivoEscolhido(this)">
+        <button class="btn btn-secondary dc-btn-pequeno" onclick="document.getElementById('dc-arquivo').click()">Escolher planilha (.xlsx — aba "Result 1")</button>
+        <span id="dc-nome-arquivo" style="font-size:12px;color:var(--text-muted);margin-left:10px;"></span>
 
-      <div id="dc-dryrun-resultado" style="display:none;margin-top:16px;">
-        <div class="dc-banner dc-banner-amarelo" id="dc-dryrun-aviso" style="display:none;"></div>
-        <div class="dc-resumo">
-          <div class="dc-resumo-item">Linhas na planilha: <span id="dc-dr-linhas">—</span></div>
-          <div class="dc-resumo-item">Contratos (termos) únicos: <span id="dc-dr-termos">—</span></div>
-          <div class="dc-resumo-item"><span class="dc-badge dc-badge-direto">Direto</span> <span id="dc-dr-direto">0</span></div>
-          <div class="dc-resumo-item"><span class="dc-badge dc-badge-data">Por data</span> <span id="dc-dr-data">0</span></div>
-          <div class="dc-resumo-item"><span class="dc-badge dc-badge-manual">Revisar</span> <span id="dc-dr-manual">0</span></div>
-          <div class="dc-resumo-item"><span class="dc-badge dc-badge-semmatch">Sem contrato no Depop</span> <span id="dc-dr-semmatch">0</span></div>
+        <div id="dc-dryrun-resultado" style="display:none;margin-top:12px;">
+          <div class="dc-banner dc-banner-amarelo" id="dc-dryrun-aviso" style="display:none;"></div>
+          <div class="dc-resumo">
+            <div class="dc-resumo-item">Linhas na planilha: <span id="dc-dr-linhas">—</span></div>
+            <div class="dc-resumo-item">Contratos (termos) únicos: <span id="dc-dr-termos">—</span></div>
+            <div class="dc-resumo-item"><span class="dc-badge dc-badge-direto">Direto</span> <span id="dc-dr-direto">0</span></div>
+            <div class="dc-resumo-item"><span class="dc-badge dc-badge-data">Por data</span> <span id="dc-dr-data">0</span></div>
+            <div class="dc-resumo-item"><span class="dc-badge dc-badge-manual">Revisar</span> <span id="dc-dr-manual">0</span></div>
+            <div class="dc-resumo-item"><span class="dc-badge dc-badge-semmatch">Sem contrato no Depop</span> <span id="dc-dr-semmatch">0</span></div>
+          </div>
+          <button class="btn btn-primary dc-btn-pequeno" id="dc-btn-confirmar" onclick="dcConfirmarImportacao()">Confirmar importação</button>
+          <span id="dc-import-msg" style="margin-left:10px;font-size:12.5px;font-weight:600;"></span>
         </div>
-        <button class="btn btn-primary" id="dc-btn-confirmar" onclick="dcConfirmarImportacao()">Confirmar importação</button>
-        <span id="dc-import-msg" style="margin-left:10px;font-size:13px;font-weight:600;"></span>
       </div>
-    </div>
+    </details>
 
     <!-- Relatório resumido -->
     <div class="pac-card">
