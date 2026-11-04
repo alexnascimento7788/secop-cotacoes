@@ -192,12 +192,10 @@ router.post('/api/pac/concessionarios/importar', pac, requireAdminGlobal, (req, 
     });
   }
 
-  const info = db.prepare(`
+  const inserirImportacao = db.prepare(`
     INSERT INTO depla_concessionarios_importacao (nome_arquivo, total_linhas, total_termos, casados, importado_por)
     VALUES (?, ?, ?, ?, ?)
-  `).run(nome_arquivo || null, linhas.length, termos.length, porConfianca.direto + porConfianca.data + porConfianca.manual, req.user.user_id);
-  const importacaoId = info.lastInsertRowid;
-
+  `);
   const inserirTermo = db.prepare(`
     INSERT INTO depla_concessionarios
       (importacao_id, cod_empresa, codigo, empresa, cnpj, contrato_numero, contrato_data_inicio,
@@ -207,8 +205,18 @@ router.post('/api/pac/concessionarios/importar', pac, requireAdminGlobal, (req, 
   const inserirTarifa = db.prepare(`
     INSERT INTO depla_concessionarios_tarifa (concessionario_id, descricao, valor) VALUES (?, ?, ?)
   `);
+  // Cabeçalho (depla_concessionarios_importacao) tem que estar DENTRO da
+  // mesma transação dos termos/tarifas — senão um erro no meio do forEach
+  // reverte só os detalhes e deixa um registro "fantasma" (0 termos) no
+  // cabeçalho (achado real em produção, 2026-11-04, lote TESTE_ROLLBACK).
+  let importacaoId;
   db.exec('BEGIN');
   try {
+    const info = inserirImportacao.run(
+      nome_arquivo || null, linhas.length, termos.length,
+      porConfianca.direto + porConfianca.data + porConfianca.manual, req.user.user_id
+    );
+    importacaoId = info.lastInsertRowid;
     termos.forEach(t => {
       const r = inserirTermo.run(
         importacaoId, t.cod_empresa, t.codigo, t.empresa, t.cnpj, t.contrato_numero, t.contrato_data_inicio,
