@@ -1,4 +1,7 @@
-// ── DEPLA (PAC): sub-módulo "Dados Concessionários" ─────────────────────────
+// ── DEPLA: módulo "Relatórios Gerais" — "Dados Concessionários" ─────────────
+// Virou módulo próprio (2026-11-05, separado do PAC) pra não misturar o
+// fluxo de DFD com relatórios soltos do DEPLA — ver migração de rotina em
+// database.js (UPDATE rotinas SET modulo_id ...).
 // Pedido do Alex, 2026-11-04: planilha do CORPORE (Depla_2.xlsx — uma linha
 // por ZTERMO com fan-out por área, ~250 colunas de tarifa média por tipo)
 // casada com depop.db (TarifaContrato20Anos/AvaliacaoAreaRenovacao) pra
@@ -24,7 +27,7 @@ const { db, depopDb } = require('../database');
 const { registrarLog, requireModulo } = require('../middleware');
 
 const router = express.Router();
-const pac = requireModulo('pac');
+const relatoriosGerais = requireModulo('relatorios-gerais');
 
 // Colunas fixas da planilha (o resto das colunas, 1 por tipo de tarifa, é
 // pivot dinâmico — ver seedRotinas/depla_concessionarios_tarifa).
@@ -160,7 +163,7 @@ function casarComDepop(termos) {
 
 // ── Importação (admin-only) ──────────────────────────────────────────────────
 
-router.post('/api/pac/concessionarios/importar', pac, requireAdminGlobal, (req, res) => {
+router.post('/api/pac/concessionarios/importar', relatoriosGerais, requireAdminGlobal, (req, res) => {
   const { dry_run, nome_arquivo, linhas } = req.body || {};
   if (!Array.isArray(linhas) || !linhas.length) return res.status(400).json({ error: 'Nenhuma linha recebida.' });
 
@@ -236,7 +239,7 @@ router.post('/api/pac/concessionarios/importar', pac, requireAdminGlobal, (req, 
   res.json({ dry_run: false, importacao_id: importacaoId, total_termos: termos.length, ...porConfianca });
 });
 
-router.get('/api/pac/concessionarios/importacoes', pac, requireVer, (req, res) => {
+router.get('/api/pac/concessionarios/importacoes', relatoriosGerais, requireVer, (req, res) => {
   const lista = db.prepare(`
     SELECT i.*, u.username AS importado_por_username
     FROM depla_concessionarios_importacao i
@@ -380,7 +383,7 @@ function validarContraDepop(importacaoId) {
 // uso/valor do ponto/outorga/vencimento calculados do depop.db. Concessionário
 // sem contrato de renovação ("Demais") fica de fora por padrão — só aparece
 // com ?incluir_demais=1.
-router.get('/api/pac/concessionarios/resumido', pac, requireVer, (req, res) => {
+router.get('/api/pac/concessionarios/resumido', relatoriosGerais, requireVer, (req, res) => {
   const importacaoId = req.query.importacao_id
     ? Number(req.query.importacao_id)
     : db.prepare(`SELECT MAX(id) AS id FROM depla_concessionarios_importacao`).get()?.id;
@@ -421,7 +424,7 @@ router.get('/api/pac/concessionarios/resumido', pac, requireVer, (req, res) => {
 // Cópia "larga" da planilha importada (1 coluna por tipo de tarifa, igual ao
 // CORPORE) + os mesmos campos calculados do depop que o resumido tem. Mesmo
 // filtro de "Demais" e mesma ordenação (prazo final de adesão, código).
-router.get('/api/pac/concessionarios/detalhado', pac, requireVer, (req, res) => {
+router.get('/api/pac/concessionarios/detalhado', relatoriosGerais, requireVer, (req, res) => {
   const importacaoId = req.query.importacao_id
     ? Number(req.query.importacao_id)
     : db.prepare(`SELECT MAX(id) AS id FROM depla_concessionarios_importacao`).get()?.id;

@@ -435,12 +435,23 @@ function setupDb() {
       .run('concessionarios-cadastro', 'Concessionários Cadastro', '#1565C0', '/concessionarios-cadastro.html', 5);
   } catch {}
 
+  // Módulo "Relatórios Gerais" (pedido do Alex, 2026-11-05) — MÓDULO próprio
+  // do DEPLA, irmão do PAC (mesmo departamento), não rotina dentro do PAC.
+  // Ele percebeu confusão em misturar o fluxo de DFD (Lançamento/Gestão) com
+  // relatórios soltos do DEPLA na mesma árvore — "Dados Concessionários"
+  // migra pra cá (ver UPDATE de rotinas logo abaixo). Mesma cor do PAC
+  // (#F9A800), mesmo departamento — é a mesma "família visual".
+  try {
+    _db.prepare(`INSERT INTO modulos (slug, nome, cor, home, ordem) VALUES (?, ?, ?, ?, ?)`)
+      .run('relatorios-gerais', 'Relatórios Gerais', '#F9A800', '/pac-concessionarios.html', 6);
+  } catch {}
+
   // (rename depop→secad já rodou mais acima, antes do seed de módulos)
 
   // departamento_id por módulo (idempotente: só preenche quem ainda está NULL)
   try {
     const depIds = Object.fromEntries(_db.prepare(`SELECT slug, id FROM departamentos`).all().map(d => [d.slug, d.id]));
-    [['secop', 'depad'], ['secad', 'depop'], ['pac', 'depla'], ['detin', 'detin'], ['concessionarios-cadastro', 'depop']].forEach(([modSlug, depSlug]) => {
+    [['secop', 'depad'], ['secad', 'depop'], ['pac', 'depla'], ['detin', 'detin'], ['concessionarios-cadastro', 'depop'], ['relatorios-gerais', 'depla']].forEach(([modSlug, depSlug]) => {
       if (depIds[depSlug]) {
         _db.prepare(`UPDATE modulos SET departamento_id = ? WHERE slug = ? AND departamento_id IS NULL`).run(depIds[depSlug], modSlug);
       }
@@ -462,6 +473,15 @@ function setupDb() {
   `);
   {
     const modIds = Object.fromEntries(_db.prepare(`SELECT slug, id FROM modulos`).all().map(m => [m.slug, m.id]));
+    // Migração (2026-11-05): "Dados Concessionários" nasceu como rotina do
+    // módulo 'pac' (v4.51.0) e virou MÓDULO próprio 'relatorios-gerais'. Move
+    // a linha JÁ existente (não deixa o INSERT do seedRotinas criar uma 2ª,
+    // já que UNIQUE é por modulo_id+slug, não só slug) — precisa rodar ANTES
+    // do forEach abaixo, pra o INSERT dele achar a rotina já lá e pular.
+    if (modIds.pac && modIds['relatorios-gerais']) {
+      _db.prepare(`UPDATE rotinas SET modulo_id = ? WHERE modulo_id = ? AND slug = 'pac-concessionarios'`)
+        .run(modIds['relatorios-gerais'], modIds.pac);
+    }
     const seedRotinas = [
       ['secop', 'dashboard',      'Dashboard',    1, 'ver'],
       ['secop', 'processos',      'Processos',    2, 'ver,incluir,alterar,excluir'],
@@ -485,7 +505,9 @@ function setupDb() {
       // "incluir" aqui não controla nada no backend — a importação é
       // role-gated (master/admin_sistema), mesmo padrão de
       // relatorios-renovacao/pac-importacao (ver routes/pac-concessionarios.js).
-      ['pac',   'pac-concessionarios', 'Dados Concessionários', 5, 'ver'],
+      // Mora no módulo 'relatorios-gerais', não 'pac' — ver migração logo
+      // abaixo pra quem já tinha essa rotina seedada em 'pac' antes.
+      ['relatorios-gerais', 'pac-concessionarios', 'Dados Concessionários', 1, 'ver'],
       ['detin', 'detin-painel',    'Painel',                1, 'ver'],
       ['detin', 'detin-contratos', 'Contratos',             2, 'ver,incluir,alterar,excluir'],
       ['detin', 'detin-analise',   'Análise de Contratos',  3, 'ver,incluir'],
@@ -581,7 +603,13 @@ function setupDb() {
   seedPerfil('pac', 'Gestor de Área', 'Lança dados do PAC da própria área.',
     [['pac-lancamento', RW], ['pac-acompanhamento', SOVER]]);
   seedPerfil('pac', 'Analista DEPLA', 'Gestão completa do PAC; acompanha lançamentos.',
-    [['pac-gestao', TUDO], ['pac-lancamento', SOVER], ['pac-solicitacoes', TUDO], ['pac-concessionarios', SOVER]]);
+    [['pac-gestao', TUDO], ['pac-lancamento', SOVER], ['pac-solicitacoes', TUDO]]);
+  // Módulo próprio (2026-11-05) — perfil equivalente ao "Analista DEPLA" do
+  // PAC, mas pro módulo 'relatorios-gerais'. Quem já tinha acesso a "Dados
+  // Concessionários" como rotina do PAC é migrado automaticamente logo
+  // abaixo (ver migrarUsuariosRelatoriosGerais).
+  seedPerfil('relatorios-gerais', 'Analista DEPLA', 'Acesso aos relatórios gerais do DEPLA (Dados Concessionários).',
+    [['pac-concessionarios', SOVER]]);
   // Papel novo (pedido do Alex, 2026-09-23): lança itens em nome de QUALQUER
   // setor do DFD, sem precisar pertencer a nenhum (setor_usuarios) — a
   // unidade dele (ver unidade_usuarios, atribuída em Gestão > Parâmetros >
@@ -607,6 +635,38 @@ function setupDb() {
     [['detin-painel', SOVER], ['detin-contratos', TUDO], ['detin-analise', { ver: 1, incluir: 1, alterar: 0, excluir: 0 }]]);
   seedPerfil('detin', 'Consultor', 'Consulta contratos e análises do DETIN, somente leitura.',
     [['detin-painel', SOVER], ['detin-contratos', SOVER], ['detin-analise', SOVER]]);
+
+  // Migração única (2026-11-05): quem já tinha "Dados Concessionários"
+  // liberado como rotina do PAC (perfil "Analista DEPLA" de lá) ganha o
+  // módulo novo 'relatorios-gerais' automaticamente, com o perfil
+  // equivalente de lá — sem isso, a mudança de rotina→módulo tiraria o
+  // acesso de quem já usava, de surpresa.
+  if (!_db.prepare(`SELECT valor FROM config WHERE chave = 'relatorios_gerais_migracao_aplicada'`).get()) {
+    try {
+      const modPac = _db.prepare(`SELECT id FROM modulos WHERE slug = 'pac'`).get();
+      const modNovo = _db.prepare(`SELECT id FROM modulos WHERE slug = 'relatorios-gerais'`).get();
+      const perfilNovo = _db.prepare(`SELECT id FROM perfis WHERE modulo_id = ? AND nome = 'Analista DEPLA'`).get(modNovo?.id);
+      if (modPac && modNovo && perfilNovo) {
+        const usuarios = _db.prepare(`
+          SELECT um.user_id FROM user_modulos um
+          JOIN perfis p ON p.id = um.perfil_id
+          WHERE um.modulo_id = ? AND p.nome = 'Analista DEPLA'
+        `).all(modPac.id);
+        const inserir = _db.prepare(`INSERT INTO user_modulos (user_id, modulo_id, perfil_id) VALUES (?, ?, ?)`);
+        usuarios.forEach(u => { try { inserir.run(u.user_id, modNovo.id, perfilNovo.id); } catch {} });
+      }
+      // Limpa o grant órfão que ficou no perfil "Analista DEPLA" do PAC
+      // (perfil_rotinas apontando pra rotina que já não é mais do módulo
+      // dele) — só confunde quem olhar a tela de Perfis do PAC.
+      if (modPac) {
+        _db.prepare(`
+          DELETE FROM perfil_rotinas WHERE rotina_id = (SELECT id FROM rotinas WHERE slug = 'pac-concessionarios')
+            AND perfil_id IN (SELECT id FROM perfis WHERE modulo_id = ? AND nome = 'Analista DEPLA')
+        `).run(modPac.id);
+      }
+      _db.prepare(`INSERT INTO config (chave, valor) VALUES ('relatorios_gerais_migracao_aplicada', '1')`).run();
+    } catch {}
+  }
 
   try { _db.exec(`ALTER TABLE user_modulos ADD COLUMN perfil_id INTEGER REFERENCES perfis(id)`); } catch {}
   try { _db.exec(`ALTER TABLE users ADD COLUMN nome_completo TEXT`); } catch {}
