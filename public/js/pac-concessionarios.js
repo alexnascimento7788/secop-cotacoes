@@ -316,7 +316,6 @@ async function dcExportarExcelResumido() {
       'Tarifa de Uso':      l.tarifa_uso != null ? Number(l.tarifa_uso.toFixed(2)) : '',
       'Valor do Ponto':     l.valor_ponto != null ? Number(l.valor_ponto.toFixed(2)) : '',
       'Outorga (30%)':      l.outorga != null ? Number(l.outorga.toFixed(2)) : '',
-      'Casamento':          l.match_confianca || '',
     }));
     const ws = XLSX.utils.json_to_sheet(dados);
     aplicarFormatoMoeda(ws, [8, 9, 10, 11], dados.length); // Valor por m², Tarifa de Uso, Valor do Ponto, Outorga
@@ -334,7 +333,7 @@ async function dcExportarExcelDetalhado() {
   if (!_dcLinhasDetalhado.length) { toast('Nada para exportar', 'error'); return; }
   try {
     const XLSX = await carregarXLSX();
-    const COLS_FIXAS = 13;
+    const COLS_FIXAS = 12;
     const dados = _dcLinhasDetalhado.map(l => {
       const linha = {
         'Código':             l.codigo ?? '',
@@ -349,7 +348,6 @@ async function dcExportarExcelDetalhado() {
         'Tarifa de Uso':      l.tarifa_uso != null ? Number(l.tarifa_uso.toFixed(2)) : '',
         'Valor do Ponto':     l.valor_ponto != null ? Number(l.valor_ponto.toFixed(2)) : '',
         'Outorga (30%)':      l.outorga != null ? Number(l.outorga.toFixed(2)) : '',
-        'Casamento':          l.match_confianca || '',
       };
       _dcColunasTarifa.forEach(c => { linha[c] = l.itens[c] != null ? Number(l.itens[c].toFixed(2)) : ''; });
       return linha;
