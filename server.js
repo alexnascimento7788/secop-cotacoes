@@ -16,10 +16,11 @@ const app = express();
 // uma importação de planilha do PAC (linhas + valores de cada coluna, já
 // parseadas no navegador antes de mandar pro servidor): uma planilha real de
 // setor passa fácil dos 100kb e cai em "PayloadTooLargeError" (achado
-// testando a planilha real do DEPAD, 2026-09-06). 10mb cobre qualquer
+// testando a planilha real do DEPAD, 2026-09-06). 50mb cobre qualquer
 // planilha realista com folga, sem impacto em nenhuma outra rota (todas as
-// outras mandam corpos pequenos).
-app.use(express.json({ limit: '10mb' }));
+// outras mandam corpos pequenos) — subido de 10mb pra 50mb depois da
+// importação do DEPLA (Depla_2.xlsx vira ~24mb de JSON, 2026-11-05).
+app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Nenhuma resposta de /api/ pode ser cacheada por um proxy/CDN no meio do
