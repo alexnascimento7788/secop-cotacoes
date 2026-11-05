@@ -292,9 +292,30 @@ function carregarDadosDepop(idsContrato) {
   return { areaPorContrato, tarifaUsoPorContrato, vencimentoPorContrato, avaliacaoPorContrato };
 }
 
+// Pra "Demais" (concessionário sem contrato de renovação de 20 anos) a
+// planilha do CORPORE tem sua própria coluna "Tarifa de Uso" — serve de
+// de-para no lugar do atual_tarifa_uso do depop, que só existe pra quem tem
+// contrato de renovação (Alex, 2026-11-05: "quando for da renovação vem
+// dela, quando não for vem da planilha").
+function carregarTarifaUsoPlanilha(idsConcessionario) {
+  const mapa = new Map();
+  if (!idsConcessionario.length) return mapa;
+  const placeholders = idsConcessionario.map(() => '?').join(',');
+  db.prepare(`
+    SELECT concessionario_id, valor FROM depla_concessionarios_tarifa
+    WHERE descricao = 'Tarifa de Uso' AND concessionario_id IN (${placeholders})
+  `).all(...idsConcessionario).forEach(r => mapa.set(r.concessionario_id, r.valor));
+  return mapa;
+}
+
 // Monta os campos calculados (área/valor-m²/tarifa/ponto/outorga/vencimento)
-// de UM concessionário a partir dos mapas de carregarDadosDepop().
-function camposDepop(c, dados) {
+// de UM concessionário a partir dos mapas de carregarDadosDepop(). Quem tem
+// contrato de renovação (match_confianca != 'sem_match') usa os dados do
+// depop; quem não tem ("Demais") usa o equivalente da própria planilha onde
+// existir (área e Tarifa de Uso) — vencimento/ponto/outorga não têm
+// equivalente na planilha e ficam em branco pra esses.
+function camposDepop(c, dados, tarifaUsoPlanilhaMap) {
+  const renovacao = c.match_confianca !== 'sem_match';
   const area = dados.areaPorContrato.get(c.id_contrato_depop) || null;
   const aval = dados.avaliacaoPorContrato.get(c.id_contrato_depop) || null;
   // Sem divisão nenhuma — valor_ponto/valor_30_ceasa já são o valor real em
@@ -307,11 +328,12 @@ function camposDepop(c, dados) {
   const vencimento = dados.vencimentoPorContrato.get(c.id_contrato_depop) || null;
   const anoVencimento = vencimento ? parseInt(vencimento.slice(0, 4), 10) : null;
   return {
+    renovacao,
     contrato_vencido_em: vencimento,
     prazo_final_adesao: anoVencimento ? prazoFinalAdesao(anoVencimento) : null,
-    area_m2: area,
-    valor_m2: null, // sem coluna real no depop pra isso ainda (Alex, 2026-11-04)
-    tarifa_uso: dados.tarifaUsoPorContrato.get(c.id_contrato_depop) || null,
+    area_m2: renovacao ? area : (c.metragem_planilha || null),
+    valor_m2: null, // sem coluna real no depop nem na planilha pra isso ainda (Alex, 2026-11-04)
+    tarifa_uso: renovacao ? (dados.tarifaUsoPorContrato.get(c.id_contrato_depop) || null) : (tarifaUsoPlanilhaMap.get(c.id) ?? null),
     valor_ponto: valorPonto,
     outorga,
   };
@@ -416,13 +438,15 @@ router.get('/api/pac/concessionarios/resumido', relatoriosGerais, requireVer, (r
 
   const idsContrato = [...new Set(contratos.map(c => c.id_contrato_depop).filter(Boolean))];
   const dadosDepop = carregarDadosDepop(idsContrato);
+  const tarifaUsoPlanilha = carregarTarifaUsoPlanilha(contratos.map(c => c.id));
 
   const linhas = ordenarPorPrazoECodigo(contratos.map(c => {
-    const depop = camposDepop(c, dadosDepop);
+    const depop = camposDepop(c, dadosDepop, tarifaUsoPlanilha);
     return {
       codigo: c.codigo,
       empresa: c.empresa,
       cnpj: c.cnpj,
+      renovacao: depop.renovacao,
       prazo_final_adesao: depop.prazo_final_adesao,
       contrato_numero: c.contrato_numero,
       contrato_data_inicio: c.contrato_data_inicio,
@@ -457,6 +481,7 @@ router.get('/api/pac/concessionarios/detalhado', relatoriosGerais, requireVer, (
 
   const idsContrato = [...new Set(contratos.map(c => c.id_contrato_depop).filter(Boolean))];
   const dadosDepop = carregarDadosDepop(idsContrato);
+  const tarifaUsoPlanilha = carregarTarifaUsoPlanilha(contratos.map(c => c.id));
 
   const idsConcessionario = contratos.map(c => c.id);
   const tarifasPorConcessionario = new Map();
@@ -478,11 +503,12 @@ router.get('/api/pac/concessionarios/detalhado', relatoriosGerais, requireVer, (
   const colunasTarifa = [...colunasTarifaSet].sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
   const linhas = ordenarPorPrazoECodigo(contratos.map(c => {
-    const depop = camposDepop(c, dadosDepop);
+    const depop = camposDepop(c, dadosDepop, tarifaUsoPlanilha);
     return {
       codigo: c.codigo,
       empresa: c.empresa,
       cnpj: c.cnpj,
+      renovacao: depop.renovacao,
       prazo_final_adesao: depop.prazo_final_adesao,
       contrato_numero: c.contrato_numero,
       contrato_data_inicio: c.contrato_data_inicio,
