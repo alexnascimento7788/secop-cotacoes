@@ -206,6 +206,17 @@ function codigosRemovidos() {
   return db.prepare(`SELECT codigo FROM concessionario_removido`).all().map(r => r.codigo);
 }
 
+// Código do cliente-teste criado só pra validar a importação de aceites (ver
+// migracoes-homolog.json 2026-10-23-001) — nunca é um contrato real, nunca
+// deve contar em nenhum número desta tela. Regra única definida com o Alex
+// (2026-11-06): Removido e Teste não contam; Fora do Prazo continua contando
+// (só sinalizado) — ver routes/secad-relatorios.js e routes/pac-concessionarios.js
+// pro mesmo filtro, duplicado de propósito.
+const CODIGOS_TESTE = new Set([30000]);
+function codigosExcluidosContagem() {
+  return new Set([...codigosRemovidos(), ...CODIGOS_TESTE]);
+}
+
 // ── Cidades liberadas por usuário em Comunicados (secad_cidade_usuarios) ──────
 // José só pode gerar/ver comunicados de Caratinga, Maria de todas — escopo
 // DENTRO da rotina 'comunicados' (não é uma rotina/perfil separado, pra não
@@ -305,15 +316,15 @@ function payloadContrato(det, cpf, iso) {
 
 // Indicadores da tela inicial.
 router.get('/api/secad/dashboard', secad, (req, res) => {
-  const removidos = new Set(codigosRemovidos());
+  const excluidos = codigosExcluidosContagem();
   const avals = depopDb.prepare(`SELECT id, id_contrato, codigo, id_cidade FROM AvaliacaoAreaRenovacao`)
-    .all().filter(a => !removidos.has(a.codigo));
+    .all().filter(a => !excluidos.has(a.codigo));
 
   const totalContratos = avals.length;
   const totalConcess = new Set(avals.map(a => a.codigo)).size;
 
   const linhas = depopDb.prepare(`SELECT codigo, id_contrato, area_m2, atual_tarifa_uso, nova_tarifa_uso FROM TarifaContrato20Anos`)
-    .all().filter(l => !removidos.has(l.codigo));
+    .all().filter(l => !excluidos.has(l.codigo));
   const linhasAgg = {
     total: linhas.length,
     area: linhas.reduce((s, l) => s + (l.area_m2 || 0), 0),
@@ -373,14 +384,14 @@ router.get('/api/secad/dashboard', secad, (req, res) => {
 
 // Lista completa (o front filtra por aba/cidade/busca e agrupa por concessionário).
 router.get('/api/secad/contratos', secad, (req, res) => {
-  const removidos = new Set(codigosRemovidos());
+  const excluidos = codigosExcluidosContagem();
   const avals = depopDb.prepare(`
     SELECT a.id, a.id_contrato, a.codigo, a.numero_ccu, a.valor_ponto, a.valor_30_ceasa,
            a.Status AS reg_status, a.concessionaria, cli.cliente, c.descricao AS cidade
     FROM AvaliacaoAreaRenovacao a
     LEFT JOIN ClienteConcessionario cli ON cli.codigo = a.codigo
     LEFT JOIN Cidade c ON c.id = a.id_cidade
-    ORDER BY c.descricao, cli.cliente, a.id_contrato`).all().filter(a => !removidos.has(a.codigo));
+    ORDER BY c.descricao, cli.cliente, a.id_contrato`).all().filter(a => !excluidos.has(a.codigo));
 
   const vmap = new Map(db.prepare(`SELECT id_avaliacao, status FROM validacao_contrato`).all().map(r => [r.id_avaliacao, r.status]));
   const lockMap = new Map();
@@ -689,7 +700,7 @@ function montarComunicado(idAvaliacao) {
 // "lista"/"gerar" fossem reordenadas pra depois de um :id/..., o Express
 // tentaria casar "lista"/"gerar" como se fossem o valor de :id.
 router.get('/api/secad/comunicados/lista', secad, requireRotina('comunicados', 'ver'), (req, res) => {
-  const removidos = new Set(codigosRemovidos());
+  const excluidos = codigosExcluidosContagem();
   const permitidas = cidadesPermitidas(req.user);
   const avals = depopDb.prepare(`
     SELECT a.id, a.codigo, a.numero_ccu, a.data_vencimento, a.endereco AS area, a.id_cidade,
@@ -700,7 +711,7 @@ router.get('/api/secad/comunicados/lista', secad, requireRotina('comunicados', '
     LEFT JOIN Cidade c ON c.id = a.id_cidade
     LEFT JOIN concessionario_acess x ON x.codigo = a.codigo
     ORDER BY c.descricao, cli.cliente, a.numero_ccu`).all()
-    .filter(a => !removidos.has(a.codigo))
+    .filter(a => !excluidos.has(a.codigo))
     .filter(a => !permitidas || permitidas.has(a.id_cidade));
   const gmap = new Map(db.prepare(`SELECT id_avaliacao, geracoes, ultima_geracao, enviado, dt_envio FROM comunicado_gerado`)
     .all().map(r => [r.id_avaliacao, r]));

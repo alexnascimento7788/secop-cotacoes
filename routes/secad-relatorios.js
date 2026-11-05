@@ -151,33 +151,32 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeIds) {
   const aceites = db.prepare(`SELECT codigo, numero_ccu, data_aceite FROM renovacao_aceites WHERE importacao_id = ?`).all(importacao.id);
   const mapaAceite = new Map(aceites.map(a => [`${a.codigo}|${normalizarCcu(a.numero_ccu)}`, a.data_aceite]));
 
-  // Códigos de concessionário-teste criados pra validar a importação (ver
-  // migracoes-homolog.json 2026-10-23-001) — marcados aqui só pra exibição
-  // (badge "TESTE"), nunca excluídos da conta. Lista manual de propósito:
-  // não existe flag de "é teste" no schema, é só pra não confundir ninguém
-  // lendo o relatório.
+  // Código de concessionário-teste criado pra validar a importação (ver
+  // migracoes-homolog.json 2026-10-23-001) — nunca é um contrato real.
   const CODIGOS_TESTE = new Set([30000]);
 
   const removidos = codigosRemovidos();
-  const motivosRemovido = new Map(
-    db.prepare(`SELECT codigo, motivo FROM concessionario_removido`).all().map(r => [r.codigo, r.motivo])
-  );
-  // NADA é filtrado aqui — Alex foi explícito: o Total precisa bater com a
-  // planilha (452), com os removidos/teste aparecendo DESTACADOS em vez de
-  // sumirem da conta (comportamento antigo, trocado em 2026-10-23).
-  const contratos = depopDb.prepare(`
+
+  // Regra única definida com o Alex (2026-11-06), pra bater o mesmo número em
+  // Concessionários Renovação/Comunicados/Relatórios/DEPLA: Removido e Teste
+  // NÃO contam em lugar nenhum (saem do universo); Fora do Prazo CONTINUA
+  // contando, só fica sinalizado (dados de vencimento errados, em correção —
+  // ver contratos_sem_prazo_previsto_detalhe). Mantém os contratos_removidos/
+  // contratos_teste na reconciliação só pra auditoria (quantos foram
+  // excluídos e por quê), nunca somados no total.
+  const contratosTodos = depopDb.prepare(`
     SELECT a.codigo, a.numero_ccu, a.data_vencimento, a.id_cidade, c.descricao AS cidade, cli.cliente, cli.cpf_cnpj
     FROM AvaliacaoAreaRenovacao a
     LEFT JOIN Cidade c ON c.id = a.id_cidade
     LEFT JOIN ClienteConcessionario cli ON cli.codigo = a.codigo
   `).all();
+  const contratos = contratosTodos.filter(c => !removidos.has(c.codigo) && !CODIGOS_TESTE.has(c.codigo));
 
-  // Reconciliação — sempre sobre o universo TOTAL (ignora os filtros de
-  // prazo/cidade da tela), pra responder "os números fecham?" de forma
-  // auditável: planilha → casados/não casados → contratos. NINGUÉM fica de
-  // fora do total (precisa bater com a plataforma de contrato) — os sem
-  // prazo previsto (2027–2032) viram grupo próprio "Fora do prazo previsto"
-  // lá embaixo, e os removidos/teste ficam destacados onde já apareceriam.
+  // Reconciliação — sempre sobre o universo TOTAL já sem Removido/Teste
+  // (ignora os filtros de prazo/cidade da tela), pra responder "os números
+  // fecham?" de forma auditável: planilha → casados/não casados → contratos.
+  // Fora do prazo previsto (2027–2032) vira grupo próprio "Fora do prazo
+  // previsto" lá embaixo — continua contando no total, só sinalizado.
   const SEM_PRAZO = 'Fora do prazo previsto';
   const foraDoPrazo = [];
   contratos.forEach(c => {
@@ -191,8 +190,8 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeIds) {
     nao_casados_planilha: importacao.nao_casados,
     casados_planilha: importacao.total_linhas - importacao.nao_casados,
     total_contratos_ativos: contratos.length,
-    contratos_removidos: contratos.filter(c => removidos.has(c.codigo)).length,
-    contratos_teste: contratos.filter(c => CODIGOS_TESTE.has(c.codigo)).length,
+    contratos_removidos: contratosTodos.filter(c => removidos.has(c.codigo)).length,
+    contratos_teste: contratosTodos.filter(c => CODIGOS_TESTE.has(c.codigo)).length,
     contratos_sem_prazo_previsto: foraDoPrazo.length,
     contratos_sem_prazo_previsto_detalhe: foraDoPrazo,
   };
@@ -200,11 +199,6 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeIds) {
   // grupo[prazo] -> cidade[nome] -> {total, aceitaram, pendentes[]}
   const porPrazo = new Map();
   const datasAceiteFiltro = []; // alimenta "evolucao" — só dos contratos que passaram no filtro
-  // Destaques (removidos/teste) — capturado À PARTE dos pendentes, porque um
-  // removido/teste pode já ter "aceitado" (não aparece em pendentes) e ainda
-  // assim precisa ficar visível (pedido do Alex: "destaque os 2 removidos e
-  // o teste", não só quando calham de estar pendentes).
-  const destaques = [];
   contratos.forEach(c => {
     const ano = parseInt(String(c.data_vencimento || '').slice(0, 4), 10);
     const prazo = prazoFinalAdesao(ano) || SEM_PRAZO;
@@ -219,7 +213,6 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeIds) {
     // operacionais do Panorama. Independente de filtroPrazo ter sido
     // passado ou não (a tela não manda mais esse filtro).
     if (aceitou && prazo !== SEM_PRAZO) datasAceiteFiltro.push(dataAceite);
-    const situacao = removidos.has(c.codigo) ? 'removido' : (CODIGOS_TESTE.has(c.codigo) ? 'teste' : null);
 
     if (!porPrazo.has(prazo)) porPrazo.set(prazo, new Map());
     const porCidade = porPrazo.get(prazo);
@@ -230,12 +223,6 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeIds) {
     else g.pendentes.push({
       codigo: c.codigo, concessionario: c.cliente || '—', cnpj: c.cpf_cnpj || '—',
       numero_ccu: c.numero_ccu || '—', cidade: cidadeNome,
-      situacao, motivo: situacao === 'removido' ? (motivosRemovido.get(c.codigo) || null) : null,
-    });
-    if (situacao) destaques.push({
-      codigo: c.codigo, concessionario: c.cliente || '—', numero_ccu: c.numero_ccu || '—',
-      cidade: cidadeNome, prazo, aceitou, situacao,
-      motivo: situacao === 'removido' ? (motivosRemovido.get(c.codigo) || null) : null,
     });
   });
 
@@ -280,7 +267,11 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeIds) {
     ? depopDb.prepare(`SELECT descricao FROM Cidade WHERE id IN (${[...filtroCidadeIds].join(',')}) ORDER BY descricao`).all().map(r => r.descricao)
     : [];
 
-  return { importacao, grupos, evolucao, reconciliacao, destaques, filtro_cidades: filtroCidadesNomes };
+  // destaques: [] — Removido/Teste agora saem do universo inteiro (não só
+  // ficam destacados), ver filtro de `contratos` acima. Campo mantido vazio
+  // só pra não quebrar o front-end antigo (_relRenderDestaques já trata lista
+  // vazia como "nada pra mostrar").
+  return { importacao, grupos, evolucao, reconciliacao, destaques: [], filtro_cidades: filtroCidadesNomes };
 }
 
 router.get('/api/secad/relatorios/adesao', secad, requireRelatoriosVer, (req, res) => {

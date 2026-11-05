@@ -61,6 +61,16 @@ function soData(s) {
   return String(s || '').trim().slice(0, 10);
 }
 
+// Mesmo filtro usado em routes/secad.js e routes/secad-relatorios.js — Alex
+// definiu (2026-11-06) um único número canônico de contratos pra bater em
+// todas as telas: Removido e Teste NÃO contam (Fora do Prazo continua
+// contando, só sinalizado). Duplicado aqui de propósito, mesma convenção já
+// usada nos outros 2 arquivos.
+function codigosRemovidos() {
+  return new Set(db.prepare(`SELECT codigo FROM concessionario_removido`).all().map(r => r.codigo));
+}
+const CODIGOS_TESTE = new Set([30000]);
+
 // Mesma regra de prazo final de adesão do SECAD (routes/secad.js,
 // prazoFinalAdesao), pelo ano de vencimento do contrato de 20 anos. Duplicada
 // aqui (função pura de 3 linhas) pra não acoplar este módulo ao secad.js.
@@ -345,33 +355,42 @@ function ordenarPorPrazoECodigo(linhas) {
 // que a importação atual conseguiu casar — e lista o que ficou de fora, pra
 // ele julgar se é esperado (ex: dado de teste no depop) ou um problema real.
 function validarContraDepop(importacaoId) {
-  // GROUP BY (não DISTINCT nas 4 colunas juntas) — 1 contrato (id 334) tem o
-  // nome do concessionário grafado diferente entre linhas do fan-out ("Ltda."
-  // vs "Ltda", sem ponto), o que inflava a contagem em 1 contrato fantasma.
+  // Base = AvaliacaoAreaRenovacao (mesmo universo canônico do SECAD), não
+  // TarifaContrato20Anos — essa tem 2 id_contrato "órfãos" sem avaliação
+  // correspondente (492, 559) e não exclui Removido/Teste. Removido e Teste
+  // não contam (regra única definida com o Alex, 2026-11-06); Fora do Prazo
+  // continua contando (só é sinalizado, nunca excluído daqui).
+  const excluidos = new Set([...codigosRemovidos(), ...CODIGOS_TESTE]);
   const contratosDepop = depopDb.prepare(`
-    SELECT id_contrato, MIN(codigo) AS codigo, MIN(concessionario) AS concessionario, MIN(numero_ccu) AS numero_ccu
-    FROM TarifaContrato20Anos GROUP BY id_contrato
-  `).all();
+    SELECT id_contrato, codigo, concessionaria AS concessionario, numero_ccu
+    FROM AvaliacaoAreaRenovacao
+  `).all().filter(c => !excluidos.has(c.codigo));
   const empresasDepop = new Set(contratosDepop.map(c => c.codigo));
 
-  const casados = db.prepare(`
+  const idsDepop = new Set(contratosDepop.map(c => c.id_contrato));
+  const casadosRaw = new Set(db.prepare(`
     SELECT DISTINCT id_contrato_depop FROM depla_concessionarios
     WHERE importacao_id = ? AND id_contrato_depop IS NOT NULL
-  `).all(importacaoId).map(r => r.id_contrato_depop);
-  const casadosSet = new Set(casados);
+  `).all(importacaoId).map(r => r.id_contrato_depop));
+  // Só conta como "apresentado" quem está no universo canônico — um termo da
+  // planilha pode casar com um id_contrato de Removido ou com um órfão sem
+  // avaliação (ex: 492, Real Comércio de Miudezas), e esses não entram na
+  // conta de nenhum lado (mesma regra do SECAD).
+  const casadosSet = new Set([...casadosRaw].filter(id => idsDepop.has(id)));
   const empresasCasadas = new Set(
     db.prepare(`SELECT DISTINCT codigo FROM depla_concessionarios WHERE importacao_id = ? AND match_confianca != 'sem_match'`)
       .all(importacaoId).map(r => r.codigo)
+      .filter(codigo => !excluidos.has(codigo))
   );
 
   const contratosFaltando = contratosDepop.filter(c => !casadosSet.has(c.id_contrato));
 
   return {
     contratos_depop: contratosDepop.length,
-    contratos_apresentados: casados.length,
+    contratos_apresentados: casadosSet.size,
     empresas_depop: empresasDepop.size,
     empresas_apresentadas: empresasCasadas.size,
-    bate: contratosDepop.length === casados.length,
+    bate: contratosDepop.length === casadosSet.size,
     contratos_faltando: contratosFaltando.map(c => ({
       id_contrato: c.id_contrato, codigo: c.codigo, concessionario: c.concessionario, numero_ccu: c.numero_ccu,
     })),

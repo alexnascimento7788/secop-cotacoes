@@ -754,12 +754,16 @@ function renderAvisosCom() {
 // Dashboard da seção Comunicados (calculado a partir da lista carregada).
 function renderComPainel() {
   const cs = comEstado.contratos;
+  // Total já vem sem Removido/Teste (backend, /api/secad/comunicados/lista) —
+  // mesmo número canônico das outras telas de Concessionários Renovação.
+  const total      = cs.length;
   const prontos    = cs.filter(c => c.elegivel).length;                                   // validado + no prazo + credencial
   const aguardando = cs.filter(c => c.no_intervalo && c.tem_credencial && !c.validado).length;
   const gerados    = cs.filter(c => c.geracoes > 0).length;
   const entregues  = cs.filter(c => c.enviado).length;
   const foraOuSem  = cs.filter(c => !c.no_intervalo || !c.tem_credencial).length;
   const cards = [
+    { icon: '📋', label: 'Total de contratos',     val: total,      hint: 'contratos de renovação de 20 anos',      cls: 'metric-cotacao',   vcls: 'metric-val-cotacao' },
     { icon: '✅', label: 'Prontos p/ gerar',        val: prontos,    hint: 'validados, no prazo e com credencial', cls: 'metric-concluido', vcls: 'metric-val-concluido' },
     { icon: '⏳', label: 'Aguardando validação',    val: aguardando, hint: 'precisam ser validados antes',          cls: 'metric-parado',    vcls: 'metric-val-parado' },
     { icon: '🖨️', label: 'Comunicados gerados',     val: gerados,    hint: 'contratos com PDF já gerado',           cls: 'metric-cotacao',   vcls: 'metric-val-cotacao' },
