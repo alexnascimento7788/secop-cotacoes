@@ -190,7 +190,12 @@ async function carregarRelatorioAdesao() {
     info.innerHTML = _relRenderReconciliacao(dados);
     destaques.innerHTML = _relRenderDestaques(dados);
     const grupoForaPrazo = dados.grupos.find(g => g.prazo === 'Fora do prazo previsto');
-    foraPrazo.innerHTML = grupoForaPrazo ? _relRenderGrupo(grupoForaPrazo) : '';
+    foraPrazo.innerHTML = grupoForaPrazo ? `
+      <div style="padding:10px 14px;margin-bottom:10px;background:var(--surface-2);border:1px solid #FFCC80;border-left:3px solid #E65100;border-radius:8px;font-size:12.5px;font-weight:600;">
+        ⚠️ ${grupoForaPrazo.total.total} contrato(s) com vencimento fora do intervalo esperado (2027–2032) — provavelmente data de cadastro errada, em correção. Continuam contando no total, só não entram no Panorama/tabela por prazo.
+      </div>
+      ${_relRenderGrupo(grupoForaPrazo)}
+    ` : '';
     if (!_relGruposOp(dados).length) {
       dashCard.style.display = 'none';
       tabela.innerHTML = vazio('Nenhum contrato no intervalo de prazo previsto (2027–2032) com os filtros atuais.');
@@ -384,22 +389,23 @@ function _relSvgBateria(pct) {
 }
 
 // Responde "os números fecham?" de forma auditável — planilha → casados →
-// contratos ativos. O Total do painel SEMPRE bate com total_contratos_ativos
-// (nada fica de fora da conta — precisa bater com a plataforma de contrato);
-// quem não tem prazo previsto vira grupo próprio "Fora do prazo previsto"
-// mais abaixo, em vez de sumir. Calculado no backend (reconciliacao), sempre
-// sobre o universo total, independente do filtro de prazo/cidade ativo.
+// contratos ativos. O Total do painel é o número ÚNICO que bate com
+// Concessionários Renovação/Comunicados/DEPLA: Removido e Teste NÃO contam
+// (saem do universo), Fora do Prazo CONTINUA contando (vira grupo próprio
+// "Fora do prazo previsto" mais abaixo, sinalizado, não some). Calculado no
+// backend (reconciliacao), sempre sobre o universo total, independente do
+// filtro de prazo/cidade ativo.
 function _relRenderReconciliacao(dados) {
   const r = dados.reconciliacao;
   const imp = dados.importacao;
   const base = `Base: importação #${imp.id} — "${imp.nome_arquivo || '—'}", ${_relFmtDataHora(imp.criado_em)}.`;
   const linha1 = `${r.total_linhas_planilha} linha(s) na planilha → ${r.casados_planilha} casaram com um contrato` +
     (r.nao_casados_planilha ? ` (${r.nao_casados_planilha} sem correspondência)` : '') + '.';
-  const partesDestaque = [];
-  if (r.contratos_removidos) partesDestaque.push(`${r.contratos_removidos} de concessionário(s) removido(s) do sistema`);
-  if (r.contratos_teste) partesDestaque.push(`${r.contratos_teste} registro(s) de teste`);
-  const linha2 = `Total de contratos: ${r.total_contratos_ativos} — é esse número que deve bater com a plataforma de contrato` +
-    (partesDestaque.length ? ` (inclui ${partesDestaque.join(' e ')}, destacados abaixo)` : '') + '.';
+  const partesExcluidas = [];
+  if (r.contratos_removidos) partesExcluidas.push(`${r.contratos_removidos} removido(s) do sistema`);
+  if (r.contratos_teste) partesExcluidas.push(`${r.contratos_teste} registro(s) de teste`);
+  const linha2 = `Total de contratos (já sem removido/teste): ${r.total_contratos_ativos} — é esse número que deve bater com a plataforma de contrato, Comunicados e o DEPLA` +
+    (partesExcluidas.length ? ` (excluídos da conta: ${partesExcluidas.join(' e ')})` : '') + '.';
   const detalheFora = r.contratos_sem_prazo_previsto ? `
     <details style="margin-top:4px;">
       <summary style="cursor:pointer;">${r.contratos_sem_prazo_previsto} contrato(s) sem prazo previsto definido (vencimento fora de 2027–2032) — ver quais</summary>
