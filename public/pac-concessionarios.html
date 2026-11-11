@@ -47,10 +47,6 @@
     .dc-check-demais { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
     .dc-banner-ok { background: #dcfce7; color: #166534; }
     [data-theme="dark"] .dc-banner-ok { background: rgba(22,101,52,.25); color: #86efac; }
-    .dc-banner-erro { background: #fee2e2; color: #991b1b; }
-    [data-theme="dark"] .dc-banner-erro { background: rgba(153,27,27,.25); color: #fca5a5; }
-    .dc-validador-detalhe { margin-top: 8px; font-weight: 400; font-size: 12.5px; }
-    .dc-validador-detalhe li { margin: 2px 0 2px 18px; }
     .dc-cards { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
     .dc-card-metric {
       background: var(--surface); border: 1px solid var(--cinza-b); border-left: 4px solid var(--dc-cor, var(--cinza-b));
@@ -65,11 +61,22 @@
     .dc-card-entreposto { flex: 2.4; min-width: 300px; align-items: flex-start; }
     .dc-card-entreposto .dc-card-metric-icone { margin-top: 2px; }
     .dc-entreposto-lista { flex: 1; min-width: 0; }
-    .dc-entreposto-linha { display: grid; grid-template-columns: 112px 1fr auto; align-items: center; gap: 10px; font-size: 12.5px; padding: 3px 0; }
-    .dc-entreposto-linha span:first-child { color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dc-entreposto-cidade { border-bottom: 1px solid var(--cinza-b); }
+    .dc-entreposto-cidade:last-child { border-bottom: none; }
+    .dc-entreposto-cidade summary { cursor: pointer; list-style: none; }
+    .dc-entreposto-cidade summary::-webkit-details-marker { display: none; }
+    .dc-entreposto-linha {
+      display: grid; grid-template-columns: 14px 112px 1fr auto; align-items: center; gap: 10px; font-size: 12.5px; padding: 4px 0;
+    }
+    .dc-entreposto-seta { flex-shrink: 0; color: var(--text-muted); transition: transform .15s; }
+    .dc-entreposto-cidade[open] > summary .dc-entreposto-seta { transform: rotate(90deg); }
+    .dc-entreposto-linha span:nth-child(2) { color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .dc-entreposto-linha span:last-child { font-weight: 700; color: var(--text); white-space: nowrap; }
     .dc-entreposto-barra-trilha { background: var(--cinza-b); border-radius: 4px; height: 7px; overflow: hidden; }
     .dc-entreposto-barra { height: 100%; border-radius: 4px; background: var(--dc-cor, #F9A800); }
+    .dc-entreposto-valores { padding: 2px 0 8px 24px; }
+    .dc-entreposto-valor-linha { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; padding: 2px 0; color: var(--text-muted); }
+    .dc-entreposto-valor-linha span:first-child { font-weight: 700; color: var(--text); }
     .dc-casamento-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 6px; vertical-align: middle; cursor: default; }
   </style>
 </head>

@@ -416,12 +416,57 @@ function ordenarPorCidadeECodigo(linhas) {
   );
 }
 
+// Contratos canônicos de renovação (AvaliacaoAreaRenovacao, sem Removido/
+// Teste) que a importação atual não tem NENHUMA linha correspondente —
+// sintetiza uma linha pra cada um, 100% a partir do depop (sem nada da
+// planilha), pra garantir que o relatório sempre mostra todo o universo de
+// renovação mesmo quando o CSV do CORPORE não trouxe aquela linha naquela
+// rodada. Pedido do Alex, 2026-11-11 ("traga os contratos mesmo assim").
+// match_confianca fica 'direto' — não é ambíguo, é certeza vinda do próprio
+// depop, só não tem linha de planilha correspondente.
+function contratosFaltandoSintetizados(importacaoId) {
+  const excluidos = new Set([...codigosRemovidos(), ...CODIGOS_TESTE]);
+  const canonicos = depopDb.prepare(`
+    SELECT id_contrato, codigo, concessionaria AS empresa FROM AvaliacaoAreaRenovacao
+  `).all().filter(c => !excluidos.has(c.codigo));
+
+  const casadosRaw = new Set(db.prepare(`
+    SELECT DISTINCT id_contrato_depop FROM depla_concessionarios
+    WHERE importacao_id = ? AND id_contrato_depop IS NOT NULL
+  `).all(importacaoId).map(r => r.id_contrato_depop));
+
+  const faltando = canonicos.filter(c => !casadosRaw.has(c.id_contrato));
+  if (!faltando.length) return [];
+
+  const idsFaltando = faltando.map(c => c.id_contrato);
+  const placeholders = idsFaltando.map(() => '?').join(',');
+  const cnpjPorContrato = new Map();
+  depopDb.prepare(`SELECT id_contrato, cnpj FROM TarifaContrato20Anos WHERE id_contrato IN (${placeholders})`)
+    .all(...idsFaltando).forEach(r => cnpjPorContrato.set(r.id_contrato, r.cnpj));
+
+  return faltando.map(c => ({
+    id: -c.id_contrato, // sintético — nunca existe uma linha real negativa em depla_concessionarios
+    codigo: c.codigo,
+    empresa: c.empresa,
+    cnpj: cnpjPorContrato.get(c.id_contrato) || null,
+    cidade_planilha: null,
+    contrato_numero: null,
+    contrato_data_inicio: null,
+    id_contrato_depop: c.id_contrato,
+    match_confianca: 'direto',
+  }));
+}
+
 // "Preciso do validador informando que a quantidade de concessionários no
 // Depop bate com o que apresentamos aqui" (Alex, 2026-11-05). Compara o
 // total de CONTRATOS de 20 anos e de EMPRESAS distintas no depop.db contra o
 // que a importação atual conseguiu casar — e lista o que ficou de fora, pra
 // ele julgar se é esperado (ex: dado de teste no depop) ou um problema real.
-function validarContraDepop(importacaoId) {
+// `extrasSintetizados` = o que contratosFaltandoSintetizados() já está
+// trazendo pro relatório por fora da planilha — conta como "apresentado"
+// aqui também, senão o validador acusaria falta de algo que o relatório já
+// mostra (seria uma mentira pro Alex).
+function validarContraDepop(importacaoId, extrasSintetizados) {
   // Base = AvaliacaoAreaRenovacao (mesmo universo canônico do SECAD), não
   // TarifaContrato20Anos — essa tem 2 id_contrato "órfãos" sem avaliação
   // correspondente (492, 559) e não exclui Removido/Teste. Removido e Teste
@@ -435,20 +480,23 @@ function validarContraDepop(importacaoId) {
   const empresasDepop = new Set(contratosDepop.map(c => c.codigo));
 
   const idsDepop = new Set(contratosDepop.map(c => c.id_contrato));
-  const casadosRaw = new Set(db.prepare(`
-    SELECT DISTINCT id_contrato_depop FROM depla_concessionarios
-    WHERE importacao_id = ? AND id_contrato_depop IS NOT NULL
-  `).all(importacaoId).map(r => r.id_contrato_depop));
+  const casadosRaw = new Set([
+    ...db.prepare(`
+      SELECT DISTINCT id_contrato_depop FROM depla_concessionarios
+      WHERE importacao_id = ? AND id_contrato_depop IS NOT NULL
+    `).all(importacaoId).map(r => r.id_contrato_depop),
+    ...(extrasSintetizados || []).map(e => e.id_contrato_depop),
+  ]);
   // Só conta como "apresentado" quem está no universo canônico — um termo da
   // planilha pode casar com um id_contrato de Removido ou com um órfão sem
   // avaliação (ex: 492, Real Comércio de Miudezas), e esses não entram na
   // conta de nenhum lado (mesma regra do SECAD).
   const casadosSet = new Set([...casadosRaw].filter(id => idsDepop.has(id)));
-  const empresasCasadas = new Set(
-    db.prepare(`SELECT DISTINCT codigo FROM depla_concessionarios WHERE importacao_id = ? AND match_confianca != 'sem_match'`)
-      .all(importacaoId).map(r => r.codigo)
-      .filter(codigo => !excluidos.has(codigo))
-  );
+  const empresasCasadas = new Set([
+    ...db.prepare(`SELECT DISTINCT codigo FROM depla_concessionarios WHERE importacao_id = ? AND match_confianca != 'sem_match'`)
+      .all(importacaoId).map(r => r.codigo),
+    ...(extrasSintetizados || []).map(e => e.codigo),
+  ].filter(codigo => !excluidos.has(codigo)));
 
   const contratosFaltando = contratosDepop.filter(c => !casadosSet.has(c.id_contrato));
 
@@ -466,9 +514,17 @@ function validarContraDepop(importacaoId) {
 
 // Cards de resumo do topo da tela — sempre sobre TODOS os concessionários da
 // importação (ignora o filtro "Mostrar Demais" da tabela, que é só de
-// exibição; os cards são o retrato completo). Pedido do Alex, 2026-11-11.
+// exibição; os cards são o retrato completo), incluindo os sintetizados
+// direto do depop (contratosFaltandoSintetizados). Pedido do Alex,
+// 2026-11-11.
+//
+// A quebra por entreposto NÃO soma tudo num valor só — agrupa por valor de
+// Tarifa de Uso distinto dentro de cada cidade (quando várias empresas têm
+// o MESMO valor, ele aparece 1 vez representando o grupo, com a contagem).
+// Pedido do Alex, 2026-11-11: "se em contagem tivermos igual o valor 19,56
+// ele que deverá representar se tivermos mais de 1".
 function calcularCards(importacaoId) {
-  const todos = buscarContratos(importacaoId, true);
+  const todos = [...buscarContratos(importacaoId, true), ...contratosFaltandoSintetizados(importacaoId)];
   const codigosRenovacao = new Set(todos.filter(c => c.match_confianca !== 'sem_match').map(c => c.codigo));
   const codigosDemais = new Set(todos.filter(c => c.match_confianca === 'sem_match').map(c => c.codigo));
 
@@ -476,25 +532,30 @@ function calcularCards(importacaoId) {
   const dadosDepop = carregarDadosDepop(idsContrato);
   const tarifaUsoPlanilha = carregarTarifaUsoPlanilha(todos.map(c => c.id));
 
-  const tarifaPorEntreposto = new Map();
+  const porCidade = new Map(); // cidade -> Map(valor -> Set(codigo))
   todos.forEach(c => {
-    const renovacao = c.match_confianca !== 'sem_match';
-    const tarifa = renovacao ? dadosDepop.tarifaUsoPorContrato.get(c.id_contrato_depop) : tarifaUsoPlanilha.get(c.id);
-    if (!tarifa) return;
-    // Cidade vem do depop pra quem tem renovação, da própria planilha pra
-    // quem não tem (achado 2026-11-11: o CSV novo do CORPORE traz cidade
-    // por linha pra todo mundo, não só renovação).
-    const cidade = (renovacao ? dadosDepop.cidadePorContrato.get(c.id_contrato_depop) : c.cidade_planilha) || 'Sem entreposto';
-    tarifaPorEntreposto.set(cidade, (tarifaPorEntreposto.get(cidade) || 0) + tarifa);
+    const depop = camposDepop(c, dadosDepop, tarifaUsoPlanilha);
+    if (!depop.tarifa_uso) return;
+    const cidade = depop.cidade || 'Sem entreposto';
+    if (!porCidade.has(cidade)) porCidade.set(cidade, new Map());
+    const porValor = porCidade.get(cidade);
+    if (!porValor.has(depop.tarifa_uso)) porValor.set(depop.tarifa_uso, new Set());
+    porValor.get(depop.tarifa_uso).add(c.codigo);
   });
+
+  const tarifaPorEntreposto = [...porCidade.entries()].map(([cidade, porValor]) => {
+    const valores = [...porValor.entries()]
+      .map(([valor, codigos]) => ({ valor, qtd: codigos.size }))
+      .sort((a, b) => b.valor - a.valor);
+    const total = valores.reduce((soma, v) => soma + v.valor * v.qtd, 0);
+    return { cidade, total, valores };
+  }).sort((a, b) => b.total - a.total);
 
   return {
     total_concessionarios: new Set([...codigosRenovacao, ...codigosDemais]).size,
     total_renovacao: codigosRenovacao.size,
     total_demais: codigosDemais.size,
-    tarifa_por_entreposto: [...tarifaPorEntreposto.entries()]
-      .map(([cidade, total]) => ({ cidade, total }))
-      .sort((a, b) => b.total - a.total),
+    tarifa_por_entreposto: tarifaPorEntreposto,
   };
 }
 
@@ -510,7 +571,10 @@ router.get('/api/pac/concessionarios/resumido', relatoriosGerais, requireVer, (r
   if (!importacaoId) return res.json({ importacao_id: null, linhas: [], total_demais: 0 });
 
   const incluirDemais = req.query.incluir_demais === '1';
-  const contratos = buscarContratos(importacaoId, incluirDemais);
+  // Sintetizados sempre entram (são renovação, mesma regra de sempre
+  // mostrar renovação independente do filtro "Mostrar Demais").
+  const sinteticos = contratosFaltandoSintetizados(importacaoId);
+  const contratos = [...buscarContratos(importacaoId, incluirDemais), ...sinteticos];
   const totalDemais = db.prepare(`
     SELECT COUNT(*) n FROM depla_concessionarios WHERE importacao_id = ? AND match_confianca = 'sem_match'
   `).get(importacaoId).n;
@@ -540,7 +604,7 @@ router.get('/api/pac/concessionarios/resumido', relatoriosGerais, requireVer, (r
 
   res.json({
     importacao_id: importacaoId, linhas, total_demais: totalDemais,
-    validador: validarContraDepop(importacaoId), cards: calcularCards(importacaoId),
+    validador: validarContraDepop(importacaoId, sinteticos), cards: calcularCards(importacaoId),
   });
 });
 
