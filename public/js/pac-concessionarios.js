@@ -1,13 +1,11 @@
 // PAC/DEPLA — Dados Concessionários: importação da planilha de tarifas do
-// CORPORE (aba "Result 1") + relatórios resumido (pac-concessionarios.html)
-// e detalhado (pac-concessionarios-detalhado.html), ambos cruzados com
-// depop.db. Arquivo compartilhado pelas 2 páginas — cada função que só faz
-// sentido numa delas checa se o elemento existe antes de mexer nele.
-// Ver routes/pac-concessionarios.js pra lógica de casamento (match_confianca)
-// e pros campos calculados (camposDepop/carregarDadosDepop).
-// Por padrão os 2 relatórios só mostram concessionários CASADOS com um
-// contrato de 20 anos no depop — o checkbox "Mostrar Demais" inclui o resto
-// (fora do programa de renovação, só existem na planilha do CORPORE).
+// CORPORE (aba "Result 1") + relatório resumido (pac-concessionarios.html),
+// cruzado com depop.db. Ver routes/pac-concessionarios.js pra lógica de
+// casamento (match_confianca) e pros campos calculados
+// (camposDepop/carregarDadosDepop).
+// Por padrão o relatório só mostra concessionários CASADOS com um contrato
+// de 20 anos no depop — o checkbox "Mostrar Demais" inclui o resto (fora do
+// programa de renovação, só existem na planilha do CORPORE).
 
 function toast(msg, tipo) {
   const t = document.getElementById('toast');
@@ -22,10 +20,6 @@ function fmtMoeda(v) {
   if (v === null || v === undefined || v === '' || isNaN(Number(v))) return '—';
   return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
-function fmtNum(v, casas) {
-  if (v === null || v === undefined || v === '' || isNaN(Number(v))) return '—';
-  return Number(v).toLocaleString('pt-BR', { minimumFractionDigits: casas || 2, maximumFractionDigits: casas || 2 });
-}
 function fmtBrData(iso) {
   if (!iso) return '—';
   const s = String(iso).slice(0, 10);
@@ -33,17 +27,22 @@ function fmtBrData(iso) {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
 }
 
-const DC_BADGE = {
-  direto:    '<span class="dc-badge dc-badge-direto">Direto</span>',
-  data:      '<span class="dc-badge dc-badge-data">Por data</span>',
-  manual:    '<span class="dc-badge dc-badge-manual">Revisar</span>',
-  sem_match: '<span class="dc-badge dc-badge-semmatch">Sem contrato</span>',
-};
-
 function dcBadgeRenovacao(renovacao) {
   return renovacao
     ? '<span class="dc-badge dc-badge-renovacao-sim">Sim</span>'
     : '<span class="dc-badge dc-badge-renovacao-nao">Não</span>';
+}
+
+// Pedido do Alex, 2026-11-11: no lugar da coluna "Casamento", um ponto
+// pequeno perto do nome — verde/vermelho, com o detalhe só no mouseover
+// (title nativo do browser). Só aparece pra quem tem renovação — "Demais"
+// já mostra "Renovação: Não", não tem casamento pra avaliar.
+function dcIconeCasamento(renovacao, matchConfianca) {
+  if (!renovacao) return '';
+  const ok = matchConfianca === 'direto' || matchConfianca === 'data';
+  const cor = ok ? '#16a34a' : '#dc2626';
+  const titulo = ok ? 'Casamento OK' : 'Casamento manual — confira';
+  return ` <span class="dc-casamento-dot" style="background:${cor}" title="${titulo}"></span>`;
 }
 
 async function carregarXLSX() {
@@ -169,13 +168,8 @@ async function dcCarregarImportacoes(selecionarId) {
   }
 }
 
-// Dispara o relatório que existir nesta página (resumido OU detalhado —
-// cada página só tem 1 dos 2 tbodies no DOM).
 async function dcTrocarImportacao() {
-  const tarefas = [];
-  if (document.getElementById('dc-tbody')) tarefas.push(dcCarregarResumido());
-  if (document.getElementById('dc-det-tbody')) tarefas.push(dcCarregarDetalhado());
-  await Promise.all(tarefas);
+  await dcCarregarResumido();
 }
 
 function dcParamsAtuais() {
@@ -213,97 +207,57 @@ function dcAtualizarValidador(v) {
   `;
 }
 
+// Pedido do Alex, 2026-11-11: qts de concessionários, qtd renovação e valor
+// de tarifa resumido por entreposto (cidade) — sempre o retrato completo,
+// independente do checkbox "Mostrar Demais" (que só filtra a tabela).
+function dcRenderCards(cards) {
+  const el = document.getElementById('dc-cards');
+  if (!el || !cards) return;
+  const linhasEntreposto = cards.tarifa_por_entreposto.map(e =>
+    `<div class="dc-entreposto-linha"><span>${e.cidade}</span><span>${fmtMoeda(e.total)}</span></div>`
+  ).join('') || '<div class="dc-entreposto-linha"><span>—</span></div>';
+  el.innerHTML = `
+    <div class="dc-card-metric"><div class="dc-card-metric-label">Concessionários</div><div class="dc-card-metric-valor">${cards.total_concessionarios}</div></div>
+    <div class="dc-card-metric"><div class="dc-card-metric-label">Com Renovação</div><div class="dc-card-metric-valor">${cards.total_renovacao}</div></div>
+    <div class="dc-card-metric"><div class="dc-card-metric-label">Demais (sem renovação)</div><div class="dc-card-metric-valor">${cards.total_demais}</div></div>
+    <div class="dc-card-metric dc-card-entreposto"><div class="dc-card-metric-label">Tarifa de Uso por Entreposto</div>${linhasEntreposto}</div>
+  `;
+}
+
 let _dcLinhasResumido = [];
 
 async function dcCarregarResumido() {
   const params = dcParamsAtuais();
-  if (!params) { document.getElementById('dc-tbody').innerHTML = '<tr><td colspan="14">Nenhuma importação ainda.</td></tr>'; return; }
+  if (!params) { document.getElementById('dc-tbody').innerHTML = '<tr><td colspan="11">Nenhuma importação ainda.</td></tr>'; return; }
   try {
     const res = await fetch(`/api/pac/concessionarios/resumido?${params}`);
     const r = await res.json();
     _dcLinhasResumido = r.linhas || [];
     dcAtualizarNotaDemais(r.total_demais);
     dcAtualizarValidador(r.validador);
+    dcRenderCards(r.cards);
     const tbody = document.getElementById('dc-tbody');
     if (!_dcLinhasResumido.length) {
-      tbody.innerHTML = '<tr><td colspan="14">Nenhum contrato nesta importação.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="11">Nenhum contrato nesta importação.</td></tr>';
       return;
     }
     tbody.innerHTML = _dcLinhasResumido.map(l => `
       <tr>
         <td>${l.codigo ?? '—'}</td>
-        <td>${l.empresa || '—'}</td>
+        <td>${l.empresa || '—'}${dcIconeCasamento(l.renovacao, l.match_confianca)}</td>
         <td>${l.cnpj || '—'}</td>
         <td>${dcBadgeRenovacao(l.renovacao)}</td>
         <td>${l.prazo_final_adesao || '—'}</td>
         <td>${l.contrato_numero || '—'}</td>
         <td>${fmtBrData(l.contrato_data_inicio)}</td>
         <td>${fmtBrData(l.contrato_vencido_em)}</td>
-        <td class="dc-num">${l.area_m2 != null ? fmtNum(l.area_m2, 2) : '—'}</td>
-        <td class="dc-num">${fmtMoeda(l.valor_m2)}</td>
         <td class="dc-num">${fmtMoeda(l.tarifa_uso)}</td>
         <td class="dc-num">${fmtMoeda(l.valor_ponto)}</td>
         <td class="dc-num">${fmtMoeda(l.outorga)}</td>
-        <td>${DC_BADGE[l.match_confianca] || l.match_confianca}</td>
       </tr>
     `).join('');
   } catch (e) {
     toast('Erro ao carregar relatório resumido: ' + e.message, 'error');
-  }
-}
-
-// Pedido do Alex, 2026-11-05: o detalhado é "uma cópia da planilha que
-// importou agregando os dados que eu já tinha passado antes" — 1 coluna por
-// tipo de tarifa (igual ao CORPORE), não uma árvore de expandir/colapsar.
-let _dcLinhasDetalhado = [];
-let _dcColunasTarifa = [];
-
-async function dcCarregarDetalhado() {
-  const params = dcParamsAtuais();
-  if (!params) { document.getElementById('dc-det-tbody').innerHTML = '<tr><td colspan="14">Nenhuma importação ainda.</td></tr>'; return; }
-  try {
-    const res = await fetch(`/api/pac/concessionarios/detalhado?${params}`);
-    const r = await res.json();
-    _dcLinhasDetalhado = r.linhas || [];
-    _dcColunasTarifa = r.colunas_tarifa || [];
-    dcAtualizarNotaDemais(r.total_demais);
-    dcAtualizarValidador(r.validador);
-
-    const thead = document.getElementById('dc-det-thead-row');
-    thead.innerHTML = `
-      <th>Código</th><th>Nome</th><th>CNPJ</th><th>Renovação</th><th>Prazo Final Adesão</th>
-      <th>Nº Contrato</th><th>Data de Início</th><th>Vencido em</th>
-      <th class="dc-num">Área (m²)</th><th class="dc-num">Valor por m²</th><th class="dc-num">Tarifa de Uso</th>
-      <th class="dc-num">Valor do Ponto</th><th class="dc-num">Outorga (30%)</th><th>Casamento</th>
-      ${_dcColunasTarifa.map(c => `<th class="dc-num dc-col-tarifa">${c}</th>`).join('')}
-    `;
-
-    const tbody = document.getElementById('dc-det-tbody');
-    if (!_dcLinhasDetalhado.length) {
-      tbody.innerHTML = `<tr><td colspan="${14 + _dcColunasTarifa.length}">Nenhum contrato nesta importação.</td></tr>`;
-      return;
-    }
-    tbody.innerHTML = _dcLinhasDetalhado.map(l => `
-      <tr>
-        <td>${l.codigo ?? '—'}</td>
-        <td>${l.empresa || '—'}</td>
-        <td>${l.cnpj || '—'}</td>
-        <td>${dcBadgeRenovacao(l.renovacao)}</td>
-        <td>${l.prazo_final_adesao || '—'}</td>
-        <td>${l.contrato_numero || '—'}</td>
-        <td>${fmtBrData(l.contrato_data_inicio)}</td>
-        <td>${fmtBrData(l.contrato_vencido_em)}</td>
-        <td class="dc-num">${l.area_m2 != null ? fmtNum(l.area_m2, 2) : '—'}</td>
-        <td class="dc-num">${fmtMoeda(l.valor_m2)}</td>
-        <td class="dc-num">${fmtMoeda(l.tarifa_uso)}</td>
-        <td class="dc-num">${fmtMoeda(l.valor_ponto)}</td>
-        <td class="dc-num">${fmtMoeda(l.outorga)}</td>
-        <td>${DC_BADGE[l.match_confianca] || l.match_confianca}</td>
-        ${_dcColunasTarifa.map(c => `<td class="dc-num dc-col-tarifa">${l.itens[c] != null ? fmtMoeda(l.itens[c]) : '—'}</td>`).join('')}
-      </tr>
-    `).join('');
-  } catch (e) {
-    toast('Erro ao carregar relatório detalhado: ' + e.message, 'error');
   }
 }
 
@@ -320,54 +274,15 @@ async function dcExportarExcelResumido() {
       'Nº Contrato':        l.contrato_numero || '',
       'Data de Início':     fmtBrData(l.contrato_data_inicio),
       'Vencido em':         fmtBrData(l.contrato_vencido_em),
-      'Área (m²)':          l.area_m2 != null ? Number(l.area_m2.toFixed(2)) : '',
-      'Valor por m²':       l.valor_m2 != null ? Number(l.valor_m2.toFixed(2)) : '',
       'Tarifa de Uso':      l.tarifa_uso != null ? Number(l.tarifa_uso.toFixed(2)) : '',
       'Valor do Ponto':     l.valor_ponto != null ? Number(l.valor_ponto.toFixed(2)) : '',
       'Outorga (30%)':      l.outorga != null ? Number(l.outorga.toFixed(2)) : '',
     }));
     const ws = XLSX.utils.json_to_sheet(dados);
-    aplicarFormatoMoeda(ws, [9, 10, 11, 12], dados.length); // Valor por m², Tarifa de Uso, Valor do Ponto, Outorga
+    aplicarFormatoMoeda(ws, [8, 9, 10], dados.length); // Tarifa de Uso, Valor do Ponto, Outorga
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Resumido');
     XLSX.writeFile(wb, `concessionarios-resumido-${new Date().toISOString().slice(0, 10)}.xlsx`);
-  } catch (e) {
-    toast('Erro ao exportar: ' + e.message, 'error');
-  }
-}
-
-// Mesmo formato largo da tela — 1 coluna por tipo de tarifa, igual à
-// planilha original do CORPORE, com as colunas calculadas do depop juntas.
-async function dcExportarExcelDetalhado() {
-  if (!_dcLinhasDetalhado.length) { toast('Nada para exportar', 'error'); return; }
-  try {
-    const XLSX = await carregarXLSX();
-    const COLS_FIXAS = 13;
-    const dados = _dcLinhasDetalhado.map(l => {
-      const linha = {
-        'Código':             l.codigo ?? '',
-        'Nome':               l.empresa || '',
-        'CNPJ':               l.cnpj || '',
-        'Renovação':          l.renovacao ? 'Sim' : 'Não',
-        'Prazo Final Adesão': l.prazo_final_adesao || '',
-        'Nº Contrato':        l.contrato_numero || '',
-        'Data de Início':     fmtBrData(l.contrato_data_inicio),
-        'Vencido em':         fmtBrData(l.contrato_vencido_em),
-        'Área (m²)':          l.area_m2 != null ? Number(l.area_m2.toFixed(2)) : '',
-        'Valor por m²':       l.valor_m2 != null ? Number(l.valor_m2.toFixed(2)) : '',
-        'Tarifa de Uso':      l.tarifa_uso != null ? Number(l.tarifa_uso.toFixed(2)) : '',
-        'Valor do Ponto':     l.valor_ponto != null ? Number(l.valor_ponto.toFixed(2)) : '',
-        'Outorga (30%)':      l.outorga != null ? Number(l.outorga.toFixed(2)) : '',
-      };
-      _dcColunasTarifa.forEach(c => { linha[c] = l.itens[c] != null ? Number(l.itens[c].toFixed(2)) : ''; });
-      return linha;
-    });
-    const ws = XLSX.utils.json_to_sheet(dados);
-    const colunasMoeda = [9, 10, 11, 12].concat(_dcColunasTarifa.map((_, i) => COLS_FIXAS + i));
-    aplicarFormatoMoeda(ws, colunasMoeda, dados.length);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Detalhado');
-    XLSX.writeFile(wb, `concessionarios-detalhado-${new Date().toISOString().slice(0, 10)}.xlsx`);
   } catch (e) {
     toast('Erro ao exportar: ' + e.message, 'error');
   }

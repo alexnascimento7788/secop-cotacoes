@@ -51,6 +51,15 @@
     [data-theme="dark"] .dc-banner-erro { background: rgba(153,27,27,.25); color: #fca5a5; }
     .dc-validador-detalhe { margin-top: 8px; font-weight: 400; font-size: 12.5px; }
     .dc-validador-detalhe li { margin: 2px 0 2px 18px; }
+    .dc-cards { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+    .dc-card-metric { background: var(--surface); border: 1px solid var(--cinza-b); border-radius: 10px; padding: 14px 18px; min-width: 170px; flex: 1; }
+    .dc-card-metric-label { font-size: 12px; color: var(--text-muted); font-weight: 600; margin-bottom: 6px; }
+    .dc-card-metric-valor { font-size: 24px; font-weight: 800; color: var(--text); }
+    .dc-card-entreposto { flex: 2; min-width: 280px; }
+    .dc-entreposto-linha { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; }
+    .dc-entreposto-linha span:first-child { color: var(--text-muted); }
+    .dc-entreposto-linha span:last-child { font-weight: 700; }
+    .dc-casamento-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 6px; vertical-align: middle; cursor: default; }
   </style>
 </head>
 <body data-modulo="relatorios-gerais" data-rotina="pac-concessionarios">
@@ -74,7 +83,6 @@
           <svg class="pac-nav-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
         </summary>
         <a href="pac-concessionarios.html" class="nav-item pac-nav-sub active">Resumido</a>
-        <a href="pac-concessionarios-detalhado.html" class="nav-item pac-nav-sub">Detalhado</a>
       </details>
     </nav>
     <div class="sidebar-footer">
@@ -98,6 +106,9 @@
         <div class="page-subtitle">Planilha de tarifas (CORPORE) cruzada com os contratos de área do Depop</div>
       </div>
     </div>
+
+    <!-- Cards de resumo — pedido do Alex, 2026-11-11. -->
+    <div class="dc-cards" id="dc-cards"></div>
 
     <!-- Importação (admin global só) — card compacto/recolhido por padrão;
          não é o foco da tela, é só pra quando a planilha do CORPORE mudar. -->
@@ -155,8 +166,7 @@
             <tr>
               <th>Código</th><th>Nome</th><th>CNPJ</th><th>Renovação</th><th>Prazo Final Adesão</th>
               <th>Nº Contrato</th><th>Data de Início</th><th>Vencido em</th>
-              <th class="dc-num">Área (m²)</th><th class="dc-num">Valor por m²</th><th class="dc-num">Tarifa de Uso</th>
-              <th class="dc-num">Valor do Ponto</th><th class="dc-num">Outorga (30%)</th><th>Casamento</th>
+              <th class="dc-num">Tarifa de Uso</th><th class="dc-num">Valor do Ponto</th><th class="dc-num">Outorga (30%)</th>
             </tr>
           </thead>
           <tbody id="dc-tbody"></tbody>
