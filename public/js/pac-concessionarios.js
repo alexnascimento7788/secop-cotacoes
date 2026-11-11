@@ -263,22 +263,23 @@ const DC_ICONE = {
 // da tela (verde = renovação, âmbar = categoria "Demais").
 //
 // Entreposto: cada cidade é uma sanfona (<details>, mesmo padrão já usado
-// no menu lateral) — fechada mostra só o total e a barra; aberta mostra a
-// quebra por valor de Tarifa de Uso distinto (quando várias empresas têm o
-// MESMO valor, ele aparece 1 vez representando o grupo, com a contagem) —
-// "se em contagem tivermos igual o valor 19,56 ele que deverá representar
-// se tivermos mais de 1" (Alex, 2026-11-11).
+// no menu lateral) — fechada mostra a tarifa no valor normal (o mais comum
+// na cidade, sem somatório nenhum — "eu não quero este somatório de
+// tarifa, quero a tarifa no valor normal", Alex 2026-11-11) + a barra;
+// aberta mostra a quebra por valor de Tarifa de Uso distinto (quando várias
+// empresas têm o MESMO valor, ele aparece 1 vez representando o grupo, com
+// a contagem).
 function dcRenderCards(cards) {
   const el = document.getElementById('dc-cards');
   if (!el || !cards) return;
-  const maxEntreposto = Math.max(1, ...cards.tarifa_por_entreposto.map(e => e.total));
+  const maxEntreposto = Math.max(1, ...cards.tarifa_por_entreposto.map(e => e.valor_principal));
   const linhasEntreposto = cards.tarifa_por_entreposto.map(e => `
     <details class="dc-entreposto-cidade">
       <summary class="dc-entreposto-linha">
         <svg class="dc-entreposto-seta" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
         <span>${e.cidade}</span>
-        <div class="dc-entreposto-barra-trilha"><div class="dc-entreposto-barra" style="width:${Math.max(4, e.total / maxEntreposto * 100)}%"></div></div>
-        <span>${fmtMoeda(e.total)}</span>
+        <div class="dc-entreposto-barra-trilha"><div class="dc-entreposto-barra" style="width:${Math.max(4, e.valor_principal / maxEntreposto * 100)}%"></div></div>
+        <span>${fmtMoeda(e.valor_principal)}${e.valores.length > 1 ? ` <span class="dc-entreposto-mais">+${e.valores.length - 1}</span>` : ''}</span>
       </summary>
       <div class="dc-entreposto-valores">
         ${e.valores.map(v => `<div class="dc-entreposto-valor-linha"><span>${fmtMoeda(v.valor)}</span><span>${v.qtd} concessionário${v.qtd > 1 ? 's' : ''}</span></div>`).join('')}
