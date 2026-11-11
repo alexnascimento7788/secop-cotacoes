@@ -2175,6 +2175,11 @@ function setupDb() {
   `);
   _db.exec(`CREATE INDEX IF NOT EXISTS idx_depla_conc_importacao ON depla_concessionarios(importacao_id)`);
   _db.exec(`CREATE INDEX IF NOT EXISTS idx_depla_conc_codigo     ON depla_concessionarios(codigo)`);
+  // Cidade/entreposto — achado em 2026-11-11: o CSV real do CORPORE (que
+  // substituiu a planilha wide-pivot original) já traz a cidade por linha,
+  // pra todo mundo (renovação ou não) — antes não existia esse dado na
+  // planilha pra quem não tem renovação.
+  try { _db.exec(`ALTER TABLE depla_concessionarios ADD COLUMN cidade_planilha TEXT`); } catch {}
   // Pivot da planilha (tipo de tarifa → valor médio) guardado em formato longo
   // — as colunas mudam de mês a mês (a query do CORPORE gera uma coluna por
   // PRD.DESCRICAO do período), então não dá pra fixar como colunas reais.

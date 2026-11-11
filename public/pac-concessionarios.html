@@ -126,8 +126,8 @@
     <details class="pac-card dc-card-importar" id="dc-card-importar" style="display:none;">
       <summary class="dc-card-importar-summary">Importar/atualizar planilha</summary>
       <div class="dc-card-importar-body">
-        <input type="file" id="dc-arquivo" accept=".xlsx,.xls" style="display:none" onchange="dcArquivoEscolhido(this)">
-        <button class="btn btn-secondary dc-btn-pequeno" onclick="document.getElementById('dc-arquivo').click()">Escolher planilha (.xlsx — aba "Result 1")</button>
+        <input type="file" id="dc-arquivo" accept=".csv" style="display:none" onchange="dcArquivoEscolhido(this)">
+        <button class="btn btn-secondary dc-btn-pequeno" onclick="document.getElementById('dc-arquivo').click()">Escolher arquivo (.csv do CORPORE)</button>
         <span id="dc-nome-arquivo" style="font-size:12px;color:var(--text-muted);margin-left:10px;"></span>
 
         <div id="dc-dryrun-resultado" style="display:none;margin-top:12px;">

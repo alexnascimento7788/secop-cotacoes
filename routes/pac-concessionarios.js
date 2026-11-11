@@ -2,45 +2,51 @@
 // Virou módulo próprio (2026-11-05, separado do PAC) pra não misturar o
 // fluxo de DFD com relatórios soltos do DEPLA — ver migração de rotina em
 // database.js (UPDATE rotinas SET modulo_id ...).
-// Pedido do Alex, 2026-11-04: planilha do CORPORE (Depla_2.xlsx — uma linha
-// por ZTERMO com fan-out por área, ~250 colunas de tarifa média por tipo)
-// casada com depop.db (TarifaContrato20Anos/AvaliacaoAreaRenovacao) pra
-// formar o relatório principal: dados da planilha + contrato/tarifa de
-// uso/valor do ponto/outorga calculados do depop (2026-11-11: só o relatório
-// resumido existe — o detalhado, 1 coluna por tipo de tarifa do CORPORE, foi
-// removido a pedido do Alex).
+// Pedido do Alex, 2026-11-04: dado do CORPORE casado com depop.db
+// (TarifaContrato20Anos/AvaliacaoAreaRenovacao) pra formar o relatório
+// principal: dados da planilha + contrato/tarifa de uso/valor do ponto/
+// outorga calculados do depop (2026-11-11: só o relatório resumido existe —
+// o detalhado, 1 coluna por tipo de tarifa, foi removido a pedido do Alex).
 //
-// O PROBLEMA DE CASAMENTO (análise feita sobre a planilha real, 2026-11-04):
-// a planilha não tem id_contrato nem numero_ccu — só Codigo_Cfo (=`codigo`),
-// Contrato(numero)/Cod_Termo (1:1 entre si) e Contrato(Data de inicio). Já o
-// depop.db identifica contrato por `id_contrato`. Pra maioria das empresas
-// (codigo) existe só 1 id_contrato em TarifaContrato20Anos — casamento direto.
-// Quando há mais de um (empresa com +1 CCU no programa de 20 anos) ou mais de
-// um termo na planilha pra mesma empresa, a DATA de início do termo bate
-// exatamente com AvaliacaoAreaRenovacao.data_vencimento... na verdade com
-// TarifaContrato20Anos.data_assinatura na quase totalidade dos casos (339
-// triviais + 50 resolvidos por data, de 417 empresas com algum contrato no
-// depop) — ver amostra de validação no histórico da conversa. Os poucos
-// restantes (empates de data) ficam com match_confianca='manual' pro Alex
-// revisar; sem contrato nenhum no depop = 'sem_match' (empresa fora do
-// programa de 20 anos — os campos adicionais ficam em branco no relatório).
+// MUDANÇA DE FORMATO (2026-11-11): o export real do CORPORE virou um CSV
+// (`Depla_2.csv`) bem mais estreito que a planilha wide-pivot original
+// (~250 colunas de tarifa) — achado analisando o arquivo real em `data/`.
+// Formato: sem cabeçalho, 17 campos por linha, UTF-8, aspas RFC4180 pra
+// campo com vírgula (ex: nome de empresa). 1 linha por "unidade física"
+// (pavilhão/box) do contrato — quando o mesmo contrato tem várias unidades,
+// repete a linha toda trocando só o último campo (código de localização);
+// é o equivalente, nesse formato novo, do fan-out por área que a planilha
+// antiga tinha. Campos (0-indexed, nomes dados pelo client em
+// public/js/pac-concessionarios.js): Codigo_Cfo, Empresa, CNPJ, Cidade,
+// Id_Cidade, Contrato_Numero, Ccu_Licenca, Data_Inicio, Data_Vencimento,
+// Tarifa_Uso (só "Tarifa de Uso", sem mais pivot de ~250 tipos — o relatório
+// nunca precisou de mais que isso desde que o "detalhado" foi removido),
+// + 6 campos de bookkeeping contábil não usados aqui (código repetido, id
+// interno, sequencial, descrição da rubrica, conta contábil, ordem) e por
+// fim o código de localização (pavilhão/box). Cross-validado com 3+ códigos
+// conhecidos do depop.db (14, 40, 87) — numero_ccu/data_assinatura/
+// data_vencimento/atual_tarifa_uso batem exatamente.
+//
+// O PROBLEMA DE CASAMENTO (análise original, 2026-11-04, ainda vale): a
+// planilha não tem `id_contrato` (chave do depop.db) — só `codigo`,
+// `contrato_numero`/termo e `data de início`. Pra maioria das empresas
+// existe só 1 id_contrato em TarifaContrato20Anos — casamento direto. Quando
+// há mais de um (empresa com +1 CCU no programa de 20 anos) ou mais de um
+// termo na planilha pra mesma empresa, a DATA de início do termo bate com
+// TarifaContrato20Anos.data_assinatura na quase totalidade dos casos. Os
+// poucos restantes (empates de data) ficam com match_confianca='manual' pro
+// Alex revisar; sem contrato nenhum no depop = 'sem_match' (fora do
+// programa de 20 anos). **Achado 2026-11-11**: mesmo concessionários
+// "Demais" (sem_match) às vezes têm um código parecido com CCU e uma data de
+// vencimento no CSV (ex: licenças de 25 anos, formato "LIC/.../GPxx") — isso
+// NÃO significa renovação; só o casamento por `codigo` contra
+// TarifaContrato20Anos/AvaliacaoAreaRenovacao decide `match_confianca`.
 const express = require('express');
 const { db, depopDb } = require('../database');
 const { registrarLog, requireModulo } = require('../middleware');
 
 const router = express.Router();
 const relatoriosGerais = requireModulo('relatorios-gerais');
-
-// Colunas fixas da planilha (o resto das colunas, 1 por tipo de tarifa, é
-// pivot dinâmico — ver seedRotinas/depla_concessionarios_tarifa).
-const COLS_BASE = [
-  'Cod_Empresa', 'Codigo_Cfo', 'Empresa', 'CNPJ', 'Contrato(numero)',
-  'Contrato(Data de inicio)', 'Cod_Termo', 'Cod_Contrato_Juridico', 'Metragem(Area)',
-  // Duplicadas pela própria query do CORPORE (CFO.CODCOLIGADA/CODCFO de novo,
-  // via TS.* no SELECT final) — não são tarifa, viram ruído no pivot se não
-  // forem excluídas aqui também.
-  'CODCOLIGADA', 'CODCFO',
-];
 
 function requireAdminGlobal(req, res, next) {
   if (req.user.username === 'master' || req.user.role === 'admin_sistema') return next();
@@ -82,38 +88,32 @@ function prazoFinalAdesao(ano) {
   return null;
 }
 
-// Agrupa as linhas cruas da planilha por Cod_Termo (dedup do fan-out por
-// área) e extrai o pivot de tarifas em formato longo [{descricao, valor}].
-function agruparPorTermo(linhas) {
-  const porTermo = new Map();
-  linhas.forEach(linha => {
-    const codTermo = String(linha['Cod_Termo'] || '').trim();
-    if (!codTermo) return;
-    const metragem = parseFloat(linha['Metragem(Area)']) || 0;
-    if (!porTermo.has(codTermo)) {
-      const tarifas = [];
-      Object.keys(linha).forEach(col => {
-        if (COLS_BASE.includes(col)) return;
-        const valor = parseFloat(linha[col]);
-        if (!isNaN(valor) && valor !== 0 && linha[col] !== '') tarifas.push({ descricao: col, valor });
-      });
-      porTermo.set(codTermo, {
-        cod_empresa: parseInt(linha['Cod_Empresa'], 10) || null,
-        codigo: parseInt(linha['Codigo_Cfo'], 10) || null,
-        empresa: String(linha['Empresa'] || '').trim() || null,
-        cnpj: String(linha['CNPJ'] || '').trim() || null,
-        contrato_numero: String(linha['Contrato(numero)'] || '').trim() || null,
-        contrato_data_inicio: String(linha['Contrato(Data de inicio)'] || '').trim() || null,
-        cod_termo: codTermo,
-        cod_contrato_juridico: String(linha['Cod_Contrato_Juridico'] || '').trim() || null,
-        metragem_planilha: metragem,
-        tarifas,
-      });
-    } else {
-      porTermo.get(codTermo).metragem_planilha += metragem;
-    }
+// Converte cada linha do CSV (já objeto, chaves dadas pelo client) num
+// "termo" no formato que casarComDepop/agruparTarifaDemais esperam. Uma
+// linha de CSV = uma unidade física (pavilhão/box); quando o mesmo
+// contrato tem várias unidades, várias linhas repetem os mesmos dados —
+// isso é resolvido depois por agruparTarifaDemais (agrupa por codigo+valor
+// da tarifa), não precisa de agrupamento aqui. `cod_termo` é só uma chave
+// NOT NULL do banco, sem significado — sintética por linha.
+function linhasParaTermos(linhas) {
+  return linhas.map((linha, i) => {
+    const tarifaValor = parseFloat(linha['Tarifa_Uso']);
+    const tarifas = (linha['Tarifa_Uso'] !== '' && !isNaN(tarifaValor)) ? [{ descricao: 'Tarifa de Uso', valor: tarifaValor }] : [];
+    const codigo = parseInt(linha['Codigo_Cfo'], 10) || null;
+    return {
+      cod_empresa: codigo,
+      codigo,
+      empresa: String(linha['Empresa'] || '').trim() || null,
+      cnpj: String(linha['CNPJ'] || '').trim() || null,
+      cidade_planilha: String(linha['Cidade'] || '').trim() || null,
+      contrato_numero: String(linha['Contrato_Numero'] || '').trim() || null,
+      contrato_data_inicio: String(linha['Data_Inicio'] || '').trim() || null,
+      cod_termo: `${linha['Contrato_Numero'] || 'sem-contrato'}#${i}`,
+      cod_contrato_juridico: String(linha['Ccu_Licenca'] || '').trim() || null,
+      metragem_planilha: 0,
+      tarifas,
+    };
   });
-  return [...porTermo.values()];
 }
 
 // Casa cada termo da planilha com um id_contrato de TarifaContrato20Anos,
@@ -223,7 +223,7 @@ router.post('/api/pac/concessionarios/importar', relatoriosGerais, requireAdminG
     return true;
   });
 
-  const termos = agruparTarifaDemais(casarComDepop(agruparPorTermo(comCodigo)));
+  const termos = agruparTarifaDemais(casarComDepop(linhasParaTermos(comCodigo)));
   const porConfianca = { direto: 0, data: 0, manual: 0, sem_match: 0 };
   termos.forEach(t => porConfianca[t.match_confianca]++);
   const amostraRevisao = termos
@@ -251,9 +251,9 @@ router.post('/api/pac/concessionarios/importar', relatoriosGerais, requireAdminG
   `);
   const inserirTermo = db.prepare(`
     INSERT INTO depla_concessionarios
-      (importacao_id, cod_empresa, codigo, empresa, cnpj, contrato_numero, contrato_data_inicio,
+      (importacao_id, cod_empresa, codigo, empresa, cnpj, cidade_planilha, contrato_numero, contrato_data_inicio,
        cod_termo, cod_contrato_juridico, metragem_planilha, id_contrato_depop, match_confianca)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const inserirTarifa = db.prepare(`
     INSERT INTO depla_concessionarios_tarifa (concessionario_id, descricao, valor) VALUES (?, ?, ?)
@@ -272,7 +272,7 @@ router.post('/api/pac/concessionarios/importar', relatoriosGerais, requireAdminG
     importacaoId = info.lastInsertRowid;
     termos.forEach(t => {
       const r = inserirTermo.run(
-        importacaoId, t.cod_empresa, t.codigo, t.empresa, t.cnpj, t.contrato_numero, t.contrato_data_inicio,
+        importacaoId, t.cod_empresa, t.codigo, t.empresa, t.cnpj, t.cidade_planilha, t.contrato_numero, t.contrato_data_inicio,
         t.cod_termo, t.cod_contrato_juridico, t.metragem_planilha, t.id_contrato_depop, t.match_confianca
       );
       const concessionarioId = r.lastInsertRowid;
@@ -386,7 +386,7 @@ function camposDepop(c, dados, tarifaUsoPlanilhaMap) {
     prazo_final_adesao: anoVencimento ? prazoFinalAdesao(anoVencimento) : null,
     contrato_numero: renovacao ? (dados.numeroCcuPorContrato.get(c.id_contrato_depop) || c.contrato_numero || null) : (c.contrato_numero || null),
     contrato_data_inicio: renovacao ? (dados.dataAssinaturaPorContrato.get(c.id_contrato_depop) || c.contrato_data_inicio || null) : (c.contrato_data_inicio || null),
-    cidade: renovacao ? (dados.cidadePorContrato.get(c.id_contrato_depop) || null) : null,
+    cidade: renovacao ? (dados.cidadePorContrato.get(c.id_contrato_depop) || c.cidade_planilha || null) : (c.cidade_planilha || null),
     tarifa_uso: renovacao ? (dados.tarifaUsoPorContrato.get(c.id_contrato_depop) || null) : (tarifaUsoPlanilhaMap.get(c.id) ?? null),
     valor_ponto: valorPonto,
     outorga,
@@ -481,7 +481,10 @@ function calcularCards(importacaoId) {
     const renovacao = c.match_confianca !== 'sem_match';
     const tarifa = renovacao ? dadosDepop.tarifaUsoPorContrato.get(c.id_contrato_depop) : tarifaUsoPlanilha.get(c.id);
     if (!tarifa) return;
-    const cidade = renovacao ? (dadosDepop.cidadePorContrato.get(c.id_contrato_depop) || 'Sem entreposto') : 'Fora da renovação';
+    // Cidade vem do depop pra quem tem renovação, da própria planilha pra
+    // quem não tem (achado 2026-11-11: o CSV novo do CORPORE traz cidade
+    // por linha pra todo mundo, não só renovação).
+    const cidade = (renovacao ? dadosDepop.cidadePorContrato.get(c.id_contrato_depop) : c.cidade_planilha) || 'Sem entreposto';
     tarifaPorEntreposto.set(cidade, (tarifaPorEntreposto.get(cidade) || 0) + tarifa);
   });
 
