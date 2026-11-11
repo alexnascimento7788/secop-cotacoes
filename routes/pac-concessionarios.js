@@ -543,13 +543,16 @@ function calcularCards(importacaoId) {
     porValor.get(depop.tarifa_uso).add(c.codigo);
   });
 
+  // Pedido do Alex, 2026-11-11: nada de somatório (não representa nada real)
+  // — mostra a tarifa no valor normal. "valor_principal" = o valor mais
+  // comum na cidade (maior qtd de empresas); os demais (quando existem)
+  // ficam na quebra, dentro da sanfona.
   const tarifaPorEntreposto = [...porCidade.entries()].map(([cidade, porValor]) => {
     const valores = [...porValor.entries()]
       .map(([valor, codigos]) => ({ valor, qtd: codigos.size }))
-      .sort((a, b) => b.valor - a.valor);
-    const total = valores.reduce((soma, v) => soma + v.valor * v.qtd, 0);
-    return { cidade, total, valores };
-  }).sort((a, b) => b.total - a.total);
+      .sort((a, b) => b.qtd - a.qtd || b.valor - a.valor);
+    return { cidade, valor_principal: valores[0].valor, valores };
+  }).sort((a, b) => b.valor_principal - a.valor_principal);
 
   return {
     total_concessionarios: new Set([...codigosRenovacao, ...codigosDemais]).size,
