@@ -232,22 +232,18 @@ function dcAtualizarNotaDemais(totalDemais) {
 }
 
 // "Preciso do validador informando que a quantidade de concessionários no
-// Depop bate com o que apresentamos aqui" (Alex, 2026-11-05).
+// Depop bate com o que apresentamos aqui" (Alex, 2026-11-05). Desde
+// 2026-11-11 o servidor sintetiza (contratosFaltandoSintetizados) qualquer
+// contrato de renovação que a planilha não trouxe, então "não bate" nunca
+// mais deveria acontecer de verdade — pedido do Alex: tirar a mensagem de
+// alerta (só mantém a confirmação positiva, quando aparece).
 function dcAtualizarValidador(v) {
   const el = document.getElementById('dc-validador');
   if (!el || !v) return;
+  if (!v.bate) { el.style.display = 'none'; return; }
   el.style.display = '';
-  el.className = 'dc-banner ' + (v.bate ? 'dc-banner-ok' : 'dc-banner-erro');
-  if (v.bate) {
-    el.innerHTML = `✓ Validado: os ${v.contratos_depop} contratos de renovação de 20 anos do Depop batem com os ${v.contratos_apresentados} apresentados aqui (${v.empresas_apresentadas} empresas).`;
-    return;
-  }
-  el.innerHTML = `
-    ⚠ Atenção: o Depop tem ${v.contratos_depop} contrato(s) de renovação de 20 anos (${v.empresas_depop} empresas), mas só ${v.contratos_apresentados} estão apresentados aqui (${v.empresas_apresentadas} empresas) — ${v.contratos_depop - v.contratos_apresentados} contrato(s) do Depop não têm nenhuma linha correspondente na planilha importada:
-    <ul class="dc-validador-detalhe">
-      ${v.contratos_faltando.map(c => `<li>Código ${c.codigo} — ${c.concessionario || '—'} (CCU ${c.numero_ccu || '—'})</li>`).join('')}
-    </ul>
-  `;
+  el.className = 'dc-banner dc-banner-ok';
+  el.innerHTML = `✓ Validado: os ${v.contratos_depop} contratos de renovação de 20 anos do Depop batem com os ${v.contratos_apresentados} apresentados aqui (${v.empresas_apresentadas} empresas).`;
 }
 
 // Ícones de linha (24x24, mesmo estilo dos ícones da sidebar — stroke,
@@ -265,16 +261,29 @@ const DC_ICONE = {
 // card tem uma cor própria (acento à esquerda + ícone) em vez de um bloco
 // neutro igual pros 4 — a cor segue o mesmo significado já usado nos badges
 // da tela (verde = renovação, âmbar = categoria "Demais").
+//
+// Entreposto: cada cidade é uma sanfona (<details>, mesmo padrão já usado
+// no menu lateral) — fechada mostra só o total e a barra; aberta mostra a
+// quebra por valor de Tarifa de Uso distinto (quando várias empresas têm o
+// MESMO valor, ele aparece 1 vez representando o grupo, com a contagem) —
+// "se em contagem tivermos igual o valor 19,56 ele que deverá representar
+// se tivermos mais de 1" (Alex, 2026-11-11).
 function dcRenderCards(cards) {
   const el = document.getElementById('dc-cards');
   if (!el || !cards) return;
   const maxEntreposto = Math.max(1, ...cards.tarifa_por_entreposto.map(e => e.total));
   const linhasEntreposto = cards.tarifa_por_entreposto.map(e => `
-    <div class="dc-entreposto-linha">
-      <span>${e.cidade}</span>
-      <div class="dc-entreposto-barra-trilha"><div class="dc-entreposto-barra" style="width:${Math.max(4, e.total / maxEntreposto * 100)}%"></div></div>
-      <span>${fmtMoeda(e.total)}</span>
-    </div>
+    <details class="dc-entreposto-cidade">
+      <summary class="dc-entreposto-linha">
+        <svg class="dc-entreposto-seta" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        <span>${e.cidade}</span>
+        <div class="dc-entreposto-barra-trilha"><div class="dc-entreposto-barra" style="width:${Math.max(4, e.total / maxEntreposto * 100)}%"></div></div>
+        <span>${fmtMoeda(e.total)}</span>
+      </summary>
+      <div class="dc-entreposto-valores">
+        ${e.valores.map(v => `<div class="dc-entreposto-valor-linha"><span>${fmtMoeda(v.valor)}</span><span>${v.qtd} concessionário${v.qtd > 1 ? 's' : ''}</span></div>`).join('')}
+      </div>
+    </details>
   `).join('') || '<div class="dc-entreposto-linha"><span>—</span></div>';
 
   const card = (cor, icone, label, valor) => `
