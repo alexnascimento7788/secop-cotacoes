@@ -1,11 +1,11 @@
-// PAC/DEPLA — Dados Concessionários: importação da planilha de tarifas do
-// CORPORE (aba "Result 1") + relatório resumido (pac-concessionarios.html),
-// cruzado com depop.db. Ver routes/pac-concessionarios.js pra lógica de
-// casamento (match_confianca) e pros campos calculados
-// (camposDepop/carregarDadosDepop).
+// PAC/DEPLA — Dados Concessionários: importação do export de tarifas do
+// CORPORE (CSV, ver routes/pac-concessionarios.js pro detalhe do formato) +
+// relatório resumido (pac-concessionarios.html), cruzado com depop.db. Ver
+// routes/pac-concessionarios.js pra lógica de casamento (match_confianca) e
+// pros campos calculados (camposDepop/carregarDadosDepop).
 // Por padrão o relatório só mostra concessionários CASADOS com um contrato
 // de 20 anos no depop — o checkbox "Mostrar Demais" inclui o resto (fora do
-// programa de renovação, só existem na planilha do CORPORE).
+// programa de renovação, só existem no export do CORPORE).
 
 function toast(msg, tipo) {
   const t = document.getElementById('toast');
@@ -71,6 +71,44 @@ function aplicarFormatoMoeda(ws, colunasIdx, numLinhas) {
 let _dcLinhasPlanilha = null;
 let _dcNomeArquivo = '';
 
+// Ordem real das 17 colunas do CSV do CORPORE (sem cabeçalho) — achado
+// analisando o arquivo real em `data/Depla_2.csv`, cross-validado com
+// códigos conhecidos do depop.db (2026-11-11). Ver cabeçalho de
+// routes/pac-concessionarios.js pro detalhe completo. Os campos com nome
+// começando em "_" são bookkeeping contábil que o relatório não usa.
+const DC_CAMPOS_CSV = [
+  'Codigo_Cfo', 'Empresa', 'CNPJ', 'Cidade', '_Id_Cidade', 'Contrato_Numero', 'Ccu_Licenca',
+  'Data_Inicio', 'Data_Vencimento', 'Tarifa_Uso', '_Codigo2', '_InternoId', '_Seq', '_Descricao',
+  '_Conta', '_Ordem', '_Localizacao',
+];
+
+// Parser de linha CSV respeitando aspas RFC4180 (campo com vírgula, ex: nome
+// de empresa, vem entre aspas — "", dentro de aspas, é aspas literal). Não
+// trata quebra de linha dentro de campo (não ocorre neste export real).
+function dcParseLinhaCsv(linha) {
+  const campos = [];
+  let atual = '';
+  let dentroAspas = false;
+  for (let i = 0; i < linha.length; i++) {
+    const c = linha[i];
+    if (dentroAspas) {
+      if (c === '"') {
+        if (linha[i + 1] === '"') { atual += '"'; i++; } else { dentroAspas = false; }
+      } else {
+        atual += c;
+      }
+    } else if (c === '"') {
+      dentroAspas = true;
+    } else if (c === ',') {
+      campos.push(atual); atual = '';
+    } else {
+      atual += c;
+    }
+  }
+  campos.push(atual);
+  return campos;
+}
+
 async function dcArquivoEscolhido(input) {
   const file = input.files[0];
   input.value = '';
@@ -79,14 +117,19 @@ async function dcArquivoEscolhido(input) {
   document.getElementById('dc-nome-arquivo').textContent = `Processando "${file.name}"...`;
 
   try {
-    const XLSX = await carregarXLSX();
-    const data = await file.arrayBuffer();
-    const wb   = XLSX.read(data, { type: 'array' });
-    const nomeAba = wb.SheetNames.includes('Result 1') ? 'Result 1' : wb.SheetNames[0];
-    const ws   = wb.Sheets[nomeAba];
-    _dcLinhasPlanilha = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    // file.text() decodifica como UTF-8 por padrão — o export real do
+    // CORPORE é UTF-8 sem BOM (confirmado), por isso não passa pelo XLSX
+    // (que não dá pra garantir a codificação certa num ArrayBuffer sem BOM).
+    const texto = await file.text();
+    const linhasBrutas = texto.split(/\r?\n/).filter(l => l.trim() !== '');
+    _dcLinhasPlanilha = linhasBrutas.map(linha => {
+      const campos = dcParseLinhaCsv(linha);
+      const obj = {};
+      DC_CAMPOS_CSV.forEach((nome, i) => { obj[nome] = campos[i] !== undefined ? campos[i].trim() : ''; });
+      return obj;
+    });
     document.getElementById('dc-nome-arquivo').textContent =
-      `"${file.name}" — aba "${nomeAba}", ${_dcLinhasPlanilha.length} linha(s). Simulando...`;
+      `"${file.name}" — ${_dcLinhasPlanilha.length} linha(s). Simulando...`;
     await dcSimular();
   } catch (e) {
     document.getElementById('dc-nome-arquivo').textContent = 'Erro ao ler o arquivo: ' + e.message;
