@@ -662,6 +662,7 @@ function atualizarPrintBlock() {
     ['Previsão de término do contrato', fmtBr(processo?.previsao_termino)],
     ['Descrição da contratação',        processo?.descricao || '—'],
     ['Responsável pela Elaboração',     processo?.responsavel || '—'],
+    ['Criado por',                      processo?.criado_por_nome || processo?.criado_por_username || '—'],
   ];
 
   const rightFields = [
