@@ -194,7 +194,8 @@ router.post('/api/processos', secop, (req, res) => {
 
 router.get('/api/processos/:id', secop, (req, res) => {
   const processo = db.prepare(`
-    SELECT p.*, u.username AS criado_por_username, ua.username AS atualizado_por_username,
+    SELECT p.*, u.username AS criado_por_username, u.nome_completo AS criado_por_nome,
+      ua.username AS atualizado_por_username,
       CAST((julianday('now') - julianday(p.criado_em)) AS INTEGER) AS dias_em_aberto
     FROM processos p
     LEFT JOIN users u  ON u.id = p.criado_por_id
