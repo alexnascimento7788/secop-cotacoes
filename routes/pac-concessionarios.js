@@ -5,8 +5,10 @@
 // Pedido do Alex, 2026-11-04: planilha do CORPORE (Depla_2.xlsx — uma linha
 // por ZTERMO com fan-out por área, ~250 colunas de tarifa média por tipo)
 // casada com depop.db (TarifaContrato20Anos/AvaliacaoAreaRenovacao) pra
-// formar o relatório principal: dados da planilha + área/valor-m²/tarifa de
-// uso/valor do ponto/outorga calculados do depop.
+// formar o relatório principal: dados da planilha + contrato/tarifa de
+// uso/valor do ponto/outorga calculados do depop (2026-11-11: só o relatório
+// resumido existe — o detalhado, 1 coluna por tipo de tarifa do CORPORE, foi
+// removido a pedido do Alex).
 //
 // O PROBLEMA DE CASAMENTO (análise feita sobre a planilha real, 2026-11-04):
 // a planilha não tem id_contrato nem numero_ccu — só Codigo_Cfo (=`codigo`),
@@ -171,6 +173,44 @@ function casarComDepop(termos) {
   return termos;
 }
 
+// Pedido do Alex, 2026-11-11: quem NÃO tem contrato de renovação ("Demais")
+// às vezes aparece na planilha espalhado em vários termos (1 por área/
+// período) com a MESMA Tarifa de Uso repetida — sem tratar isso, o relatório
+// mostraria o mesmo concessionário duplicado várias vezes. Agrupa por
+// (codigo + valor da Tarifa de Uso, null contando como um valor igual aos
+// outros nulos); quando o valor diverge entre termos do mesmo concessionário,
+// mantém linhas separadas (a diferença é real). Representante do grupo = termo
+// com a data de início mais recente (confirmado com o Alex); metragem soma os
+// termos agrupados. Só se aplica a quem NÃO tem renovação — pra renovação a
+// Tarifa de Uso já vem agregada (MAX) direto do depop, ver carregarDadosDepop.
+function agruparTarifaDemais(termos) {
+  const comMatch = termos.filter(t => t.match_confianca !== 'sem_match');
+  const semMatch = termos.filter(t => t.match_confianca === 'sem_match');
+
+  const valorTarifaUso = (t) => {
+    const tf = t.tarifas.find(x => x.descricao === 'Tarifa de Uso');
+    return tf ? tf.valor : null;
+  };
+
+  const grupos = new Map();
+  semMatch.forEach(t => {
+    const chave = `${t.codigo}|${valorTarifaUso(t)}`;
+    if (!grupos.has(chave)) grupos.set(chave, []);
+    grupos.get(chave).push(t);
+  });
+
+  const agrupados = [...grupos.values()].map(grupo => {
+    if (grupo.length === 1) return grupo[0];
+    const representante = grupo.reduce((maisRecente, atual) =>
+      soData(atual.contrato_data_inicio) > soData(maisRecente.contrato_data_inicio) ? atual : maisRecente
+    );
+    representante.metragem_planilha = grupo.reduce((soma, t) => soma + (t.metragem_planilha || 0), 0);
+    return representante;
+  });
+
+  return [...comMatch, ...agrupados];
+}
+
 // ── Importação (admin-only) ──────────────────────────────────────────────────
 
 router.post('/api/pac/concessionarios/importar', relatoriosGerais, requireAdminGlobal, (req, res) => {
@@ -183,7 +223,7 @@ router.post('/api/pac/concessionarios/importar', relatoriosGerais, requireAdminG
     return true;
   });
 
-  const termos = casarComDepop(agruparPorTermo(comCodigo));
+  const termos = agruparTarifaDemais(casarComDepop(agruparPorTermo(comCodigo)));
   const porConfianca = { direto: 0, data: 0, manual: 0, sem_match: 0 };
   termos.forEach(t => porConfianca[t.match_confianca]++);
   const amostraRevisao = termos
@@ -259,37 +299,40 @@ router.get('/api/pac/concessionarios/importacoes', relatoriosGerais, requireVer,
   res.json(lista);
 });
 
-// Carrega os campos derivados do depop.db (área/tarifa/vencimento/avaliação)
-// pros id_contrato_depop pedidos — usado pelo resumido E pelo detalhado.
+// Carrega os campos derivados do depop.db (contrato/tarifa/vencimento/
+// avaliação) pros id_contrato_depop pedidos.
 function carregarDadosDepop(idsContrato) {
-  const areaPorContrato = new Map();
   const tarifaUsoPorContrato = new Map();
   const vencimentoPorContrato = new Map();
+  const numeroCcuPorContrato = new Map();
+  const dataAssinaturaPorContrato = new Map();
   const avaliacaoPorContrato = new Map();
-  if (!idsContrato.length) return { areaPorContrato, tarifaUsoPorContrato, vencimentoPorContrato, avaliacaoPorContrato };
+  if (!idsContrato.length) {
+    return { tarifaUsoPorContrato, vencimentoPorContrato, numeroCcuPorContrato, dataAssinaturaPorContrato, avaliacaoPorContrato };
+  }
   const placeholders = idsContrato.map(() => '?').join(',');
-  // TarifaContrato20Anos "quebra" (fan-out) a área de um mesmo contrato em
-  // várias linhas quando ele tem mais de uma área/sequencial — nesse caso a
-  // metragem soma, mas a tarifa (atual_tarifa_uso) e o vencimento são o MESMO
-  // valor repetido em cada linha (confirmado: 0 divergência em 249 contratos
-  // com fan-out), então agrupar com MAX (nunca SUM) dá o valor único correto.
-  // "Tarifa de Uso" = atual_tarifa_uso (confirmado pelo Alex, 2026-11-04).
-  // NÃO existe coluna real de "valor por m²" no depop — fica null por
-  // enquanto (Alex confirmou, 2026-11-04: "percebi que não temos").
+  // TarifaContrato20Anos "quebra" (fan-out) um mesmo contrato em várias
+  // linhas quando ele tem mais de uma área/sequencial — nesse caso a tarifa
+  // (atual_tarifa_uso), o vencimento, o nº do CCU e a data de assinatura são
+  // o MESMO valor repetido em cada linha (confirmado: 0 divergência em 249
+  // contratos com fan-out), então agrupar com MAX (nunca SUM) dá o valor
+  // único correto. "Tarifa de Uso" = atual_tarifa_uso (confirmado pelo Alex,
+  // 2026-11-04).
   depopDb.prepare(`
-    SELECT id_contrato, SUM(area_m2) AS area_total,
-           MAX(atual_tarifa_uso) AS tarifa_media, MAX(data_vencimento) AS vencimento
+    SELECT id_contrato, MAX(atual_tarifa_uso) AS tarifa_media, MAX(data_vencimento) AS vencimento,
+           MAX(numero_ccu) AS numero_ccu, MAX(data_assinatura) AS data_assinatura
     FROM TarifaContrato20Anos WHERE id_contrato IN (${placeholders}) GROUP BY id_contrato
   `).all(...idsContrato).forEach(r => {
-    areaPorContrato.set(r.id_contrato, r.area_total);
     tarifaUsoPorContrato.set(r.id_contrato, r.tarifa_media);
     vencimentoPorContrato.set(r.id_contrato, r.vencimento);
+    numeroCcuPorContrato.set(r.id_contrato, r.numero_ccu);
+    dataAssinaturaPorContrato.set(r.id_contrato, r.data_assinatura);
   });
   depopDb.prepare(`
     SELECT id_contrato, valor_ponto, valor_30_ceasa
     FROM AvaliacaoAreaRenovacao WHERE id_contrato IN (${placeholders})
   `).all(...idsContrato).forEach(r => avaliacaoPorContrato.set(r.id_contrato, r));
-  return { areaPorContrato, tarifaUsoPorContrato, vencimentoPorContrato, avaliacaoPorContrato };
+  return { tarifaUsoPorContrato, vencimentoPorContrato, numeroCcuPorContrato, dataAssinaturaPorContrato, avaliacaoPorContrato };
 }
 
 // Pra "Demais" (concessionário sem contrato de renovação de 20 anos) a
@@ -308,15 +351,15 @@ function carregarTarifaUsoPlanilha(idsConcessionario) {
   return mapa;
 }
 
-// Monta os campos calculados (área/valor-m²/tarifa/ponto/outorga/vencimento)
-// de UM concessionário a partir dos mapas de carregarDadosDepop(). Quem tem
+// Monta os campos calculados (contrato/tarifa/ponto/outorga/vencimento) de UM
+// concessionário a partir dos mapas de carregarDadosDepop(). Quem tem
 // contrato de renovação (match_confianca != 'sem_match') usa os dados do
-// depop; quem não tem ("Demais") usa o equivalente da própria planilha onde
-// existir (área e Tarifa de Uso) — vencimento/ponto/outorga não têm
-// equivalente na planilha e ficam em branco pra esses.
+// depop (nº do CCU, data de assinatura, Tarifa de Uso); quem não tem
+// ("Demais") usa o equivalente da própria planilha (nº/data de contrato e
+// Tarifa de Uso já tratada por agruparTarifaDemais) — vencimento/ponto/
+// outorga não têm equivalente na planilha e ficam em branco pra esses.
 function camposDepop(c, dados, tarifaUsoPlanilhaMap) {
   const renovacao = c.match_confianca !== 'sem_match';
-  const area = dados.areaPorContrato.get(c.id_contrato_depop) || null;
   const aval = dados.avaliacaoPorContrato.get(c.id_contrato_depop) || null;
   // Sem divisão nenhuma — valor_ponto/valor_30_ceasa já são o valor real em
   // R$ (mesma leitura direta que routes/secad.js faz pra essas 2 colunas,
@@ -331,8 +374,8 @@ function camposDepop(c, dados, tarifaUsoPlanilhaMap) {
     renovacao,
     contrato_vencido_em: vencimento,
     prazo_final_adesao: anoVencimento ? prazoFinalAdesao(anoVencimento) : null,
-    area_m2: renovacao ? area : (c.metragem_planilha || null),
-    valor_m2: null, // sem coluna real no depop nem na planilha pra isso ainda (Alex, 2026-11-04)
+    contrato_numero: renovacao ? (dados.numeroCcuPorContrato.get(c.id_contrato_depop) || c.contrato_numero || null) : (c.contrato_numero || null),
+    contrato_data_inicio: renovacao ? (dados.dataAssinaturaPorContrato.get(c.id_contrato_depop) || c.contrato_data_inicio || null) : (c.contrato_data_inicio || null),
     tarifa_uso: renovacao ? (dados.tarifaUsoPorContrato.get(c.id_contrato_depop) || null) : (tarifaUsoPlanilhaMap.get(c.id) ?? null),
     valor_ponto: valorPonto,
     outorga,
@@ -419,11 +462,52 @@ function validarContraDepop(importacaoId) {
   };
 }
 
+// Cards de resumo do topo da tela — sempre sobre TODOS os concessionários da
+// importação (ignora o filtro "Mostrar Demais" da tabela, que é só de
+// exibição; os cards são o retrato completo). Pedido do Alex, 2026-11-11.
+function calcularCards(importacaoId) {
+  const todos = buscarContratos(importacaoId, true);
+  const codigosRenovacao = new Set(todos.filter(c => c.match_confianca !== 'sem_match').map(c => c.codigo));
+  const codigosDemais = new Set(todos.filter(c => c.match_confianca === 'sem_match').map(c => c.codigo));
+
+  const idsContrato = [...new Set(todos.map(c => c.id_contrato_depop).filter(Boolean))];
+  const dadosDepop = carregarDadosDepop(idsContrato);
+  const tarifaUsoPlanilha = carregarTarifaUsoPlanilha(todos.map(c => c.id));
+
+  const cidadePorContrato = new Map();
+  if (idsContrato.length) {
+    const placeholders = idsContrato.map(() => '?').join(',');
+    depopDb.prepare(`
+      SELECT ar.id_contrato, ci.descricao AS cidade
+      FROM AvaliacaoAreaRenovacao ar JOIN Cidade ci ON ci.id = ar.id_cidade
+      WHERE ar.id_contrato IN (${placeholders})
+    `).all(...idsContrato).forEach(r => cidadePorContrato.set(r.id_contrato, r.cidade));
+  }
+
+  const tarifaPorEntreposto = new Map();
+  todos.forEach(c => {
+    const renovacao = c.match_confianca !== 'sem_match';
+    const tarifa = renovacao ? dadosDepop.tarifaUsoPorContrato.get(c.id_contrato_depop) : tarifaUsoPlanilha.get(c.id);
+    if (!tarifa) return;
+    const cidade = renovacao ? (cidadePorContrato.get(c.id_contrato_depop) || 'Sem entreposto') : 'Fora da renovação';
+    tarifaPorEntreposto.set(cidade, (tarifaPorEntreposto.get(cidade) || 0) + tarifa);
+  });
+
+  return {
+    total_concessionarios: new Set([...codigosRenovacao, ...codigosDemais]).size,
+    total_renovacao: codigosRenovacao.size,
+    total_demais: codigosDemais.size,
+    tarifa_por_entreposto: [...tarifaPorEntreposto.entries()]
+      .map(([cidade, total]) => ({ cidade, total }))
+      .sort((a, b) => b.total - a.total),
+  };
+}
+
 // ── Relatório resumido ───────────────────────────────────────────────────────
-// Uma linha por contrato (termo) CASADO com o depop, com área/tarifa de
-// uso/valor do ponto/outorga/vencimento calculados do depop.db. Concessionário
-// sem contrato de renovação ("Demais") fica de fora por padrão — só aparece
-// com ?incluir_demais=1.
+// Uma linha por contrato (termo) CASADO com o depop, com tarifa de uso/valor
+// do ponto/outorga/vencimento calculados do depop.db. Concessionário sem
+// contrato de renovação ("Demais") fica de fora por padrão — só aparece com
+// ?incluir_demais=1.
 router.get('/api/pac/concessionarios/resumido', relatoriosGerais, requireVer, (req, res) => {
   const importacaoId = req.query.importacao_id
     ? Number(req.query.importacao_id)
@@ -448,84 +532,19 @@ router.get('/api/pac/concessionarios/resumido', relatoriosGerais, requireVer, (r
       cnpj: c.cnpj,
       renovacao: depop.renovacao,
       prazo_final_adesao: depop.prazo_final_adesao,
-      contrato_numero: c.contrato_numero,
-      contrato_data_inicio: c.contrato_data_inicio,
+      contrato_numero: depop.contrato_numero,
+      contrato_data_inicio: depop.contrato_data_inicio,
       contrato_vencido_em: depop.contrato_vencido_em,
-      area_m2: depop.area_m2,
-      valor_m2: depop.valor_m2,
       tarifa_uso: depop.tarifa_uso,
       valor_ponto: depop.valor_ponto,
       outorga: depop.outorga,
       match_confianca: c.match_confianca,
-    };
-  }));
-
-  res.json({ importacao_id: importacaoId, linhas, total_demais: totalDemais, validador: validarContraDepop(importacaoId) });
-});
-
-// ── Relatório detalhado (secundário) ─────────────────────────────────────────
-// Cópia "larga" da planilha importada (1 coluna por tipo de tarifa, igual ao
-// CORPORE) + os mesmos campos calculados do depop que o resumido tem. Mesmo
-// filtro de "Demais" e mesma ordenação (prazo final de adesão, código).
-router.get('/api/pac/concessionarios/detalhado', relatoriosGerais, requireVer, (req, res) => {
-  const importacaoId = req.query.importacao_id
-    ? Number(req.query.importacao_id)
-    : db.prepare(`SELECT MAX(id) AS id FROM depla_concessionarios_importacao`).get()?.id;
-  if (!importacaoId) return res.json({ importacao_id: null, linhas: [], colunas_tarifa: [], total_demais: 0 });
-
-  const incluirDemais = req.query.incluir_demais === '1';
-  const contratos = buscarContratos(importacaoId, incluirDemais);
-  const totalDemais = db.prepare(`
-    SELECT COUNT(*) n FROM depla_concessionarios WHERE importacao_id = ? AND match_confianca = 'sem_match'
-  `).get(importacaoId).n;
-
-  const idsContrato = [...new Set(contratos.map(c => c.id_contrato_depop).filter(Boolean))];
-  const dadosDepop = carregarDadosDepop(idsContrato);
-  const tarifaUsoPlanilha = carregarTarifaUsoPlanilha(contratos.map(c => c.id));
-
-  const idsConcessionario = contratos.map(c => c.id);
-  const tarifasPorConcessionario = new Map();
-  const colunasTarifaSet = new Set();
-  if (idsConcessionario.length) {
-    const placeholders = idsConcessionario.map(() => '?').join(',');
-    db.prepare(`
-      SELECT concessionario_id, descricao, valor FROM depla_concessionarios_tarifa
-      WHERE concessionario_id IN (${placeholders})
-    `).all(...idsConcessionario).forEach(r => {
-      if (!tarifasPorConcessionario.has(r.concessionario_id)) tarifasPorConcessionario.set(r.concessionario_id, {});
-      tarifasPorConcessionario.get(r.concessionario_id)[r.descricao] = r.valor;
-      colunasTarifaSet.add(r.descricao);
-    });
-  }
-  // Só as colunas de tarifa que de fato aparecem em algum concessionário
-  // apresentado — as 100% vazias já nem chegam a existir (agruparPorTermo só
-  // grava valor ≠ 0 na importação).
-  const colunasTarifa = [...colunasTarifaSet].sort((a, b) => a.localeCompare(b, 'pt-BR'));
-
-  const linhas = ordenarPorPrazoECodigo(contratos.map(c => {
-    const depop = camposDepop(c, dadosDepop, tarifaUsoPlanilha);
-    return {
-      codigo: c.codigo,
-      empresa: c.empresa,
-      cnpj: c.cnpj,
-      renovacao: depop.renovacao,
-      prazo_final_adesao: depop.prazo_final_adesao,
-      contrato_numero: c.contrato_numero,
-      contrato_data_inicio: c.contrato_data_inicio,
-      contrato_vencido_em: depop.contrato_vencido_em,
-      area_m2: depop.area_m2,
-      valor_m2: depop.valor_m2,
-      tarifa_uso: depop.tarifa_uso,
-      valor_ponto: depop.valor_ponto,
-      outorga: depop.outorga,
-      match_confianca: c.match_confianca,
-      itens: tarifasPorConcessionario.get(c.id) || {},
     };
   }));
 
   res.json({
-    importacao_id: importacaoId, linhas, colunas_tarifa: colunasTarifa,
-    total_demais: totalDemais, validador: validarContraDepop(importacaoId),
+    importacao_id: importacaoId, linhas, total_demais: totalDemais,
+    validador: validarContraDepop(importacaoId), cards: calcularCards(importacaoId),
   });
 });
 
