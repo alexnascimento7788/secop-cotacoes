@@ -307,8 +307,9 @@ function carregarDadosDepop(idsContrato) {
   const numeroCcuPorContrato = new Map();
   const dataAssinaturaPorContrato = new Map();
   const avaliacaoPorContrato = new Map();
+  const cidadePorContrato = new Map();
   if (!idsContrato.length) {
-    return { tarifaUsoPorContrato, vencimentoPorContrato, numeroCcuPorContrato, dataAssinaturaPorContrato, avaliacaoPorContrato };
+    return { tarifaUsoPorContrato, vencimentoPorContrato, numeroCcuPorContrato, dataAssinaturaPorContrato, avaliacaoPorContrato, cidadePorContrato };
   }
   const placeholders = idsContrato.map(() => '?').join(',');
   // TarifaContrato20Anos "quebra" (fan-out) um mesmo contrato em várias
@@ -332,7 +333,16 @@ function carregarDadosDepop(idsContrato) {
     SELECT id_contrato, valor_ponto, valor_30_ceasa
     FROM AvaliacaoAreaRenovacao WHERE id_contrato IN (${placeholders})
   `).all(...idsContrato).forEach(r => avaliacaoPorContrato.set(r.id_contrato, r));
-  return { tarifaUsoPorContrato, vencimentoPorContrato, numeroCcuPorContrato, dataAssinaturaPorContrato, avaliacaoPorContrato };
+  // Cidade (entreposto) — só existe pra quem tem renovação, via
+  // AvaliacaoAreaRenovacao.id_cidade; a planilha do CORPORE não tem coluna
+  // de cidade/entreposto por concessionário, então "Demais" fica sem (Alex,
+  // 2026-11-11).
+  depopDb.prepare(`
+    SELECT ar.id_contrato, ci.descricao AS cidade
+    FROM AvaliacaoAreaRenovacao ar JOIN Cidade ci ON ci.id = ar.id_cidade
+    WHERE ar.id_contrato IN (${placeholders})
+  `).all(...idsContrato).forEach(r => cidadePorContrato.set(r.id_contrato, r.cidade));
+  return { tarifaUsoPorContrato, vencimentoPorContrato, numeroCcuPorContrato, dataAssinaturaPorContrato, avaliacaoPorContrato, cidadePorContrato };
 }
 
 // Pra "Demais" (concessionário sem contrato de renovação de 20 anos) a
@@ -376,6 +386,7 @@ function camposDepop(c, dados, tarifaUsoPlanilhaMap) {
     prazo_final_adesao: anoVencimento ? prazoFinalAdesao(anoVencimento) : null,
     contrato_numero: renovacao ? (dados.numeroCcuPorContrato.get(c.id_contrato_depop) || c.contrato_numero || null) : (c.contrato_numero || null),
     contrato_data_inicio: renovacao ? (dados.dataAssinaturaPorContrato.get(c.id_contrato_depop) || c.contrato_data_inicio || null) : (c.contrato_data_inicio || null),
+    cidade: renovacao ? (dados.cidadePorContrato.get(c.id_contrato_depop) || null) : null,
     tarifa_uso: renovacao ? (dados.tarifaUsoPorContrato.get(c.id_contrato_depop) || null) : (tarifaUsoPlanilhaMap.get(c.id) ?? null),
     valor_ponto: valorPonto,
     outorga,
@@ -386,9 +397,8 @@ function camposDepop(c, dados, tarifaUsoPlanilhaMap) {
 // depop (direto/data/manual), já que o módulo é focado em quem está no
 // programa de renovação de 20 anos. incluirDemais=true também traz os
 // 'sem_match' (concessionários fora do programa — ver flag "Demais" na tela).
-// Sem ORDER BY aqui — a ordenação de verdade (por prazo final de adesão,
-// depois código) só dá pra fazer depois de calcular prazo_final_adesao, ver
-// ordenarPorPrazoECodigo().
+// Sem ORDER BY aqui — a ordenação de verdade (por cidade, depois código) só
+// dá pra fazer depois de calcular o campo cidade, ver ordenarPorCidadeECodigo().
 function buscarContratos(importacaoId, incluirDemais) {
   const filtro = incluirDemais ? '' : `AND match_confianca != 'sem_match'`;
   return db.prepare(`
@@ -396,20 +406,12 @@ function buscarContratos(importacaoId, incluirDemais) {
   `).all(importacaoId);
 }
 
-// Converte "dd/mm/yyyy" num número yyyymmdd pra dar pra comparar. Sem prazo
-// (fora do intervalo 2027–2032) vai pro fim da lista.
-function prazoParaOrdenacao(prazo) {
-  if (!prazo) return Infinity;
-  const [d, m, a] = prazo.split('/');
-  return Number(a) * 10000 + Number(m) * 100 + Number(d);
-}
-
-// Pedido do Alex, 2026-11-05: ordenar os relatórios por prazo final de
-// adesão (quem vence primeiro aparece primeiro) e, dentro do mesmo prazo,
-// por código do concessionário.
-function ordenarPorPrazoECodigo(linhas) {
+// Pedido do Alex, 2026-11-11: ordenar o relatório por entreposto (cidade) e,
+// dentro da mesma cidade, por código do concessionário. Quem não tem cidade
+// (sem renovação — a planilha não traz entreposto) vai pro fim da lista.
+function ordenarPorCidadeECodigo(linhas) {
   return linhas.sort((a, b) =>
-    prazoParaOrdenacao(a.prazo_final_adesao) - prazoParaOrdenacao(b.prazo_final_adesao) ||
+    (a.cidade || '￿').localeCompare(b.cidade || '￿', 'pt-BR') ||
     (a.codigo || 0) - (b.codigo || 0)
   );
 }
@@ -474,22 +476,12 @@ function calcularCards(importacaoId) {
   const dadosDepop = carregarDadosDepop(idsContrato);
   const tarifaUsoPlanilha = carregarTarifaUsoPlanilha(todos.map(c => c.id));
 
-  const cidadePorContrato = new Map();
-  if (idsContrato.length) {
-    const placeholders = idsContrato.map(() => '?').join(',');
-    depopDb.prepare(`
-      SELECT ar.id_contrato, ci.descricao AS cidade
-      FROM AvaliacaoAreaRenovacao ar JOIN Cidade ci ON ci.id = ar.id_cidade
-      WHERE ar.id_contrato IN (${placeholders})
-    `).all(...idsContrato).forEach(r => cidadePorContrato.set(r.id_contrato, r.cidade));
-  }
-
   const tarifaPorEntreposto = new Map();
   todos.forEach(c => {
     const renovacao = c.match_confianca !== 'sem_match';
     const tarifa = renovacao ? dadosDepop.tarifaUsoPorContrato.get(c.id_contrato_depop) : tarifaUsoPlanilha.get(c.id);
     if (!tarifa) return;
-    const cidade = renovacao ? (cidadePorContrato.get(c.id_contrato_depop) || 'Sem entreposto') : 'Fora da renovação';
+    const cidade = renovacao ? (dadosDepop.cidadePorContrato.get(c.id_contrato_depop) || 'Sem entreposto') : 'Fora da renovação';
     tarifaPorEntreposto.set(cidade, (tarifaPorEntreposto.get(cidade) || 0) + tarifa);
   });
 
@@ -524,12 +516,13 @@ router.get('/api/pac/concessionarios/resumido', relatoriosGerais, requireVer, (r
   const dadosDepop = carregarDadosDepop(idsContrato);
   const tarifaUsoPlanilha = carregarTarifaUsoPlanilha(contratos.map(c => c.id));
 
-  const linhas = ordenarPorPrazoECodigo(contratos.map(c => {
+  const linhas = ordenarPorCidadeECodigo(contratos.map(c => {
     const depop = camposDepop(c, dadosDepop, tarifaUsoPlanilha);
     return {
       codigo: c.codigo,
       empresa: c.empresa,
       cnpj: c.cnpj,
+      cidade: depop.cidade,
       renovacao: depop.renovacao,
       prazo_final_adesao: depop.prazo_final_adesao,
       contrato_numero: depop.contrato_numero,
