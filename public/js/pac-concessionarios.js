@@ -71,15 +71,18 @@ function aplicarFormatoMoeda(ws, colunasIdx, numLinhas) {
 let _dcLinhasPlanilha = null;
 let _dcNomeArquivo = '';
 
-// Ordem real das 17 colunas do CSV do CORPORE (sem cabeçalho) — achado
-// analisando o arquivo real em `data/Depla_2.csv`, cross-validado com
-// códigos conhecidos do depop.db (2026-11-11). Ver cabeçalho de
-// routes/pac-concessionarios.js pro detalhe completo. Os campos com nome
-// começando em "_" são bookkeeping contábil que o relatório não usa.
+// Ordem real das 19 colunas do CSV do CORPORE (sem cabeçalho) — achado
+// analisando o arquivo real em `data/Depla_2.csv` (17 colunas, 2026-11-11)
+// e depois `data/Depla_3.csv` (19 colunas, 2026-11-12: ganhou
+// Codigo_Entreposto/Entreposto — o entreposto real onde o concessionário
+// está, não a cidade do CADASTRO dele, que é o que `Cidade`/`_Id_Cidade`
+// representam). Ver cabeçalho de routes/pac-concessionarios.js pro detalhe
+// completo. Os campos com nome começando em "_" são bookkeeping contábil
+// (ou cadastro, não entreposto) que o relatório não usa.
 const DC_CAMPOS_CSV = [
-  'Codigo_Cfo', 'Empresa', 'CNPJ', 'Cidade', '_Id_Cidade', 'Contrato_Numero', 'Ccu_Licenca',
-  'Data_Inicio', 'Data_Vencimento', 'Tarifa_Uso', '_Codigo2', '_InternoId', '_Seq', '_Descricao',
-  '_Conta', '_Ordem', '_Localizacao',
+  'Codigo_Cfo', 'Empresa', 'CNPJ', '_Cidade_Cadastro', '_Id_Cidade_Cadastro', 'Codigo_Entreposto', 'Entreposto',
+  'Contrato_Numero', 'Ccu_Licenca', 'Data_Inicio', 'Data_Vencimento', 'Tarifa_Uso', '_Codigo2', '_InternoId',
+  '_Seq', '_Descricao', '_Conta', '_Ordem', '_Localizacao',
 ];
 
 // Parser de linha CSV respeitando aspas RFC4180 (campo com vírgula, ex: nome

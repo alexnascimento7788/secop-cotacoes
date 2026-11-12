@@ -27,6 +27,17 @@
 // conhecidos do depop.db (14, 40, 87) — numero_ccu/data_assinatura/
 // data_vencimento/atual_tarifa_uso batem exatamente.
 //
+// CORREÇÃO DE ENTREPOSTO (2026-11-12): o CSV passou a ter 19 campos
+// (`Depla_3.csv`) — ganhou 2 colunas novas logo depois de `Cidade`/
+// `Id_Cidade`: `Codigo_Entreposto` ("1.001", "1.002"...) e `Entreposto`
+// (nome). Alex avisou: o que o relatório usava até aqui (`Cidade`) é a
+// cidade do CADASTRO do cliente, não o entreposto onde ele de fato está —
+// são conceitos diferentes (um cliente cadastrado numa cidade pode operar
+// no entreposto de outra). A partir daqui `cidade_planilha` é preenchido
+// com o ENTREPOSTO (normalizado via ENTREPOSTO_POR_CODIGO, ver abaixo), não
+// mais com `Cidade`/`Id_Cidade` do cadastro — esses 2 campos do CSV não são
+// mais usados em lugar nenhum deste módulo.
+//
 // O PROBLEMA DE CASAMENTO (análise original, 2026-11-04, ainda vale): a
 // planilha não tem `id_contrato` (chave do depop.db) — só `codigo`,
 // `contrato_numero`/termo e `data de início`. Pra maioria das empresas
@@ -88,6 +99,26 @@ function prazoFinalAdesao(ano) {
   return null;
 }
 
+// Entreposto (pedido do Alex, 2026-11-12): o nome que vem no CSV às vezes é
+// abreviado/sem acento (ex: "jF", "GV", "Barba", "Uberlandia" sem acento) —
+// normaliza pro nome completo já cadastrado no sistema (mesmas 7 cidades
+// de `Cidade` no depop.db), chaveado pelo CÓDIGO do entreposto (estável,
+// não depende da grafia variar de linha pra linha no CSV). Entreposto com
+// código fora do mapa (nunca visto, ex: um 8º entreposto novo no futuro)
+// cai no nome bruto do CSV em vez de desaparecer do relatório.
+const ENTREPOSTO_POR_CODIGO = {
+  '1.001': 'Contagem',
+  '1.002': 'Uberlândia',
+  '1.003': 'Juiz de Fora',
+  '1.004': 'Governador Valadares',
+  '1.005': 'Caratinga',
+  '1.006': 'Barbacena',
+  '1.007': 'Uberaba',
+};
+function normalizarEntreposto(codigo, nomeBruto) {
+  return ENTREPOSTO_POR_CODIGO[String(codigo || '').trim()] || (String(nomeBruto || '').trim() || null);
+}
+
 // Converte cada linha do CSV (já objeto, chaves dadas pelo client) num
 // "termo" no formato que casarComDepop/agruparTarifaDemais esperam. Uma
 // linha de CSV = uma unidade física (pavilhão/box); quando o mesmo
@@ -105,7 +136,7 @@ function linhasParaTermos(linhas) {
       codigo,
       empresa: String(linha['Empresa'] || '').trim() || null,
       cnpj: String(linha['CNPJ'] || '').trim() || null,
-      cidade_planilha: String(linha['Cidade'] || '').trim() || null,
+      cidade_planilha: normalizarEntreposto(linha['Codigo_Entreposto'], linha['Entreposto']),
       contrato_numero: String(linha['Contrato_Numero'] || '').trim() || null,
       contrato_data_inicio: String(linha['Data_Inicio'] || '').trim() || null,
       cod_termo: `${linha['Contrato_Numero'] || 'sem-contrato'}#${i}`,
@@ -333,10 +364,11 @@ function carregarDadosDepop(idsContrato) {
     SELECT id_contrato, valor_ponto, valor_30_ceasa
     FROM AvaliacaoAreaRenovacao WHERE id_contrato IN (${placeholders})
   `).all(...idsContrato).forEach(r => avaliacaoPorContrato.set(r.id_contrato, r));
-  // Cidade (entreposto) — só existe pra quem tem renovação, via
-  // AvaliacaoAreaRenovacao.id_cidade; a planilha do CORPORE não tem coluna
-  // de cidade/entreposto por concessionário, então "Demais" fica sem (Alex,
-  // 2026-11-11).
+  // Cidade (entreposto) — desde 2026-11-12 o CSV já traz o entreposto certo
+  // pra TODO MUNDO (ver normalizarEntreposto/cidade_planilha), então esse
+  // join só serve de FALLBACK pra linha sintetizada direto do depop sem
+  // nenhuma linha de CSV correspondente (contratosFaltandoSintetizados,
+  // que não tem cidade_planilha nenhuma pra usar).
   depopDb.prepare(`
     SELECT ar.id_contrato, ci.descricao AS cidade
     FROM AvaliacaoAreaRenovacao ar JOIN Cidade ci ON ci.id = ar.id_cidade
@@ -386,7 +418,7 @@ function camposDepop(c, dados, tarifaUsoPlanilhaMap) {
     prazo_final_adesao: anoVencimento ? prazoFinalAdesao(anoVencimento) : null,
     contrato_numero: renovacao ? (dados.numeroCcuPorContrato.get(c.id_contrato_depop) || c.contrato_numero || null) : (c.contrato_numero || null),
     contrato_data_inicio: renovacao ? (dados.dataAssinaturaPorContrato.get(c.id_contrato_depop) || c.contrato_data_inicio || null) : (c.contrato_data_inicio || null),
-    cidade: renovacao ? (dados.cidadePorContrato.get(c.id_contrato_depop) || c.cidade_planilha || null) : (c.cidade_planilha || null),
+    cidade: c.cidade_planilha || dados.cidadePorContrato.get(c.id_contrato_depop) || null,
     tarifa_uso: renovacao ? (dados.tarifaUsoPorContrato.get(c.id_contrato_depop) || null) : (tarifaUsoPlanilhaMap.get(c.id) ?? null),
     valor_ponto: valorPonto,
     outorga,
