@@ -88,7 +88,7 @@ async function carregarAcompanhamento() {
   const dfdId = document.getElementById('acomp-dfd-select').value;
   if (!dfdId) return;
   mudarAcompSubtab('ativos'); // sempre volta pra "Ativos" ao trocar de DFD/setor
-  document.getElementById('acomp-tbody').innerHTML = `<tr><td colspan="13" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
+  document.getElementById('acomp-tbody').innerHTML = `<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
   try {
     const res = await fetch(`/api/pac/dfds/${dfdId}/acompanhamento/meu-setor`);
     if (!res.ok) throw new Error();
@@ -111,6 +111,17 @@ function mudarAcompSubtab(tab) {
   if (tab === 'cancelados') renderAcompCancelados();
 }
 
+// Texto longo (Objeto/Justificativa) truncado com "…" na largura normal da
+// coluna, texto completo no title (mouseover) — pedido do Alex, 2026-11-16:
+// "a disposição do texto em objeto e justificativa está muito desproporcional
+// ... muita quebra o que deixa as linhas gigantescas". Sem modal (diferente
+// de Lançamento): aqui é só leitura, o hover já resolve sem precisar clicar.
+function celulaTextoLongo(valor) {
+  if (!valor) return '—';
+  const esc = String(valor).replace(/"/g, '&quot;');
+  return `<span style="display:inline-block;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;" title="${esc}">${valor}</span>`;
+}
+
 function renderAcompCancelados() {
   if (!_acompDados) return;
   const cancelados = _acompDados.cancelados || [];
@@ -118,12 +129,13 @@ function renderAcompCancelados() {
     <tr>
       <td>${item.codigo_pac || '—'}</td>
       <td><strong>${item.numero_pac ?? '—'}</strong></td>
-      <td>${item.descricao_objeto || '—'}</td>
-      <td>${item.justificativa_cancelamento || '—'}</td>
+      <td>${celulaTextoLongo(item.descricao_objeto)}</td>
+      <td>${celulaTextoLongo(item.justificativa_cancelamento)}</td>
+      <td>${item.criado_por_nome || '—'}</td>
       <td>${item.cancelado_por_username || '—'}</td>
       <td>${fmtBrData(item.cancelado_em)}</td>
     </tr>
-  `).join('') || `<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item cancelado.</td></tr>`;
+  `).join('') || `<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item cancelado.</td></tr>`;
 }
 
 function renderTabelaAcompanhamento() {
@@ -143,7 +155,8 @@ function renderTabelaAcompanhamento() {
       <td class="acomp-toggle" onclick="toggleAcompLinha(${item.item_id})">${item.solicitacoes.length ? '▸' : ''}</td>
       <td><strong>${item.numero_pac || '—'}</strong></td>
       <td>${item.codigo_pac || '—'}</td>
-      <td>${item.descricao_objeto || '—'}</td>
+      <td>${celulaTextoLongo(item.descricao_objeto)}</td>
+      <td>${item.criado_por_nome || '—'}</td>
       <td>${item.tipo || '—'}</td>
       <td>${fmtMoeda(item.estimado_tu_mlp)}</td>
       <td>${fmtMoeda(item.estimado_rdc)}</td>
@@ -155,7 +168,7 @@ function renderTabelaAcompanhamento() {
       <td>${linhaSaldo(item.saldo_rdc)}</td>
     </tr>
     <tr class="acomp-sub-row hidden" id="acomp-sub-${item.item_id}">
-      <td colspan="13">
+      <td colspan="14">
         ${item.solicitacoes.length ? `
           <table style="width:100%;">
             <thead><tr><th>Movimento</th><th>Data</th><th>TU+MLP</th><th>RDC</th><th>Observação</th></tr></thead>
@@ -174,7 +187,7 @@ function renderTabelaAcompanhamento() {
         ` : '<span class="text-muted">Nenhuma solicitação vinculada.</span>'}
       </td>
     </tr>
-  `).join('') || `<tr><td colspan="13" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item consolidado ainda para este DFD.</td></tr>`;
+  `).join('') || `<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item consolidado ainda para este DFD.</td></tr>`;
 
   const t = itens.reduce((acc, i) => ({
     estimado_tu_mlp: acc.estimado_tu_mlp + i.estimado_tu_mlp, estimado_rdc: acc.estimado_rdc + i.estimado_rdc,
@@ -183,7 +196,7 @@ function renderTabelaAcompanhamento() {
   }), { estimado_tu_mlp: 0, estimado_rdc: 0, realizado_tu_mlp: 0, realizado_rdc: 0, saldo_tu_mlp: 0, saldo_rdc: 0 });
   document.getElementById('acomp-tfoot').innerHTML = itens.length ? `
     <tr>
-      <td colspan="5">Totais (${itens.length} itens)</td>
+      <td colspan="6">Totais (${itens.length} itens)</td>
       <td>${fmtMoeda(t.estimado_tu_mlp)}</td><td>${fmtMoeda(t.estimado_rdc)}</td>
       <td colspan="2"></td>
       <td>${fmtMoeda(t.realizado_tu_mlp)}</td><td>${fmtMoeda(t.realizado_rdc)}</td>

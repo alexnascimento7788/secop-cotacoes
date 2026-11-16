@@ -1327,6 +1327,29 @@ router.put('/api/pac/itens/:id',
   }
 );
 
+// Unidade do item — pedido do Alex, 2026-11-16: "na unidade mesmo que
+// fechado pode ser alterada para qualquer unidade do ceasa". Diferente do
+// PUT acima, NÃO passa por requireDfdEditavel — a trava normal (DFD em
+// análise/fechado, setor já finalizado) não se aplica aqui de propósito,
+// é só uma correção de local físico, não um dado de lançamento em si. E
+// "qualquer unidade do ceasa" é literal: não fica restrito às unidades do
+// DFD (dfd_unidades) nem às do sub-gestor (unidadesDoUsuario) — essas 2
+// restrições continuam valendo só pra ESCOLHER a unidade na hora de criar
+// um item novo (POST /itens), não pra corrigir depois.
+router.patch('/api/pac/itens/:id/unidade', pac, requireRotina('pac-lancamento', 'alterar'), (req, res) => {
+  const item = db.prepare(`SELECT id, dfd_id, setor_id, criado_por, aprovacao_subgestor FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
+  if (!item) return res.status(404).json({ error: 'Item não encontrado' });
+  const souCriadorPendente = item.criado_por === req.user.user_id && ['pendente', 'pendente_origem'].includes(item.aprovacao_subgestor);
+  if (req.user.username !== 'master' && !souCriadorPendente && !setoresDoUsuario(req.user.user_id).includes(item.setor_id)) {
+    return res.status(403).json({ error: 'Você não pertence ao setor deste item.' });
+  }
+  const unidade = req.body?.unidade_id ? db.prepare(`SELECT id, nome FROM unidades WHERE id = ?`).get(req.body.unidade_id) : null;
+  if (!unidade) return res.status(400).json({ error: 'Unidade inválida.' });
+  db.prepare(`UPDATE dfd_itens SET unidade_id = ?, atualizado_em = datetime('now') WHERE id = ?`).run(unidade.id, item.id);
+  registrarLog(req, 'PAC', 'ALTEROU_UNIDADE_ITEM', `Alterou a unidade do item #${item.id} (DFD #${item.dfd_id}) para "${unidade.nome}"`);
+  res.json({ ok: true, unidade_id: unidade.id, unidade_nome: unidade.nome });
+});
+
 router.delete('/api/pac/itens/:id',
   pac,
   requireRotina('pac-lancamento', 'excluir'),
@@ -2171,10 +2194,12 @@ function montarAcompanhamento(dfdId, setorIds) {
   const itens = db.prepare(`
     SELECT di.id, di.numero_pac, di.codigo_pac, di.numero_item, di.setor_id, di.status_execucao,
            di.status_consolidacao, di.justificativa_cancelamento, di.cancelado_em,
-           s.nome AS setor_nome, u.username AS cancelado_por_username
+           s.nome AS setor_nome, u.username AS cancelado_por_username,
+           uc.nome_completo AS criado_por_nome, uc.username AS criado_por_username
     FROM dfd_itens di
       JOIN setores s ON s.id = di.setor_id
       LEFT JOIN users u ON u.id = di.cancelado_por
+      LEFT JOIN users uc ON uc.id = di.criado_por
     WHERE di.dfd_id = ? AND di.excluido_em IS NULL${filtroSetor}
     ORDER BY di.numero_pac IS NULL, CAST(di.numero_pac AS INTEGER)
   `).all(...params);
@@ -2212,6 +2237,7 @@ function montarAcompanhamento(dfdId, setorIds) {
       status_consolidacao: item.status_consolidacao,
       justificativa_cancelamento: item.justificativa_cancelamento,
       cancelado_em: item.cancelado_em, cancelado_por_username: item.cancelado_por_username,
+      criado_por_nome: item.criado_por_nome || item.criado_por_username || null,
       descricao_objeto: v[idDescricao] ?? null, tipo: v[idTipo] ?? null, fonte_pagadora: fonte,
       valor_estimado: valorEstimado,
       estimado_tu_mlp: estimadoTuMlp, estimado_rdc: estimadoRdc,

@@ -43,12 +43,20 @@ function parseMoeda(s) {
    Duplicado em pac-lancamento.js/pac-subgestor.js/pac-gestao.js (mesma
    convenção do resto do módulo, sem arquivo compartilhado novo). */
 let _campoExpandidoOrigin = null;
-function abrirCampoExpandido(el, titulo) {
+// somenteLeitura: campo não editável (coluna travada/item de outro setor) —
+// pedido do Alex, 2026-11-16: o clique pra ver o texto completo vale tanto
+// pra campo editável quanto só leitura, mas nesse 2º caso não faz sentido
+// mostrar "Aplicar" (não tem pra onde salvar).
+function abrirCampoExpandido(el, titulo, somenteLeitura) {
   _campoExpandidoOrigin = el;
   document.getElementById('campo-expandido-titulo').textContent = titulo || 'Editar';
-  document.getElementById('campo-expandido-textarea').value = el.value;
+  const textarea = document.getElementById('campo-expandido-textarea');
+  textarea.value = el.value;
+  textarea.readOnly = !!somenteLeitura;
+  const btnAplicar = document.getElementById('campo-expandido-btn-aplicar');
+  if (btnAplicar) btnAplicar.style.display = somenteLeitura ? 'none' : '';
   document.getElementById('modal-campo-expandido').classList.add('open');
-  setTimeout(() => document.getElementById('campo-expandido-textarea').focus(), 50);
+  setTimeout(() => textarea.focus(), 50);
 }
 function fecharCampoExpandido() {
   document.getElementById('modal-campo-expandido').classList.remove('open');
@@ -91,6 +99,10 @@ let _pedidosLiberados = {}; // item_id -> Set('editar'|'excluir') aprovados e ai
 let _itensAtuais = [];
 let _finalizacaoPorSetor = {}; // setor_id -> finalizado_em (ou null)
 let _aprovacoesOrigemPendentes = []; // itens de outro setor aguardando MINHA 1ª aprovação (ver carregarAprovacoesOrigemPendentes)
+// TODAS as unidades do CEASA (não só as configuradas neste DFD) — pedido do
+// Alex, 2026-11-16: a Unidade do item pode ser corrigida pra qualquer uma,
+// mesmo com o setor já finalizado (ver selectUnidadeLinha/salvarUnidadeItem).
+let _todasUnidadesCeasa = [];
 
 document.addEventListener('DOMContentLoaded', () => {
   atualizarCabecalhoUsuario();
@@ -337,13 +349,15 @@ async function abrirDfd(id) {
   document.getElementById('pac-dfd-lista').style.display = 'none';
   document.getElementById('pac-dfd-itens').style.display = 'block';
 
-  const [dfdRes, setoresRes] = await Promise.all([
+  const [dfdRes, setoresRes, unidadesRes] = await Promise.all([
     fetch(`/api/pac/dfds/${id}`),
     fetch('/api/pac/meus-setores'),
+    fetch('/api/pac/unidades'),
   ]);
   if (!dfdRes.ok) { toast('Erro ao abrir DFD', 'error'); fecharDfd(); return; }
   _dfdAtual = await dfdRes.json();
   const todosMeusSetores = setoresRes.ok ? await setoresRes.json() : [];
+  _todasUnidadesCeasa = unidadesRes.ok ? (await unidadesRes.json()).filter(u => u.ativo) : [];
   // Só os setores do usuário que TAMBÉM participam DESTE DFD — sem isso, um
   // gestor de 2+ setores via o outro setor "fantasma" aqui mesmo quando o
   // DFD só foi liberado pra 1 (mensagem de saudação, filtro "Setor", contador
@@ -617,7 +631,42 @@ function nomeSetorLanc(setorId) {
 }
 function nomeUnidadeLanc(unidadeId) {
   if (!unidadeId) return '—';
-  return (_dfdAtual.unidades || []).find(u => u.id === unidadeId)?.nome || '—';
+  // Procura primeiro em TODAS as unidades do CEASA (pode ter sido corrigida
+  // pra uma unidade fora das configuradas neste DFD, ver selectUnidadeLinha)
+  // e só cai pras unidades do DFD se por algum motivo a lista geral não
+  // carregou ainda.
+  return (_todasUnidadesCeasa || []).find(u => u.id === unidadeId)?.nome
+    || (_dfdAtual.unidades || []).find(u => u.id === unidadeId)?.nome || '—';
+}
+
+// Unidade do item, editável SEMPRE (mesmo com o setor finalizado/DFD em
+// análise) pra qualquer unidade do CEASA — pedido do Alex, 2026-11-16: "na
+// unidade mesmo que fechado pode ser alterada para qualquer unidade do
+// ceasa". Só item "estranho" (de outro setor, hierarquia de 2 aprovações —
+// não é meu item pra mexer) continua só leitura, igual o resto da linha.
+function selectUnidadeLinha(item, itemEstranho) {
+  if (itemEstranho) return nomeUnidadeLanc(item.unidade_id);
+  const opcoes = _todasUnidadesCeasa.map(u =>
+    `<option value="${u.id}" ${u.id === item.unidade_id ? 'selected' : ''}>${u.nome}</option>`).join('');
+  return `<select onchange="salvarUnidadeItem(${item.id}, this)" style="width:170px;max-width:170px;">${opcoes}</select>`;
+}
+
+async function salvarUnidadeItem(itemId, selectEl) {
+  const unidadeId = Number(selectEl.value);
+  const anterior = (_itensAtuais.find(i => i.id === itemId) || {}).unidade_id;
+  try {
+    const res = await fetch(`/api/pac/itens/${itemId}/unidade`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unidade_id: unidadeId }),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao salvar unidade'); }
+    const item = _itensAtuais.find(i => i.id === itemId);
+    if (item) item.unidade_id = unidadeId;
+    toast('Unidade atualizada.');
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+    selectEl.value = anterior; // desfaz a seleção visual se o servidor rejeitou
+  }
 }
 
 async function renderItens() {
@@ -653,7 +702,7 @@ async function renderItens() {
   const filtroSetorId = multiSetor && filtroSelect.value ? Number(filtroSelect.value) : null;
 
   const thead = document.getElementById('lanc-itens-thead');
-  thead.innerHTML = `<tr>${multiSetor ? '<th>Setor</th>' : ''}<th>Unidade</th><th class="dfd-col-fixa-1">ID PAC</th><th class="dfd-col-fixa-2">Nº PAC</th>${colunasPrincipais.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}<th></th></tr>`;
+  thead.innerHTML = `<tr>${multiSetor ? '<th>Setor</th>' : ''}<th>Unidade</th><th>Lançado por</th><th class="dfd-col-fixa-1">ID PAC</th><th class="dfd-col-fixa-2">Nº PAC</th>${colunasPrincipais.map(c => `<th>${c.label}</th>`).join('')}${temColContrato ? '<th>Contrato</th>' : ''}<th></th></tr>`;
 
   let itensExibidos = filtroSetorId ? _itensAtuais.filter(i => i.setor_id === filtroSetorId) : _itensAtuais;
 
@@ -710,7 +759,7 @@ async function renderItens() {
       : `${itensExibidos.length} de ${_itensAtuais.length} itens (filtrado)`;
   }
 
-  const colspan = (multiSetor ? 1 : 0) + 3 + colunasPrincipais.length + (temColContrato ? 1 : 0) + 1;
+  const colspan = (multiSetor ? 1 : 0) + 4 + colunasPrincipais.length + (temColContrato ? 1 : 0) + 1;
   // Sou "gestor principal" (posso aprovar/rejeitar lançamento de sub-gestor)
   // quando NÃO estou restrito a nenhuma unidade — mesmo dado que já veio
   // junto com o DFD (ver GET /api/pac/dfds/:id, minhas_unidades_restritas).
@@ -760,7 +809,7 @@ async function renderItens() {
     return `
     <tr data-item-id="${item.id}"${itemEstranho ? ' class="pac-item-origem-pendente"' : ''}>
       ${multiSetor ? `<td data-label="Setor"${tituloLancadoPor}>${nomeSetorLanc(item.setor_id)}</td>` : ''}
-      <td data-label="Unidade"${tituloLancadoPor}>${nomeUnidadeLanc(item.unidade_id)}${pendenteOrigem ? `
+      <td data-label="Unidade"${tituloLancadoPor}>${selectUnidadeLinha(item, itemEstranho)}${pendenteOrigem ? `
         <div style="margin-top:4px;">
           <span class="badge badge-analise" style="font-size:10px;">${itemEstranho ? 'Aguardando sua 1ª aprovação' : `Aguardando aprovação do setor de origem${item.setor_origem_nome ? ` (${item.setor_origem_nome})` : ''}`}</span>
           ${itemEstranho ? `
@@ -775,6 +824,7 @@ async function renderItens() {
             <button class="btn btn-danger btn-xs" style="margin-top:4px;" onclick="aprovarItemSubgestor(${item.id}, false)">Rejeitar</button>
           ` : ''}
         </div>` : ''}</td>
+      <td data-label="Lançado por"${tituloLancadoPor}>${item.criado_por_nome || '—'}</td>
       <td class="dfd-col-fixa-1" data-label="ID PAC"${tituloLancadoPor}>${item.codigo_pac || '—'}</td>
       <td class="dfd-col-fixa-2" data-label="Nº PAC"${tituloLancadoPor}>${item.numero_pac || '—'}</td>
       ${colunasPrincipais.map(c => renderCelula(item, c, -1, liberado, itemEstranho)).join('')}
@@ -876,6 +926,16 @@ function renderCelula(item, coluna, indice, liberado, forcarSomenteLeitura) {
     return `<td class="${classe}" data-label="${coluna.label}">${valor ?? ''}</td>`;
   }
   if (!editavel) {
+    // Texto longo (Especificação do Objeto/Justificativa) somente leitura —
+    // pedido do Alex, 2026-11-16: "o texto se adeque a largura da coluna
+    // normal... quando clicar ai abre ela" (textos longos estavam
+    // alargando a coluna, igual o <select> de Unidade já tinha corrigido
+    // antes). Mesma largura fixa + elipse do campo editável (ver
+    // renderInputCelula), só sem botão salvar — clique abre o modal
+    // read-only (abrirCampoExpandido(…, true)).
+    if (coluna.tipo_input === 'textarea' && valor) {
+      return `<td class="${classe}" data-label="${coluna.label}"><textarea rows="1" readonly style="width:200px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;resize:none;border:none;background:transparent;color:inherit;cursor:pointer;" onclick="abrirCampoExpandido(this,'${coluna.label.replace(/'/g, "\\'")}',true)">${valor}</textarea></td>`;
+    }
     return `<td class="${classe}" data-label="${coluna.label}">${formatarValorExibicao(coluna, valor)}</td>`;
   }
   // Editável só por causa de um pedido de edição aprovado (uso único) —
@@ -1031,7 +1091,11 @@ function renderInputCelula(itemId, coluna, valor, comBotaoSalvar, pendente) {
     return `<select ${base} class="${classePendente.trim()}" style="width:${largura}px;max-width:${largura}px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"${tituloAtual}><option value="">${pendente ? 'Item não preenchido' : '—'}</option>${opcoes}</select>${botaoSalvar}`;
   }
   if (coluna.tipo_input === 'textarea') {
-    return `<textarea ${base} class="${classePendente.trim()}" rows="1" style="min-width:200px;" placeholder="${pendente ? 'Item não preenchido' : ''}" readonly onclick="abrirCampoExpandido(this,'${coluna.label.replace(/'/g, "\\'")}')">${valor || ''}</textarea>${botaoSalvar}`;
+    // Largura FIXA (não só min-width) + elipse — mesmo raciocínio já
+    // documentado acima pro <select> de Unidade: sem isso, uma justificativa
+    // longa "estica" a coluna/desalinha as seguintes. Pedido do Alex,
+    // 2026-11-16. Clicar continua abrindo o texto completo pra edição.
+    return `<textarea ${base} class="${classePendente.trim()}" rows="1" style="width:200px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;resize:none;" placeholder="${pendente ? 'Item não preenchido' : ''}" readonly onclick="abrirCampoExpandido(this,'${coluna.label.replace(/'/g, "\\'")}')">${valor || ''}</textarea>${botaoSalvar}`;
   }
   if (coluna.tipo_input === 'moeda') {
     return `<input type="text" ${base} class="${classePendente.trim()}" value="${valor != null ? fmtMoeda(valor) : ''}" style="width:110px;text-align:right;" placeholder="${pendente ? 'Item não preenchido' : '0,00'}" />${botaoSalvar}`;
