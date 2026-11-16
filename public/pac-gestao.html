@@ -156,6 +156,17 @@
     .pac-fin-badge.ok { color: #15803d; }
     .pac-fin-badge.aguardando { color: #854d0e; }
 
+    /* "Finalização por setor" virou <details> recolhido por padrão — pedido
+       do Alex, 2026-11-16: a tabela de itens embaixo precisa de mais espaço
+       vertical, e esse card (resumo + parede de chips) é secundário na
+       maior parte do tempo. Mesma convenção de caret giratório já usada na
+       sidebar (.pac-nav-caret/[open], ver style.css). */
+    #acomp-finalizacao-card > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; }
+    #acomp-finalizacao-card > summary::-webkit-details-marker { display: none; }
+    #acomp-finalizacao-card > summary .pac-fin-caret { flex-shrink: 0; transition: transform .15s; }
+    #acomp-finalizacao-card[open] > summary .pac-fin-caret { transform: rotate(90deg); }
+    #acomp-finalizacao-card > .pac-fin-corpo { margin-top: 14px; }
+
     /* Consolidação: abas internas + status visual por linha */
     .consol-subtabs { display: flex; gap: 6px; margin-bottom: 14px; border-bottom: 1px solid var(--cinza-b); }
     .consol-subtab { padding: 8px 14px; border: none; background: none; font-size: 13px; font-weight: 600; color: var(--text-subtle); cursor: pointer; border-bottom: 2px solid transparent; }
@@ -582,16 +593,21 @@
              de progresso geral primeiro (pedido do Alex, 2026-09-06: a lista
              de chips sozinha fica feia com muitos setores) — os chips continuam
              abaixo, só pra apontar quem falta. -->
-        <div class="pac-card" id="acomp-finalizacao-card" style="display:none;">
-          <div class="pac-card-title">Finalização por setor</div>
-          <div class="pac-fin-resumo">
-            <span id="acomp-fin-fracao">—</span>
-            <div class="pac-progress-track"><div class="pac-progress-fill" id="acomp-fin-progress-fill" style="width:0%;"></div></div>
-            <span id="acomp-fin-pct">0%</span>
+        <details class="pac-card" id="acomp-finalizacao-card" style="display:none;">
+          <summary class="pac-card-title" style="margin-bottom:0;">
+            <svg class="pac-fin-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            Finalização por setor
+          </summary>
+          <div class="pac-fin-corpo">
+            <div class="pac-fin-resumo">
+              <span id="acomp-fin-fracao">—</span>
+              <div class="pac-progress-track"><div class="pac-progress-fill" id="acomp-fin-progress-fill" style="width:0%;"></div></div>
+              <span id="acomp-fin-pct">0%</span>
+            </div>
+            <div class="pac-fin-badges" id="acomp-fin-badges"></div>
+            <div id="acomp-gerar-consolidacao-wrap"></div>
           </div>
-          <div class="pac-fin-badges" id="acomp-fin-badges"></div>
-          <div id="acomp-gerar-consolidacao-wrap"></div>
-        </div>
+        </details>
         <!-- Ativos/Cancelados — mesma separação que a Consolidação já faz.
              Achado do Alex, 2026-09-30: um item cancelado mantém o numero_pac
              congelado e pode colidir com o de um item ativo renumerado por

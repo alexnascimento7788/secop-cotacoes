@@ -933,7 +933,11 @@ function renderCelula(item, coluna, indice, liberado, forcarSomenteLeitura) {
     // antes). Mesma largura fixa + elipse do campo editável (ver
     // renderInputCelula), só sem botão salvar — clique abre o modal
     // read-only (abrirCampoExpandido(…, true)).
-    if (coluna.tipo_input === 'textarea' && valor) {
+    // "texto" (ex: "Objeto"/subitem) também pode vir com texto longo — mesmo
+    // tratamento, achado em pac-gestao.js (Acompanhamento) com a mesma
+    // coluna. Mesmo tratamento, raramente usado por "texto" ser normalmente
+    // curto, mas sem risco: texto curto não fica diferente nenhum.
+    if ((coluna.tipo_input === 'textarea' || coluna.tipo_input === 'texto') && valor) {
       return `<td class="${classe}" data-label="${coluna.label}"><textarea rows="1" readonly style="width:200px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;resize:none;border:none;background:transparent;color:inherit;cursor:pointer;" onclick="abrirCampoExpandido(this,'${coluna.label.replace(/'/g, "\\'")}',true)">${valor}</textarea></td>`;
     }
     return `<td class="${classe}" data-label="${coluna.label}">${formatarValorExibicao(coluna, valor)}</td>`;
