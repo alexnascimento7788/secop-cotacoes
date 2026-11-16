@@ -753,11 +753,21 @@ async function salvarRateioFonteConsol() {
   } catch { msg.textContent = 'Erro ao salvar.'; }
 }
 
+// Texto longo (Especificação do Objeto/Justificativa) truncado com "…" na
+// largura normal da coluna, texto completo no title (mouseover) — pedido do
+// Alex, 2026-11-16, aplicado aqui no formatador genérico porque esta tela
+// reaproveita ele pras tabelas de DFDs/Consolidação/Acompanhamento ao mesmo
+// tempo (mesmo fix de pac-lancamento.js/pac-acompanhamento.js).
+function celulaTextoLongoGestao(valor) {
+  const esc = String(valor).replace(/"/g, '&quot;');
+  return `<span style="display:inline-block;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;" title="${esc}">${valor}</span>`;
+}
 function formatarValorColuna(coluna, valor) {
   if (valor === null || valor === undefined || valor === '') return '—';
   if (coluna.tipo_input === 'data') return fmtBr(valor);
   if (coluna.tipo_input === 'moeda') return fmtMoeda(valor);
   if (coluna.slug === 'fonte_pagadora') return textoRateioFonte(valor) || valor;
+  if (coluna.tipo_input === 'textarea') return celulaTextoLongoGestao(valor);
   return valor;
 }
 
@@ -2472,7 +2482,7 @@ async function carregarAcompanhamento() {
   if (!dfdId) return;
   iniciarAutoRefreshAcompanhamento();
   mudarAcompSubtab('ativos'); // sempre volta pra "Ativos" ao trocar de DFD
-  document.getElementById('acomp-tbody').innerHTML = `<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
+  document.getElementById('acomp-tbody').innerHTML = `<tr><td colspan="15" style="padding:20px;text-align:center;color:var(--text-subtle);">Carregando...</td></tr>`;
   // Vencimento do DFD selecionado — pedido do Alex, 2026-09-07, ver criarDfd()/
   // POST /api/pac/dfds. _dfds já vem carregado por carregarDfds() no boot.
   const dfdSel = _dfds.find(d => d.id === Number(dfdId));
@@ -2720,11 +2730,11 @@ function renderTabelaAcompanhamento() {
   const colunasContrato = (_colunasCatalogo || []).filter(c => c.grupo === 'C');
   const temContrato = colunasContrato.length > 0;
   const todasColunas = _colunasCatalogo || [];
-  const qtdColunasFixas = 4; // toggle, ID PAC, Nº PAC, Setor
+  const qtdColunasFixas = 5; // toggle, ID PAC, Nº PAC, Setor, Lançado por
   const qtdColunasFinais = 8; // Status, Solic., Real.x2, Saldo x2 já contam 6 + Est.x2 = 8
 
   document.getElementById('acomp-thead').innerHTML = `<tr>
-    <th></th><th>ID PAC</th><th>Nº PAC</th><th>Setor</th>
+    <th></th><th>ID PAC</th><th>Nº PAC</th><th>Setor</th><th>Lançado por</th>
     ${colunasDfd.map(c => `<th>${c.label}</th>`).join('')}${temContrato ? '<th>Contrato</th>' : ''}
     <th>Est. TU+MLP</th><th>Est. RDC</th><th>Status</th><th>Solic.</th>
     <th>Real. TU+MLP</th><th>Real. RDC</th><th>Saldo TU+MLP</th><th>Saldo RDC</th>
@@ -2739,6 +2749,7 @@ function renderTabelaAcompanhamento() {
       <td>${item.codigo_pac || '—'}</td>
       <td><strong>${item.numero_pac || '—'}</strong></td>
       <td>${item.setor_nome}</td>
+      <td>${item.criado_por_nome || '—'}</td>
       ${colunasDfd.map(c => `<td>${formatarValorColuna(c, (item.valores || {})[c.id])}</td>`).join('')}
       ${temContrato ? celulaContratoLeitura(item, colunasContrato, todasColunas, item.item_id) : ''}
       <td>${fmtMoeda(item.estimado_tu_mlp)}</td>
@@ -2831,10 +2842,11 @@ function renderAcompCancelados() {
       <td>${item.codigo_pac || '—'}</td>
       <td><strong>${item.numero_pac ?? '—'}</strong></td>
       <td>${item.setor_nome}</td>
-      <td>${item.descricao_objeto || '—'}</td>
-      <td>${item.justificativa_cancelamento || '—'}</td>
+      <td>${item.descricao_objeto ? celulaTextoLongoGestao(item.descricao_objeto) : '—'}</td>
+      <td>${item.justificativa_cancelamento ? celulaTextoLongoGestao(item.justificativa_cancelamento) : '—'}</td>
+      <td>${item.criado_por_nome || '—'}</td>
       <td>${item.cancelado_por_username || '—'}</td>
       <td>${fmtBrData(item.cancelado_em)}</td>
     </tr>
-  `).join('') || `<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item cancelado.</td></tr>`;
+  `).join('') || `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-subtle);">Nenhum item cancelado.</td></tr>`;
 }
