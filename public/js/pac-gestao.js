@@ -767,7 +767,11 @@ function formatarValorColuna(coluna, valor) {
   if (coluna.tipo_input === 'data') return fmtBr(valor);
   if (coluna.tipo_input === 'moeda') return fmtMoeda(valor);
   if (coluna.slug === 'fonte_pagadora') return textoRateioFonte(valor) || valor;
-  if (coluna.tipo_input === 'textarea') return celulaTextoLongoGestao(valor);
+  // "texto" (ex: "Objeto"/subitem) também pode vir com texto longo — achado
+  // do Alex, 2026-11-16, print mostrando a coluna "Objeto" (tipo 'texto',
+  // não 'textarea') quebrando linha a linha e inflando a altura da linha
+  // inteira. Mesmo tratamento das colunas 'textarea' logo abaixo.
+  if (coluna.tipo_input === 'textarea' || coluna.tipo_input === 'texto') return celulaTextoLongoGestao(valor);
   return valor;
 }
 
