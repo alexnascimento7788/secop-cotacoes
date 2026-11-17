@@ -129,7 +129,7 @@ async function carregarAprovacoesOrigemPendentes() {
       card.style.display = '';
       document.getElementById('lanc-aprov-origem-tbody').innerHTML = itens.map(i => `
         <tr>
-          <td><a href="#" title="Ver o item completo antes de decidir" onclick="abrirItemAprovacaoOrigem(${i.dfd_id}, ${i.id}); return false;">${i.objeto || '—'}</a> <span class="text-muted">(${i.codigo_pac || i.numero_pac || '—'})</span></td>
+          <td><a href="#" title="Ver o item completo antes de decidir" style="color:var(--verde);text-decoration:underline;cursor:pointer;" onclick="abrirItemAprovacaoOrigem(${i.dfd_id}, ${i.id}); return false;">🔎 ${i.objeto || '—'}</a> <span class="text-muted">(${i.codigo_pac || i.numero_pac || '—'})</span></td>
           <td>${i.dfd_titulo || '—'}</td>
           <td>${i.setor_destino_nome || '—'}</td>
           <td>${i.criado_por_nome || i.criado_por_username || '—'}</td>
