@@ -111,6 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
   carregarDfds();
   aplicarAcessoImportacao();
   carregarAprovacoesOrigemPendentes();
+  iniciarScrollTopoLancamento();
 });
 
 // Painel "Aguardando sua 1ª aprovação (de outros setores)" — hierarquia de
@@ -809,6 +810,13 @@ async function renderItens() {
     // Se é do meu próprio setor (destino), só um aviso, sem botão, até ele
     // passar pela origem.
     const pendenteOrigem = item.aprovacao_subgestor === 'pendente_origem';
+    // Master "pertence" a todos os setores (ver GET /api/pac/meus-setores,
+    // bypass de sempre) — então nunca é "estranho" em lugar nenhum, e por
+    // isso nunca ganhava os botões de aprovação de origem, só o aviso.
+    // Achado pelo Alex testando como master, 2026-11-17: precisa poder agir
+    // em qualquer item, igual já pode em tudo mais.
+    const souMaster = _usuarioPac && _usuarioPac.username === 'master';
+    const podeAgirOrigem = itemEstranho || souMaster;
     // Setor com gestor único designado (ver setores.gestor_user_id, pedido
     // do Alex 2026-10-20) — só essa pessoa aprova; sem designado, mantém a
     // regra antiga (qualquer gestor comum do setor aprova).
@@ -832,7 +840,7 @@ async function renderItens() {
       <td data-label="Unidade"${tituloLancadoPor}>${selectUnidadeLinha(item, itemEstranho)}${pendenteOrigem ? `
         <div style="margin-top:4px;">
           <span class="badge badge-analise" style="font-size:10px;">${itemEstranho ? 'Aguardando sua 1ª aprovação' : `Aguardando aprovação do setor de origem${item.setor_origem_nome ? ` (${item.setor_origem_nome})` : ''}`}</span>
-          ${itemEstranho ? `
+          ${podeAgirOrigem ? `
             <button class="btn btn-primary btn-xs" style="margin-top:4px;" onclick="agirAprovacaoOrigem(${item.id}, true)">Aprovar</button>
             <button class="btn btn-danger btn-xs" style="margin-top:4px;" onclick="agirAprovacaoOrigem(${item.id}, false)">Rejeitar</button>
           ` : ''}
@@ -865,6 +873,34 @@ async function renderItens() {
 
   wireCelulas();
   renderFormNovoItem();
+  atualizarScrollTopoLancamento();
+}
+
+// Barra de rolagem horizontal duplicada no TOPO da tabela de itens (pedido
+// do Alex, 2026-11-17 — ver comentário em style.css, .dfd-scroll-top): a
+// original só existe embaixo de toda a tabela, obrigando rolar a tabela
+// inteira até o rodapé só pra achar a barra. Listeners de scroll ligados 1x
+// (iniciarScrollTopoLancamento, chamada no load da página); a largura/
+// visibilidade é recalculada toda vez que a tabela muda (fim de renderItens)
+// ou a janela é redimensionada.
+function iniciarScrollTopoLancamento() {
+  const topo = document.getElementById('lanc-scroll-top');
+  const wrap = document.getElementById('lanc-itens-wrap');
+  if (!topo || !wrap || topo.dataset.ligado) return;
+  topo.dataset.ligado = '1';
+  let sincronizando = false;
+  topo.addEventListener('scroll', () => { if (sincronizando) return; sincronizando = true; wrap.scrollLeft = topo.scrollLeft; sincronizando = false; });
+  wrap.addEventListener('scroll', () => { if (sincronizando) return; sincronizando = true; topo.scrollLeft = wrap.scrollLeft; sincronizando = false; });
+  window.addEventListener('resize', atualizarScrollTopoLancamento);
+}
+function atualizarScrollTopoLancamento() {
+  const topo = document.getElementById('lanc-scroll-top');
+  const inner = document.getElementById('lanc-scroll-top-inner');
+  const wrap = document.getElementById('lanc-itens-wrap');
+  const tabela = document.getElementById('lanc-itens-table');
+  if (!topo || !inner || !wrap || !tabela) return;
+  inner.style.width = tabela.scrollWidth + 'px';
+  topo.style.display = tabela.scrollWidth > wrap.clientWidth ? 'block' : 'none';
 }
 
 // Aprovar/rejeitar item lançado por sub-gestor — rejeitar remove o item da
