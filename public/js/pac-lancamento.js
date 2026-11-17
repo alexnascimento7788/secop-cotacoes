@@ -129,7 +129,7 @@ async function carregarAprovacoesOrigemPendentes() {
       card.style.display = '';
       document.getElementById('lanc-aprov-origem-tbody').innerHTML = itens.map(i => `
         <tr>
-          <td>${i.objeto || '—'} <span class="text-muted">(${i.codigo_pac || i.numero_pac || '—'})</span></td>
+          <td><a href="#" title="Ver o item completo antes de decidir" onclick="abrirItemAprovacaoOrigem(${i.dfd_id}, ${i.id}); return false;">${i.objeto || '—'}</a> <span class="text-muted">(${i.codigo_pac || i.numero_pac || '—'})</span></td>
           <td>${i.dfd_titulo || '—'}</td>
           <td>${i.setor_destino_nome || '—'}</td>
           <td>${i.criado_por_nome || i.criado_por_username || '—'}</td>
@@ -148,6 +148,19 @@ async function carregarAprovacoesOrigemPendentes() {
   // dados na listagem" — além do card (acima, cross-DFD), os mesmos itens
   // também entram como linhas extras na tabela do DFD aberto (ver renderItens).
   if (_dfdAtualId) renderItens();
+}
+
+// Pedido do Alex, 2026-11-17: o card não mostra os campos do item (só
+// Objeto/DFD/Setor/Lançado por) — aprovar direto dali é "no escuro". Abre o
+// DFD de verdade (mesma tabela que já renderiza o item estranho com TODAS
+// as colunas ativas, somente leitura, ver v4.43.1) e rola até a linha.
+async function abrirItemAprovacaoOrigem(dfdId, itemId) {
+  await abrirDfd(dfdId);
+  const row = document.querySelector(`tr[data-item-id="${itemId}"]`);
+  if (!row) return;
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  row.classList.add('item-destaque');
+  setTimeout(() => row.classList.remove('item-destaque'), 2000);
 }
 
 async function agirAprovacaoOrigem(itemId, aprovado) {
