@@ -155,7 +155,14 @@ async function carregarAprovacoesOrigemPendentes() {
 // DFD de verdade (mesma tabela que já renderiza o item estranho com TODAS
 // as colunas ativas, somente leitura, ver v4.43.1) e rola até a linha.
 async function abrirItemAprovacaoOrigem(dfdId, itemId) {
-  await abrirDfd(dfdId);
+  // abrirDfd() busca DFD/setores/unidades/listas/pedidos/finalização/itens em
+  // sequência — alguns segundos de delay se o DFD ainda não estava aberto.
+  // Pedido do Alex, 2026-11-17: dar um feedback imediato (senão parece que
+  // nada aconteceu) e pular o reload inteiro se já for o mesmo DFD aberto.
+  if (_dfdAtualId !== dfdId) {
+    toast('Abrindo item…');
+    await abrirDfd(dfdId);
+  }
   const row = document.querySelector(`tr[data-item-id="${itemId}"]`);
   if (!row) return;
   row.scrollIntoView({ behavior: 'smooth', block: 'center' });
