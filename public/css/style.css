@@ -527,6 +527,13 @@ input[type="checkbox"].switch-moderno:focus-visible { outline: 2px solid var(--v
    contém o overflow sozinho; o <td> de texto puro do pós-consolidação não
    tinha essa proteção). Achado pelo Alex testando, 2026-09-16. */
 .dfd-table td { white-space: normal; max-width: 320px; word-break: break-word; overflow-wrap: anywhere; }
+/* Exceção: "Setor" é sempre uma palavra curta (ex.: "Deinfra") — o break-word
+   genérico acima (pensado pra texto longo colado) estava quebrando ela no
+   meio da palavra ("Deinfr"/"a") só porque a coluna fica espremida ao lado
+   das outras. Sem overflow-wrap:anywhere, ela só quebra em espaço — como não
+   tem espaço, a coluna cresce o necessário em vez de fatiar a palavra.
+   Achado pelo Alex testando, 2026-11-17. */
+.dfd-table td[data-label="Setor"] { word-break: normal; overflow-wrap: normal; }
 /* `border-collapse:separate` (precisa disso pra sticky funcionar) faz o
    `tbody tr { border-bottom }` genérico (style.css, regra de toda tabela do
    sistema) parar de renderizar — em separate, borda em <tr> simplesmente não
