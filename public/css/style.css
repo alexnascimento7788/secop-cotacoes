@@ -511,6 +511,15 @@ input[type="checkbox"].switch-moderno:focus-visible { outline: 2px solid var(--v
    ficava lá embaixo no rodapé da página, exigindo scroll vertical enorme só
    pra rolar pros lados. Cabeçalho gruda no topo do próprio wrap (sticky). */
 .dfd-table-wrap { overflow-x: auto; overflow-y: auto; max-height: 62vh; position: relative; }
+/* Barra de rolagem horizontal duplicada no TOPO da tabela (pedido do Alex,
+   2026-11-17: a barra original só aparece embaixo de toda a tabela — com
+   muitos itens, era preciso rolar a tabela inteira até o rodapé só pra achar
+   a barra, rolar pro lado, e rolar de volta pra cima pra ver a linha que
+   queria). Só existe a barrinha em si (sem conteúdo visível) - a largura do
+   miolo é setada via JS igual à largura real da tabela, e o scroll de uma
+   sincroniza com o da outra. */
+.dfd-scroll-top { overflow-x: auto; overflow-y: hidden; height: 14px; margin-bottom: 2px; display: none; }
+.dfd-scroll-top > div { height: 1px; }
 .dfd-table { border-collapse: separate; border-spacing: 0; }
 .dfd-table th { white-space: nowrap; }
 /* Célula de dado quebra linha (não fica tudo numa linha só espremendo a
