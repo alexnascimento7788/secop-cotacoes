@@ -1,6 +1,11 @@
 // CPL — Comunicação Concessionários (parcelamento da outorga). Tela única:
-// métricas + lista + envio (individual/seleção/massa) + importação da
-// planilha de parcelamento já informado. Ver routes/cpl-comunicacao.js.
+// métricas + lista + envio (individual/seleção/massa) + autorizar/
+// desautorizar + registrar retorno. Carga inicial e a importação de
+// "parcelamento já informado" foram feitas 1x direto no banco (ver
+// [[project_secop_cpl_comunicacao]]) — não existe mais import nesta tela,
+// o fluxo é só pela plataforma a partir de agora. Teste de envio/template
+// fica em Admin → Comunicação → Templates (botão "Testar envio"), não aqui.
+// Ver routes/cpl-comunicacao.js.
 
 function toast(msg, tipo) {
   const t = document.getElementById('toast');
@@ -15,7 +20,6 @@ let _cplLista = [];
 const _cplExpandidos = new Set();
 const _cplDetalheCache = new Map();
 const _cplSelecionados = new Set();
-let _cplArquivoImport = null;
 let _cplBuscaTimer = null;
 
 const CPL_SITUACAO_LABEL = {
@@ -179,18 +183,17 @@ function cplToggleTodos(checked) {
 
 async function cplEnviar(ids) {
   const msg = document.getElementById('cpl-envio-msg');
-  const modoTeste = document.getElementById('cpl-modo-teste').checked;
   if (!ids.length) { msg.style.color = 'var(--vermelho)'; msg.textContent = 'Nenhum concessionário selecionado.'; return; }
   msg.style.color = 'var(--text-muted)'; msg.textContent = 'Enviando...';
   try {
     const r = await fetch('/api/cpl-comunicacao/enviar', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids, modo_teste: modoTeste }),
+      body: JSON.stringify({ ids }),
     }).then(x => x.json());
     if (r.error) { msg.style.color = 'var(--vermelho)'; msg.textContent = r.error; return; }
     const pulados = r.pulados.length ? ` (${r.pulados.length} pulado(s): ${r.pulados.map(p => p.motivo).join(', ')})` : '';
     msg.style.color = r.enviados ? 'var(--verde)' : 'var(--vermelho)';
-    msg.textContent = `${r.enviados} e-mail(s) enfileirado(s)${modoTeste ? ' [MODO TESTE]' : ''}${pulados}`;
+    msg.textContent = `${r.enviados} e-mail(s) enfileirado(s)${pulados}`;
     _cplDetalheCache.clear();
     _cplSelecionados.clear();
     await cplCarregar();
@@ -250,144 +253,6 @@ async function cplSalvarObservacao(id) {
     toast('Observação salva', 'success');
   } catch {
     toast('Erro ao salvar observação', 'error');
-  }
-}
-
-// ── Config do e-mail de teste ──────────────────────────────────────────────
-async function abrirModalConfigCpl() {
-  try {
-    const cfg = await fetch('/api/cpl-comunicacao/config').then(r => r.json());
-    document.getElementById('cpl-cfg-email-teste').value = cfg.email_teste_interno || '';
-  } catch {}
-  document.getElementById('cpl-cfg-msg').textContent = '';
-  document.getElementById('modal-cpl-config').classList.add('open');
-}
-function fecharModalConfigCpl() { document.getElementById('modal-cpl-config').classList.remove('open'); }
-async function salvarConfigCpl() {
-  const msg = document.getElementById('cpl-cfg-msg');
-  try {
-    await fetch('/api/cpl-comunicacao/config', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email_teste_interno: document.getElementById('cpl-cfg-email-teste').value.trim() }),
-    });
-    msg.style.color = 'var(--verde)'; msg.textContent = 'Salvo.';
-    setTimeout(fecharModalConfigCpl, 500);
-  } catch {
-    msg.style.color = 'var(--vermelho)'; msg.textContent = 'Erro ao salvar.';
-  }
-}
-
-// ── Importação: planilha "parcelamento já informado" ──────────────────────
-async function _cplCarregarXLSX() {
-  if (window.XLSX) return window.XLSX;
-  return new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
-    s.onload = () => resolve(window.XLSX);
-    s.onerror = () => reject(new Error('Falha ao carregar a biblioteca de planilhas'));
-    document.head.appendChild(s);
-  });
-}
-
-function _cplNormalizarHeader(s) {
-  return String(s || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
-}
-
-// Cabeçalho real da planilha "Relação de concessionários - parcelamento.xls"
-// (conferido em 2026-11-18): Contrato / Concessionário / Telefone / E-mail /
-// E-mail secundário / Loja-box / Data de vencimento / Valor do ponto /
-// Valor da outorga / Cidade / Data do aceite / Data do pagamento da taxa /
-// Informou quantidade de parcelas (SIM/NÃO — é um FLAG, não a quantidade de
-// fato). Não tem coluna de código nem CNPJ — o servidor resolve o código via
-// Contrato contra AvaliacaoAreaRenovacao (ver routes/cpl-comunicacao.js).
-function _cplMapearColuna(headerBruto) {
-  const h = _cplNormalizarHeader(headerBruto);
-  if (h.includes('contrato')) return 'numero_ccu';
-  if (h.includes('concession')) return 'razao_social';
-  if (h.includes('secund')) return 'email2'; // checar ANTES do genérico "email"
-  if (h.includes('email') || h.includes('mail')) return 'email1';
-  if (h.includes('telefone') || h.includes('celular')) return 'telefone';
-  if (h.includes('aceite')) return 'data_aceite';
-  if (h.includes('informou') || h.includes('parcela')) return 'informado';
-  return null;
-}
-
-// "SIM"/"Não"/vazio — tolerante a acento/maiúscula (planilha real tem "SIM"/"NÃO").
-function _cplEhSim(valor) {
-  return String(valor || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').startsWith('sim');
-}
-
-function abrirModalImportCpl() {
-  _cplArquivoImport = null;
-  document.getElementById('cpl-imp-dropzone-texto').textContent = 'Clique para escolher o arquivo (.xlsx, .xls ou .csv)';
-  document.getElementById('cpl-imp-preview').style.display = 'none';
-  document.getElementById('cpl-imp-msg').textContent = '';
-  document.getElementById('cpl-imp-btn-simular').disabled = true;
-  document.getElementById('cpl-imp-btn-confirmar').style.display = 'none';
-  document.getElementById('modal-cpl-import').classList.add('open');
-}
-function fecharModalImportCpl() { document.getElementById('modal-cpl-import').classList.remove('open'); }
-
-function cplArquivoSelecionado(file) {
-  if (!file) return;
-  _cplArquivoImport = file;
-  document.getElementById('cpl-imp-dropzone-texto').textContent = `${file.name} (${(file.size / 1024).toFixed(0)} KB)`;
-  document.getElementById('cpl-imp-btn-simular').disabled = false;
-  document.getElementById('cpl-imp-btn-confirmar').style.display = 'none';
-  document.getElementById('cpl-imp-preview').style.display = 'none';
-}
-
-async function _cplLerLinhas() {
-  const XLSX = await _cplCarregarXLSX();
-  const data = await _cplArquivoImport.arrayBuffer();
-  const wb = XLSX.read(data, { type: 'array' });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-  if (!rows.length) throw new Error('Arquivo vazio.');
-  const cabecalho = rows[0].map(_cplMapearColuna);
-  const faltando = ['numero_ccu', 'informado'].filter(campo => !cabecalho.includes(campo));
-  if (faltando.length) throw new Error(`Não encontrei a(s) coluna(s): ${faltando.join(', ')}. Confira os cabeçalhos da planilha.`);
-  const idxInformado = cabecalho.indexOf('informado');
-  return rows.slice(1)
-    .filter(r => r.some(v => String(v).trim() !== ''))
-    .filter(r => _cplEhSim(r[idxInformado])) // só quem já informou (SIM) precisa de ação — "NÃO" fica como estava
-    .map(r => {
-      const linha = {};
-      cabecalho.forEach((campo, i) => { if (campo && campo !== 'informado') linha[campo] = r[i]; });
-      return linha;
-    });
-}
-
-async function cplImportar(dryRun) {
-  const msg = document.getElementById('cpl-imp-msg');
-  msg.style.color = ''; msg.textContent = '';
-  if (!_cplArquivoImport) { msg.style.color = 'var(--vermelho)'; msg.textContent = 'Selecione um arquivo.'; return; }
-  try {
-    const linhas = await _cplLerLinhas();
-    if (!linhas.length) { msg.style.color = 'var(--vermelho)'; msg.textContent = 'Nenhuma linha marcada "SIM" na planilha — nada a importar.'; return; }
-    const res = await fetch('/api/cpl-comunicacao/importar-parcelamento-informado', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dry_run: !!dryRun, nome_arquivo: _cplArquivoImport.name, linhas }),
-    });
-    const r = await res.json();
-    if (!res.ok) throw new Error(r.error || 'Erro ao importar.');
-    if (dryRun) {
-      const preview = document.getElementById('cpl-imp-preview');
-      preview.style.display = 'block';
-      preview.innerHTML = `
-        Total de linhas: <b>${r.total_linhas}</b> · válidas: <b>${r.validas}</b> · inválidas: <b>${r.invalidas}</b><br>
-        Já cadastrados (atualiza): <b>${r.ja_cadastrados}</b> · novos registros (cria já desabilitado): <b>${r.novos_registros}</b>
-        ${r.invalidas_amostra.length ? '<br><br>Linhas inválidas (amostra):<br>' + r.invalidas_amostra.map(i => `Linha ${i.linha} — ${i.motivo}`).join('<br>') : ''}
-      `;
-      document.getElementById('cpl-imp-btn-confirmar').style.display = 'inline-block';
-      msg.style.color = 'var(--text-muted)'; msg.textContent = 'Confira a simulação e confirme para importar de fato.';
-    } else {
-      msg.style.color = 'var(--verde)'; msg.textContent = `Importação concluída: ${r.total_linhas} linha(s).`;
-      toast('Importação concluída', 'success');
-      setTimeout(() => { fecharModalImportCpl(); cplCarregar(); }, 900);
-    }
-  } catch (e) {
-    msg.style.color = 'var(--vermelho)'; msg.textContent = e.message || 'Erro ao importar.';
   }
 }
 

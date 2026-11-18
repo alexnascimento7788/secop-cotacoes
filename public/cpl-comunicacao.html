@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="css/style.css" />
   <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
   <link rel="manifest" href="manifest.webmanifest">
-  <meta name="theme-color" content="#6A1B9A">
+  <meta name="theme-color" content="#37474F">
   <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
   <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');var _mc=localStorage.getItem('secop_modulo_cache');if(_mc)document.documentElement.setAttribute('data-modulo',_mc);</script>
   <style>
@@ -24,8 +24,6 @@
     .cpl-toolbar input[type="text"], .cpl-toolbar select {
       padding: 8px 10px; border: 1.5px solid var(--cinza-b); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 13px;
     }
-    .cpl-modo-teste { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-muted); margin-left: auto; }
-
     .cpl-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
     .cpl-table th { text-align: left; padding: 7px 10px; font-size: 11px; text-transform: uppercase; color: var(--text-muted); border-bottom: 2px solid var(--cinza-b); white-space: nowrap; }
     .cpl-table td { padding: 8px 10px; border-bottom: 1px solid var(--cinza-b); vertical-align: middle; color: var(--text); }
@@ -86,10 +84,6 @@
         <div class="page-title">Comunicação de Parcelamento</div>
         <div class="page-subtitle">Solicitação de parcelamento da outorga aos concessionários com aceite de renovação</div>
       </div>
-      <div style="display:flex;gap:8px;">
-        <button class="btn btn-secondary" onclick="abrirModalConfigCpl()">⚙️ Config. de teste</button>
-        <button class="btn btn-secondary" onclick="abrirModalImportCpl()">📥 Importar parcelamento já informado</button>
-      </div>
     </div>
 
     <!-- KPIs / painel de métricas -->
@@ -106,9 +100,6 @@
         <option value="informado">Parcelamento informado</option>
         <option value="desabilitado">Desabilitado</option>
       </select>
-      <label class="cpl-modo-teste">
-        <input type="checkbox" id="cpl-modo-teste"/> Modo teste (envia pro e-mail interno configurado)
-      </label>
     </div>
 
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
@@ -137,46 +128,6 @@
 
     <div id="app-footer"></div>
   </main>
-</div>
-
-<!-- Modal: config do e-mail de teste -->
-<div class="modal-overlay" id="modal-cpl-config">
-  <div class="modal-box" style="max-width:440px;">
-    <h3>E-mail de teste interno</h3>
-    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">
-      Usado quando "Modo teste" está marcado: ao enviar, o e-mail vai pra este endereço em vez do e-mail real do concessionário — útil pra validar o texto/layout sem incomodar ninguém de fora.
-    </p>
-    <div class="form-group" style="margin-bottom:12px;">
-      <label>E-mail interno de teste</label>
-      <input type="email" id="cpl-cfg-email-teste" placeholder="seuemail@ceasaminas.com.br" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
-    </div>
-    <div id="cpl-cfg-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin-bottom:8px;"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;">
-      <button class="btn btn-secondary" onclick="fecharModalConfigCpl()">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvarConfigCpl()">Salvar</button>
-    </div>
-  </div>
-</div>
-
-<!-- Modal: importar planilha "parcelamento já informado" -->
-<div class="modal-overlay" id="modal-cpl-import">
-  <div class="modal-box" style="max-width:560px;">
-    <h3>Importar parcelamento já informado</h3>
-    <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">
-      Planilha "Relação de concessionários - parcelamento" (coluna Contrato + "Informou quantidade de parcelas" = SIM/NÃO). Só as linhas marcadas SIM são importadas — ficam marcadas como "informado" e saem da lista de envio, mesmo que ainda não estivessem cadastradas nesta tela. Linha marcada NÃO não precisa de nada, é ignorada.
-    </p>
-    <div id="cpl-imp-dropzone" style="border:2px dashed var(--cinza-b);border-radius:8px;padding:22px;text-align:center;margin-bottom:14px;cursor:pointer;" onclick="document.getElementById('cpl-imp-arquivo').click()">
-      <input type="file" id="cpl-imp-arquivo" accept=".xlsx,.xls,.csv" style="display:none;" onchange="cplArquivoSelecionado(this.files[0])"/>
-      <span id="cpl-imp-dropzone-texto">Clique para escolher o arquivo (.xlsx, .xls ou .csv)</span>
-    </div>
-    <div id="cpl-imp-preview" style="display:none;font-size:12.5px;background:var(--surface-2);border-radius:6px;padding:10px 12px;margin-bottom:12px;max-height:200px;overflow-y:auto;"></div>
-    <div id="cpl-imp-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin-bottom:8px;"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;">
-      <button class="btn btn-secondary" onclick="fecharModalImportCpl()">Cancelar</button>
-      <button class="btn btn-secondary" id="cpl-imp-btn-simular" onclick="cplImportar(true)" disabled>Simular</button>
-      <button class="btn btn-primary" id="cpl-imp-btn-confirmar" onclick="cplImportar(false)" style="display:none;">Confirmar importação</button>
-    </div>
-  </div>
 </div>
 
 <div id="toast"></div>

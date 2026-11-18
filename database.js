@@ -453,12 +453,18 @@ function setupDb() {
   // Módulo "Comunicação Concessionários" (pedido do Alex, 2026-11-18) —
   // departamento CPL novo. Acompanha quem deu aceite à renovação mas ainda
   // não informou o parcelamento da outorga, e dispara/registra o e-mail de
-  // solicitação (ver routes/cpl-comunicacao.js). Cor própria (roxo), não
-  // reaproveita a família visual de nenhum módulo existente.
+  // solicitação (ver routes/cpl-comunicacao.js). Cor própria grafite/azulada
+  // (não reaproveita a família visual de nenhum módulo existente) — a 1ª
+  // escolha (roxo) foi trocada no mesmo dia: o Alex apontou que CPL é tratado
+  // como "setor" e ele não queria que a cor fosse lida como referência LGBT.
   try {
     _db.prepare(`INSERT INTO modulos (slug, nome, cor, home, ordem) VALUES (?, ?, ?, ?, ?)`)
-      .run('cpl-comunicacao', 'Comunicação Concessionários', '#6A1B9A', '/cpl-comunicacao.html', 7);
+      .run('cpl-comunicacao', 'Comunicação Concessionários', '#37474F', '/cpl-comunicacao.html', 7);
   } catch {}
+  // Corrige quem já tinha nascido com o roxo (1ª versão, mesmo dia) — só troca
+  // se ainda estiver exatamente no valor antigo, nunca sobrescreve uma
+  // customização manual posterior.
+  try { _db.prepare(`UPDATE modulos SET cor = '#37474F' WHERE slug = 'cpl-comunicacao' AND cor = '#6A1B9A'`).run(); } catch {}
 
   // (rename depop→secad já rodou mais acima, antes do seed de módulos)
 
@@ -2323,15 +2329,12 @@ function setupDb() {
   // escolher a conta manualmente (pedido explícito do Alex).
 
   // Config da CPL: e-mail interno que recebe o aviso de "novo concessionário
-  // com aceite pendente de parcelamento" + e-mail de destino quando o modo
-  // teste (tela cpl-comunicacao.html) está ligado. Editável sem redeploy —
-  // mesma convenção de outras chaves soltas em `config`.
-  [
-    { chave: 'cpl_email_aviso_novo', valor: 'cpl@ceasaminas.com.br' },
-    { chave: 'cpl_email_teste_interno', valor: '' },
-  ].forEach(c => {
-    try { _db.prepare(`INSERT INTO config (chave, valor) VALUES (?, ?)`).run(c.chave, c.valor); } catch {}
-  });
+  // com aceite pendente de parcelamento". Editável sem redeploy — mesma
+  // convenção de outras chaves soltas em `config`.
+  try { _db.prepare(`INSERT INTO config (chave, valor) VALUES ('cpl_email_aviso_novo', 'cpl@ceasaminas.com.br')`).run(); } catch {}
+  // Limpa a chave do "modo teste" da 1ª versão (removida no mesmo dia —
+  // testar e-mail passou a ser só em Admin → Comunicação → Templates).
+  try { _db.exec(`DELETE FROM config WHERE chave = 'cpl_email_teste_interno'`); } catch {}
 
   // Templates de e-mail da CPL — formatação de formulário centralizado
   // (pedido explícito do Alex), com a logo da CEASAMINAS embutida em base64
@@ -2348,7 +2351,7 @@ function setupDb() {
       : `<div style="font-size:17px;font-weight:700;color:#1A6B35;">CEASAMINAS</div>`;
     const envolverCpl = corpo => `<div style="font-family:Arial,Helvetica,sans-serif;max-width:620px;margin:0 auto;background:#f2f2f2;padding:28px 10px;">
   <div style="background:#ffffff;border:1px solid #ddd;border-radius:10px;overflow:hidden;">
-    <div style="background:#ffffff;padding:26px 30px 14px;text-align:center;border-bottom:3px solid #6A1B9A;">
+    <div style="background:#ffffff;padding:26px 30px 14px;text-align:center;border-bottom:3px solid #37474F;">
       ${cabecalhoCpl}
       <div style="font-size:12px;letter-spacing:.5px;color:#666;margin-top:4px;">COMISSÃO PERMANENTE DE LICITAÇÃO — CPL</div>
     </div>
@@ -2417,6 +2420,14 @@ function setupDb() {
     if (contaDefault) {
       _db.prepare(`UPDATE email_templates SET conta_id = ? WHERE conta_id IS NULL AND slug LIKE 'cpl.%'`).run(contaDefault.id);
     }
+
+    // Corrige quem já tinha os 2 templates seedados com a barra roxa (1ª
+    // versão, mesmo dia) — troca só se o HTML ainda tiver a cor antiga,
+    // preserva qualquer edição manual que já tenha mudado isso.
+    _db.prepare(`
+      UPDATE email_templates SET corpo_html = REPLACE(corpo_html, '#6A1B9A', '#37474F')
+      WHERE slug LIKE 'cpl.%' AND corpo_html LIKE '%#6A1B9A%'
+    `).run();
   } catch {}
 }
 
