@@ -139,7 +139,7 @@ function cplRenderDetalheRow(c) {
             <div style="font-weight:700;font-size:12.5px;margin-bottom:6px;">Histórico de envios (${det.envios_qtd})</div>
             ${envios}
             ${det.parcelas_informado ? `
-              <div style="margin-top:12px;font-size:12.5px;"><b>Parcelas informadas:</b> ${det.parcelas_qtd}</div>
+              <div style="margin-top:12px;font-size:12.5px;"><b>Parcelas informadas:</b> ${det.parcelas_qtd || 'Sim (sem detalhe — importado da planilha de parcelamento já informado)'}</div>
             ` : `
               <div class="cpl-retorno-form">
                 <input type="text" id="cpl-parcelas-${c.id}" placeholder="ex: à vista, 12x, 60x"/>
@@ -293,13 +293,28 @@ function _cplNormalizarHeader(s) {
   return String(s || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
 }
 
+// Cabeçalho real da planilha "Relação de concessionários - parcelamento.xls"
+// (conferido em 2026-11-18): Contrato / Concessionário / Telefone / E-mail /
+// E-mail secundário / Loja-box / Data de vencimento / Valor do ponto /
+// Valor da outorga / Cidade / Data do aceite / Data do pagamento da taxa /
+// Informou quantidade de parcelas (SIM/NÃO — é um FLAG, não a quantidade de
+// fato). Não tem coluna de código nem CNPJ — o servidor resolve o código via
+// Contrato contra AvaliacaoAreaRenovacao (ver routes/cpl-comunicacao.js).
 function _cplMapearColuna(headerBruto) {
   const h = _cplNormalizarHeader(headerBruto);
-  if (h.includes('codigo')) return 'codigo';
-  if (h.includes('cnpj')) return 'cnpj';
-  if (h.includes('contrato') || h.includes('ccu')) return 'numero_ccu';
-  if (h.includes('parcela')) return 'parcelas_qtd';
+  if (h.includes('contrato')) return 'numero_ccu';
+  if (h.includes('concession')) return 'razao_social';
+  if (h.includes('secund')) return 'email2'; // checar ANTES do genérico "email"
+  if (h.includes('email') || h.includes('mail')) return 'email1';
+  if (h.includes('telefone') || h.includes('celular')) return 'telefone';
+  if (h.includes('aceite')) return 'data_aceite';
+  if (h.includes('informou') || h.includes('parcela')) return 'informado';
   return null;
+}
+
+// "SIM"/"Não"/vazio — tolerante a acento/maiúscula (planilha real tem "SIM"/"NÃO").
+function _cplEhSim(valor) {
+  return String(valor || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').startsWith('sim');
 }
 
 function abrirModalImportCpl() {
@@ -330,13 +345,17 @@ async function _cplLerLinhas() {
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
   if (!rows.length) throw new Error('Arquivo vazio.');
   const cabecalho = rows[0].map(_cplMapearColuna);
-  const faltando = ['codigo', 'numero_ccu', 'parcelas_qtd'].filter(campo => !cabecalho.includes(campo));
+  const faltando = ['numero_ccu', 'informado'].filter(campo => !cabecalho.includes(campo));
   if (faltando.length) throw new Error(`Não encontrei a(s) coluna(s): ${faltando.join(', ')}. Confira os cabeçalhos da planilha.`);
-  return rows.slice(1).filter(r => r.some(v => String(v).trim() !== '')).map(r => {
-    const linha = {};
-    cabecalho.forEach((campo, i) => { if (campo) linha[campo] = r[i]; });
-    return linha;
-  });
+  const idxInformado = cabecalho.indexOf('informado');
+  return rows.slice(1)
+    .filter(r => r.some(v => String(v).trim() !== ''))
+    .filter(r => _cplEhSim(r[idxInformado])) // só quem já informou (SIM) precisa de ação — "NÃO" fica como estava
+    .map(r => {
+      const linha = {};
+      cabecalho.forEach((campo, i) => { if (campo && campo !== 'informado') linha[campo] = r[i]; });
+      return linha;
+    });
 }
 
 async function cplImportar(dryRun) {
@@ -345,6 +364,7 @@ async function cplImportar(dryRun) {
   if (!_cplArquivoImport) { msg.style.color = 'var(--vermelho)'; msg.textContent = 'Selecione um arquivo.'; return; }
   try {
     const linhas = await _cplLerLinhas();
+    if (!linhas.length) { msg.style.color = 'var(--vermelho)'; msg.textContent = 'Nenhuma linha marcada "SIM" na planilha — nada a importar.'; return; }
     const res = await fetch('/api/cpl-comunicacao/importar-parcelamento-informado', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ dry_run: !!dryRun, nome_arquivo: _cplArquivoImport.name, linhas }),
