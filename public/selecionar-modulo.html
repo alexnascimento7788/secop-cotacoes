@@ -151,8 +151,8 @@
 // pedido do Alex, 2026-09-18: "só visual por enquanto", sem tabela nova no
 // banco. modulos.nome continua "SECOP - Cotações" etc. no banco/admin, pra
 // quem já reconhece o codinome nas telas de administração.
-const NOME_AMIGAVEL = { secop: 'Cotações', secad: 'Concessionários Renovação', pac: 'DFD', detin: 'Gestão de Contratos' };
-const SECAO_POR_MODULO = { secop: 'SECOP', secad: 'SECAD', pac: 'PAC', 'concessionarios-cadastro': 'SECAD', 'relatorios-gerais': 'PAC' }; // detin: sem seção
+const NOME_AMIGAVEL = { secop: 'Cotações', secad: 'Concessionários Renovação', pac: 'DFD', detin: 'Gestão de Contratos', 'cpl-comunicacao': 'Comunicação de Parcelamento' };
+const SECAO_POR_MODULO = { secop: 'SECOP', secad: 'SECAD', pac: 'PAC', 'concessionarios-cadastro': 'SECAD', 'relatorios-gerais': 'PAC' }; // detin/cpl-comunicacao: sem seção
 const DESCRICAO_MODULO = {
   secop: 'Pesquisa de preços e cotação de fornecedores',
   secad: 'Avaliação e renovação de área dos concessionários',
@@ -160,6 +160,7 @@ const DESCRICAO_MODULO = {
   detin: 'Contratos de TI: vigência, aditivos e vencimentos',
   'concessionarios-cadastro': 'Cadastro sincronizado do ERP TOTVS (CORPORE)',
   'relatorios-gerais': 'Dados de concessionários, tarifas e renovações do DEPLA',
+  'cpl-comunicacao': 'Solicitação de parcelamento da outorga aos concessionários',
 };
 
 let _grupos = []; // [{ nome, cor, itens: [modulo,...] }] — 1 por departamento

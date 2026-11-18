@@ -12,6 +12,7 @@ const express = require('express');
 const { db, depopDb } = require('../database');
 const { registrarLog, requireModulo, requireAdminAny } = require('../middleware');
 const { gerarPdfAdesaoRenovacao } = require('../secad-relatorios-pdf');
+const { sincronizarNovosAceites } = require('./cpl-comunicacao');
 
 const router = express.Router();
 const secad = requireModulo('secad');
@@ -78,6 +79,15 @@ router.post('/api/secad/relatorios/importar-aceites', secad, requireAdminGlobal,
       codigo, numero_ccu, casou,
       cnpj: l.cnpj ? String(l.cnpj).trim() : null,
       data_aceite: l.data_aceite ? String(l.data_aceite).trim() : null,
+      // Colunas novas (CPL, 2026-11-18) — só vêm preenchidas quando a planilha
+      // importada já traz Email1/Email2/Telefone/TelefoneWhatsApp; ausentes
+      // numa planilha no formato antigo (4 colunas), sem efeito nenhum aqui
+      // além de ficarem undefined (ver sincronizarNovosAceites, que só age
+      // quando há e-mail).
+      email1: l.email1 ? String(l.email1).trim() : null,
+      email2: l.email2 ? String(l.email2).trim() : null,
+      telefone: l.telefone ? String(l.telefone).trim() : null,
+      telefone_whatsapp: l.telefone_whatsapp ? String(l.telefone_whatsapp).trim() : null,
     });
   });
   const naoCasados = validas.filter(v => !v.casou);
@@ -113,6 +123,10 @@ router.post('/api/secad/relatorios/importar-aceites', secad, requireAdminGlobal,
     db.exec('ROLLBACK');
     throw e;
   }
+
+  // CPL (2026-11-18): puramente aditivo, nunca pode quebrar esta importação —
+  // ver sincronizarNovosAceites, que já só age em linha com e-mail presente.
+  sincronizarNovosAceites(validas, req.user.user_id);
 
   registrarLog(req, 'SECAD', 'IMPORTOU_ACEITES_RENOVACAO',
     `Importou ${validas.length} linha(s) de aceite à renovação (lote #${importacaoId}, ${naoCasados.length} sem contrato correspondente)`);

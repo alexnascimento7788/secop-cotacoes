@@ -280,6 +280,11 @@ app.use(require('./routes/detin'));
 // Rotas do módulo Concessionários Cadastro — ver routes/concessionarios-cadastro.js
 app.use(require('./routes/concessionarios-cadastro'));
 
+// Rotas do módulo CPL — Comunicação Concessionários (parcelamento da
+// outorga) — ver routes/cpl-comunicacao.js. Exporta também
+// sincronizarNovosAceites, usada por routes/secad-relatorios.js.
+app.use(require('./routes/cpl-comunicacao').router);
+
 // Rotas de Admin (usuários/departamentos/rotinas/perfis/módulos/backup/logs +
 // catálogos transversais) — ver routes/admin.js. Exporta IS_HOMOLOG também
 // (só esse arquivo precisa saber se está em homolog, mas /api/version — logo
