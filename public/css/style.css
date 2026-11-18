@@ -65,9 +65,9 @@
   --azul:    #1A3F6B;
 }
 :root[data-modulo="cpl-comunicacao"] {
-  --verde:   #6A1B9A;
-  --verde-l: #8E24AA;
-  --azul:    #6A1B9A;
+  --verde:   #37474F;
+  --verde-l: #4C636D;
+  --azul:    #37474F;
 }
 
 body {
