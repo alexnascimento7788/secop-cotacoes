@@ -25,12 +25,20 @@ function _relNormalizarHeader(s) {
 // Mapeia cabeçalho da planilha → campo do sistema, de forma tolerante (não
 // exige o texto exato) — pra aguentar pequenas variações entre exportações
 // que o Alex gerar da query dele ao longo do tempo.
+// Colunas novas (CPL, 2026-11-18): Email1/Email2/Telefone/TelefoneWhatsApp,
+// opcionais — planilha sem elas continua funcionando exatamente como antes
+// (ver sincronizarNovosAceites, routes/cpl-comunicacao.js, que só age em
+// linha com e-mail presente).
 function _relMapearColuna(headerBruto) {
   const h = _relNormalizarHeader(headerBruto);
   if (h.includes('codigo')) return 'codigo';
   if (h.includes('cnpj')) return 'cnpj';
   if (h.includes('contrato') || h.includes('ccu')) return 'numero_ccu';
   if (h.includes('aceite') || h.includes('data')) return 'data_aceite';
+  if (h.includes('email2')) return 'email2';
+  if (h.includes('email')) return 'email1';
+  if (h.includes('whatsapp')) return 'telefone_whatsapp';
+  if (h.includes('telefone') || h.includes('celular')) return 'telefone';
   return null;
 }
 

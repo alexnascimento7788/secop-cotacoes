@@ -96,6 +96,7 @@ const ROTINA_PAGINAS = {
   'detin-contratos': '/detin-contratos.html',
   'detin-analise': '/detin-analise.html',
   'consulta': '/concessionarios-cadastro.html',
+  'comunicacao-parcelamento': '/cpl-comunicacao.html',
 };
 
 async function _aplicarRotina(user) {

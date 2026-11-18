@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CPL — Comunicação Concessionários — CEASA CONECTA</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#6A1B9A">
+  <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
+  <script>document.documentElement.setAttribute('data-theme',localStorage.getItem('secop_tema')||'light');var _mc=localStorage.getItem('secop_modulo_cache');if(_mc)document.documentElement.setAttribute('data-modulo',_mc);</script>
+  <style>
+    /* ── CPL: Comunicação Concessionários ─────────────────────────────────── */
+    .cpl-kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 20px; }
+    @media (max-width: 1100px) { .cpl-kpis { grid-template-columns: repeat(2, 1fr); } }
+    .cpl-kpi { background: var(--surface); border: 1px solid var(--cinza-b); border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: border-color .15s; }
+    .cpl-kpi:hover { border-color: var(--verde); }
+    .cpl-kpi.ativo { border-color: var(--verde); box-shadow: 0 0 0 1px var(--verde) inset; }
+    .cpl-kpi-num { font-size: 26px; font-weight: 800; color: var(--text); line-height: 1.1; }
+    .cpl-kpi-label { font-size: 11.5px; color: var(--text-muted); margin-top: 4px; }
+
+    .cpl-toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+    .cpl-toolbar input[type="text"], .cpl-toolbar select {
+      padding: 8px 10px; border: 1.5px solid var(--cinza-b); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 13px;
+    }
+    .cpl-modo-teste { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-muted); margin-left: auto; }
+
+    .cpl-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    .cpl-table th { text-align: left; padding: 7px 10px; font-size: 11px; text-transform: uppercase; color: var(--text-muted); border-bottom: 2px solid var(--cinza-b); white-space: nowrap; }
+    .cpl-table td { padding: 8px 10px; border-bottom: 1px solid var(--cinza-b); vertical-align: middle; color: var(--text); }
+    .cpl-row:hover { background: var(--surface-2); cursor: pointer; }
+    .cpl-situacao { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10.5px; font-weight: 700; white-space: nowrap; }
+    .cpl-situacao.pendente    { background: #ECEFF1; color: #455A64; }
+    .cpl-situacao.aguardando  { background: #FFF8E1; color: #FF8F00; }
+    .cpl-situacao.retornado   { background: #E3F2FD; color: #1565C0; }
+    .cpl-situacao.informado   { background: #E8F5E9; color: #1B5E20; }
+    .cpl-situacao.desabilitado{ background: #FFEBEE; color: #C62828; }
+    .cpl-detalhe-row td { background: var(--surface-2); padding: 16px 20px; border-bottom: 2px solid var(--cinza-b); }
+    .cpl-detalhe-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    @media (max-width: 760px) { .cpl-detalhe-grid { grid-template-columns: 1fr; } }
+    .cpl-detalhe-campo { font-size: 12.5px; margin-bottom: 6px; }
+    .cpl-detalhe-campo b { color: var(--text-muted); font-weight: 600; margin-right: 4px; }
+    .cpl-envio-item { display: flex; justify-content: space-between; font-size: 12px; padding: 5px 0; border-bottom: 1px solid var(--cinza-b); }
+    .cpl-envio-item:last-child { border-bottom: none; }
+    .cpl-retorno-form { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: end; }
+    .cpl-retorno-form input { padding: 7px 9px; border: 1.5px solid var(--cinza-b); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 12.5px; }
+  </style>
+</head>
+<body data-modulo="cpl-comunicacao" data-rotina="comunicacao-parcelamento">
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="img/Ceasa_Signea.png" alt="CEASAMINAS" class="sidebar-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+      <div class="sidebar-logo-fallback" style="display:none;align-items:center;gap:10px;margin-bottom:8px;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="32" height="32" style="flex-shrink:0"><polygon points="20,1 1,20 20,20" fill="#1565C0"/><polygon points="20,1 39,20 20,20" fill="#F9A800"/><polygon points="39,20 20,39 20,20" fill="#1565C0"/><polygon points="1,20 20,39 20,20" fill="#1565C0"/></svg>
+        <div><div class="logo-title">CEASA CONECTA</div><div class="logo-sub">CEASAMINAS</div></div>
+      </div>
+      <div class="logo-divider"></div>
+    </div>
+    <nav>
+      <a href="cpl-comunicacao.html" class="nav-item active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M4 7l8 6 8-6"/></svg>
+        Comunicação de Parcelamento
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <span id="sidebar-username" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;">—</span>
+      <div style="display:flex;gap:2px;flex-shrink:0;">
+        <a href="admin.html" class="sidebar-gear" title="Administração">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </a>
+        <button onclick="logout()" class="sidebar-gear" title="Sair" style="background:none;border:none;cursor:pointer;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Comunicação de Parcelamento</div>
+        <div class="page-subtitle">Solicitação de parcelamento da outorga aos concessionários com aceite de renovação</div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" onclick="abrirModalConfigCpl()">⚙️ Config. de teste</button>
+        <button class="btn btn-secondary" onclick="abrirModalImportCpl()">📥 Importar parcelamento já informado</button>
+      </div>
+    </div>
+
+    <!-- KPIs / painel de métricas -->
+    <div class="cpl-kpis" id="cpl-kpis"></div>
+
+    <!-- Toolbar -->
+    <div class="cpl-toolbar">
+      <input type="text" id="cpl-busca" placeholder="Buscar por código, razão social, CNPJ ou contrato..." style="flex:1;min-width:220px;" oninput="cplFiltrarDebounce()"/>
+      <select id="cpl-filtro-status" onchange="cplCarregar()">
+        <option value="">Todas as situações</option>
+        <option value="pendente">Pendente de envio</option>
+        <option value="aguardando">Aguardando resposta</option>
+        <option value="retornado">Retornado</option>
+        <option value="informado">Parcelamento informado</option>
+        <option value="desabilitado">Desabilitado</option>
+      </select>
+      <label class="cpl-modo-teste">
+        <input type="checkbox" id="cpl-modo-teste"/> Modo teste (envia pro e-mail interno configurado)
+      </label>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+      <button class="btn btn-primary btn-sm" onclick="cplEnviarSelecionados()">Enviar para selecionados</button>
+      <button class="btn btn-secondary btn-sm" onclick="cplEnviarTodosPendentes()">Enviar para todos pendentes</button>
+      <span id="cpl-envio-msg" style="font-size:12.5px;font-weight:600;align-self:center;"></span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="cpl-table">
+        <thead>
+          <tr>
+            <th style="width:28px;"><input type="checkbox" id="cpl-sel-todos" onchange="cplToggleTodos(this.checked)"/></th>
+            <th>Código</th>
+            <th>Concessionário</th>
+            <th>Contrato</th>
+            <th>Situação</th>
+            <th>Envios</th>
+            <th>Último envio</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="cpl-tbody"><tr><td colspan="8" style="text-align:center;color:#aaa;padding:16px;">Carregando...</td></tr></tbody>
+      </table>
+    </div>
+
+    <div id="app-footer"></div>
+  </main>
+</div>
+
+<!-- Modal: config do e-mail de teste -->
+<div class="modal-overlay" id="modal-cpl-config">
+  <div class="modal-box" style="max-width:440px;">
+    <h3>E-mail de teste interno</h3>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+      Usado quando "Modo teste" está marcado: ao enviar, o e-mail vai pra este endereço em vez do e-mail real do concessionário — útil pra validar o texto/layout sem incomodar ninguém de fora.
+    </p>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>E-mail interno de teste</label>
+      <input type="email" id="cpl-cfg-email-teste" placeholder="seuemail@ceasaminas.com.br" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+    </div>
+    <div id="cpl-cfg-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin-bottom:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="fecharModalConfigCpl()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarConfigCpl()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: importar planilha "parcelamento já informado" -->
+<div class="modal-overlay" id="modal-cpl-import">
+  <div class="modal-box" style="max-width:560px;">
+    <h3>Importar parcelamento já informado</h3>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">
+      Planilha com quem já respondeu quantas parcelas quer (colunas de código, contrato e quantidade de parcelas — nomes flexíveis). Quem já constar aqui é marcado como "informado" e deixa de aparecer pra envio, mesmo que ainda não esteja cadastrado nesta tela.
+    </p>
+    <div id="cpl-imp-dropzone" style="border:2px dashed var(--cinza-b);border-radius:8px;padding:22px;text-align:center;margin-bottom:14px;cursor:pointer;" onclick="document.getElementById('cpl-imp-arquivo').click()">
+      <input type="file" id="cpl-imp-arquivo" accept=".xlsx,.xls,.csv" style="display:none;" onchange="cplArquivoSelecionado(this.files[0])"/>
+      <span id="cpl-imp-dropzone-texto">Clique para escolher o arquivo (.xlsx, .xls ou .csv)</span>
+    </div>
+    <div id="cpl-imp-preview" style="display:none;font-size:12.5px;background:var(--surface-2);border-radius:6px;padding:10px 12px;margin-bottom:12px;max-height:200px;overflow-y:auto;"></div>
+    <div id="cpl-imp-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin-bottom:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="fecharModalImportCpl()">Cancelar</button>
+      <button class="btn btn-secondary" id="cpl-imp-btn-simular" onclick="cplImportar(true)" disabled>Simular</button>
+      <button class="btn btn-primary" id="cpl-imp-btn-confirmar" onclick="cplImportar(false)" style="display:none;">Confirmar importação</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="js/pwa.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/cpl-comunicacao.js"></script>
+</body>
+</html>
