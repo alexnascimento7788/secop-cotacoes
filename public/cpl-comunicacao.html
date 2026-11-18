@@ -163,7 +163,7 @@
   <div class="modal-box" style="max-width:560px;">
     <h3>Importar parcelamento já informado</h3>
     <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">
-      Planilha com quem já respondeu quantas parcelas quer (colunas de código, contrato e quantidade de parcelas — nomes flexíveis). Quem já constar aqui é marcado como "informado" e deixa de aparecer pra envio, mesmo que ainda não esteja cadastrado nesta tela.
+      Planilha "Relação de concessionários - parcelamento" (coluna Contrato + "Informou quantidade de parcelas" = SIM/NÃO). Só as linhas marcadas SIM são importadas — ficam marcadas como "informado" e saem da lista de envio, mesmo que ainda não estivessem cadastradas nesta tela. Linha marcada NÃO não precisa de nada, é ignorada.
     </p>
     <div id="cpl-imp-dropzone" style="border:2px dashed var(--cinza-b);border-radius:8px;padding:22px;text-align:center;margin-bottom:14px;cursor:pointer;" onclick="document.getElementById('cpl-imp-arquivo').click()">
       <input type="file" id="cpl-imp-arquivo" accept=".xlsx,.xls,.csv" style="display:none;" onchange="cplArquivoSelecionado(this.files[0])"/>

@@ -7,7 +7,7 @@
 // database.js pro modelo de dados — sem FK pro depop.db, mesma convenção já
 // usada em validacao_contrato/renovacao_aceites (ligação só por valor).
 const express = require('express');
-const { db } = require('../database');
+const { db, depopDb } = require('../database');
 const { registrarLog, requireModulo, requireRotina, n } = require('../middleware');
 const mailer = require('../mailer');
 
@@ -237,15 +237,24 @@ router.post('/api/cpl-comunicacao/enviar', cpl, incluirGate, (req, res) => {
 });
 
 // ── Importação: planilha "já informado o parcelamento" ────────────────────
-// Mesmo padrão de routes/secad-relatorios.js (client parseia via SheetJS,
-// manda linhas já mapeadas; servidor valida/casa/confirma em 2 passos). Linha
-// sem match em cpl_parcelamento_concessionarios ainda é registrada (cria um
-// registro mínimo já desabilitado) — o objetivo é só "não precisa perguntar
-// de novo pra este", independente da ordem em que os dois imports rodaram.
+// Planilha real (`Relação de concessionários - parcelamento.xls`, conferida
+// em 2026-11-18 depois do primeiro deploy — ver [[project_secop_cpl_comunicacao]])
+// NÃO tem coluna de código nem CNPJ, só "Contrato" — e "Informou quantidade
+// de parcelas" é um flag SIM/NÃO, não a quantidade de fato. O front já filtra
+// pra só mandar linha SIM (NÃO não precisa de ação nenhuma — fica como
+// estava). Código é resolvido aqui via numero_ccu contra AvaliacaoAreaRenovacao
+// (depop.db), mesma fonte que routes/secad-relatorios.js usa pra casar
+// aceites — nenhuma FK entre arquivos, só valor.
 router.post('/api/cpl-comunicacao/importar-parcelamento-informado', cpl, requireAdminGlobal, (req, res) => {
   const { dry_run, nome_arquivo, linhas } = req.body || {};
-  if (!Array.isArray(linhas) || !linhas.length) return res.status(400).json({ error: 'Nenhuma linha recebida.' });
+  if (!Array.isArray(linhas) || !linhas.length) {
+    return res.status(400).json({ error: 'Nenhuma linha recebida (confira se há alguma marcada "SIM" na planilha).' });
+  }
 
+  const codigoPorContrato = new Map(
+    depopDb.prepare(`SELECT codigo, numero_ccu FROM AvaliacaoAreaRenovacao`).all()
+      .map(a => [normalizarCcu(a.numero_ccu), a.codigo])
+  );
   const existentes = new Set(
     db.prepare(`SELECT codigo, numero_ccu FROM cpl_parcelamento_concessionarios`).all()
       .map(r => `${r.codigo}|${normalizarCcu(r.numero_ccu)}`)
@@ -254,13 +263,17 @@ router.post('/api/cpl-comunicacao/importar-parcelamento-informado', cpl, require
   const validas = [];
   const invalidas = [];
   linhas.forEach((l, i) => {
-    const codigo = parseInt(l.codigo, 10);
     const numero_ccu = normalizarCcu(l.numero_ccu);
-    if (!codigo || !numero_ccu) { invalidas.push({ linha: i + 2, motivo: 'Código ou Nº do contrato vazio/inválido' }); return; }
-    if (!l.parcelas_qtd || !String(l.parcelas_qtd).trim()) { invalidas.push({ linha: i + 2, motivo: 'Quantidade de parcelas vazia' }); return; }
+    if (!numero_ccu) { invalidas.push({ linha: i + 2, motivo: 'Contrato vazio' }); return; }
+    const codigo = codigoPorContrato.get(numero_ccu);
+    if (!codigo) { invalidas.push({ linha: i + 2, motivo: `Contrato "${numero_ccu}" não encontrado em Avaliação de Renovação` }); return; }
     validas.push({
-      codigo, numero_ccu, parcelas_qtd: String(l.parcelas_qtd).trim(),
-      cnpj: l.cnpj ? String(l.cnpj).trim() : null,
+      codigo, numero_ccu,
+      razao_social: l.razao_social ? String(l.razao_social).trim() : null,
+      telefone: l.telefone ? String(l.telefone).trim() : null,
+      email1: l.email1 ? String(l.email1).trim() : null,
+      email2: l.email2 ? String(l.email2).trim() : null,
+      data_aceite: l.data_aceite ? String(l.data_aceite).trim() : null,
       ja_existe: existentes.has(`${codigo}|${numero_ccu}`),
     });
   });
@@ -275,15 +288,21 @@ router.post('/api/cpl-comunicacao/importar-parcelamento-informado', cpl, require
   }
 
   const upsert = db.prepare(`
-    INSERT INTO cpl_parcelamento_concessionarios (codigo, numero_ccu, cnpj, parcelas_informado, parcelas_qtd, parcelas_origem, habilitado, autorizado_cpl)
-    VALUES (?, ?, ?, 1, ?, 'importacao', 0, 0)
+    INSERT INTO cpl_parcelamento_concessionarios
+      (codigo, numero_ccu, razao_social, telefone, email1, email2, data_aceite, parcelas_informado, parcelas_origem, habilitado, autorizado_cpl)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'planilha_informado', 0, 0)
     ON CONFLICT(codigo, numero_ccu) DO UPDATE SET
-      parcelas_informado = 1, parcelas_qtd = excluded.parcelas_qtd, parcelas_origem = 'importacao',
-      habilitado = 0, cnpj = COALESCE(cpl_parcelamento_concessionarios.cnpj, excluded.cnpj), atualizado_em = datetime('now')
+      razao_social = COALESCE(cpl_parcelamento_concessionarios.razao_social, excluded.razao_social),
+      telefone     = COALESCE(cpl_parcelamento_concessionarios.telefone, excluded.telefone),
+      email1       = COALESCE(cpl_parcelamento_concessionarios.email1, excluded.email1),
+      email2       = COALESCE(cpl_parcelamento_concessionarios.email2, excluded.email2),
+      data_aceite  = COALESCE(cpl_parcelamento_concessionarios.data_aceite, excluded.data_aceite),
+      parcelas_informado = 1, parcelas_origem = 'planilha_informado', habilitado = 0,
+      atualizado_em = datetime('now')
   `);
   db.exec('BEGIN');
   try {
-    validas.forEach(v => upsert.run(v.codigo, v.numero_ccu, v.cnpj, v.parcelas_qtd));
+    validas.forEach(v => upsert.run(v.codigo, v.numero_ccu, v.razao_social, v.telefone, v.email1, v.email2, v.data_aceite));
     db.exec('COMMIT');
   } catch (e) {
     db.exec('ROLLBACK');
@@ -292,7 +311,7 @@ router.post('/api/cpl-comunicacao/importar-parcelamento-informado', cpl, require
 
   registrarLog(req, 'CPL', 'IMPORTOU_PARCELAMENTO_INFORMADO',
     `Importou ${validas.length} linha(s) de parcelamento já informado (${nome_arquivo || 'sem nome'})`);
-  res.json({ dry_run: false, total_linhas: validas.length });
+  res.json({ dry_run: false, total_linhas: validas.length, invalidas: invalidas.length, invalidas_amostra: invalidas.slice(0, 30) });
 });
 
 module.exports = { router, sincronizarNovosAceites };
