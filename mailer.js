@@ -46,8 +46,20 @@ function fmtDataBr(iso) {
   return d.length < 3 ? String(iso) : `${d[2]}/${d[1]}/${d[0]}`;
 }
 
-function getConfig() {
-  return db.prepare(`SELECT * FROM email_config ORDER BY id DESC LIMIT 1`).get() || null;
+// ── Contas de e-mail (múltiplas, ver database.js email_contas) ─────────────
+// email_config (1 registro único) foi migrada pra email_contas no boot — daqui
+// pra frente só email_contas é lida/escrita. contaPadrao() é o fallback de
+// quem chama enfileirar() sem template com conta_id definido (compatibilidade
+// com template antigo que ainda não foi reapontado manualmente pelo admin).
+function listarContas() {
+  return db.prepare(`SELECT * FROM email_contas ORDER BY nome`).all();
+}
+function contaPorId(id) {
+  if (!id) return null;
+  return db.prepare(`SELECT * FROM email_contas WHERE id = ?`).get(id) || null;
+}
+function contaPadrao() {
+  return db.prepare(`SELECT * FROM email_contas WHERE ativo = 1 ORDER BY atualizado_em DESC, id DESC LIMIT 1`).get() || null;
 }
 
 function montarTransporter(config) {
@@ -70,13 +82,13 @@ function montarTransporter(config) {
   return nodemailer.createTransport(opts);
 }
 
-async function testarConexao() {
-  const config = getConfig();
-  if (!config || !config.host) return { ok: false, erro: 'Configuração de SMTP não cadastrada.' };
+async function testarConexao(contaId) {
+  const config = contaId ? contaPorId(contaId) : contaPadrao();
+  if (!config || !config.host) return { ok: false, erro: 'Conta de e-mail não cadastrada.' };
   try {
     const transporter = montarTransporter(config);
     await transporter.verify();
-    db.prepare(`UPDATE email_config SET testado_em = datetime('now') WHERE id = ?`).run(config.id);
+    db.prepare(`UPDATE email_contas SET testado_em = datetime('now') WHERE id = ?`).run(config.id);
     return { ok: true };
   } catch (e) {
     return { ok: false, erro: e.message };
@@ -175,14 +187,18 @@ function enfileirar(templateSlug, variaveis = {}, destinatariosExtras = [], opco
     const corpo_html_resolvido = substituirVars(template.corpo_html, vars);
     const corpo_texto_resolvido = substituirVars(template.corpo_texto, vars);
 
-    const config = getConfig();
-    const status = (config && config.ativo) ? 'pendente' : 'cancelado';
+    // Conta resolvida e GRAVADA na fila já no enqueue (não só no envio) — se o
+    // admin trocar a conta do template depois, um item já enfileirado continua
+    // mandando pela conta que valia quando foi enfileirado, nunca muda de
+    // remetente "no meio do caminho".
+    const conta = contaPorId(template.conta_id) || contaPadrao();
+    const status = (conta && conta.ativo) ? 'pendente' : 'cancelado';
 
     const info = db.prepare(`
-      INSERT INTO email_fila (template_slug, assunto_resolvido, corpo_html_resolvido, corpo_texto_resolvido, destinatarios, status, agendado_para, chave_dedup)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO email_fila (template_slug, assunto_resolvido, corpo_html_resolvido, corpo_texto_resolvido, destinatarios, status, agendado_para, chave_dedup, conta_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(templateSlug, assunto_resolvido, corpo_html_resolvido, corpo_texto_resolvido,
-      JSON.stringify(destinatarios), status, opcoes.agendadoPara || null, opcoes.chaveDedup || null);
+      JSON.stringify(destinatarios), status, opcoes.agendadoPara || null, opcoes.chaveDedup || null, conta ? conta.id : null);
     return info.lastInsertRowid;
   } catch (e) {
     console.error(`[email] falha ao enfileirar "${templateSlug}":`, e.message);
@@ -194,23 +210,32 @@ function enfileirar(templateSlug, variaveis = {}, destinatariosExtras = [], opco
 async function processarFila() {
   const resumo = { processados: 0, enviados: 0, erros: 0 };
   try {
-    const config = getConfig();
-    if (!config || !config.ativo) return resumo; // sem SMTP ativo, nem tenta — fica tudo pendente até reativar
-
     const itens = db.prepare(`
       SELECT * FROM email_fila WHERE status = 'pendente' AND (agendado_para IS NULL OR agendado_para <= datetime('now'))
       ORDER BY criado_em ASC LIMIT 10
     `).all();
     if (!itens.length) return resumo;
 
-    const transporter = montarTransporter(config);
+    // Um transporter por conta (cacheado nesta execução só) — vários itens no
+    // mesmo tick podem pertencer a contas diferentes desde que o módulo de
+    // Comunicação ganhou suporte a múltiplas contas (2026-11-18).
+    const transporters = new Map();
+    const getTransporter = conta => {
+      if (!transporters.has(conta.id)) transporters.set(conta.id, montarTransporter(conta));
+      return transporters.get(conta.id);
+    };
+
     for (const item of itens) {
+      const conta = contaPorId(item.conta_id) || contaPadrao();
+      if (!conta || !conta.ativo) continue; // sem conta ativa pra esse item — fica pendente até reativar, não conta como processado/erro
+
       resumo.processados++;
       let destinatarios = [];
       try { destinatarios = JSON.parse(item.destinatarios); } catch { destinatarios = []; }
       try {
+        const transporter = getTransporter(conta);
         await transporter.sendMail({
-          from: config.remetente_nome ? `"${config.remetente_nome}" <${config.remetente_email}>` : config.remetente_email,
+          from: conta.remetente_nome ? `"${conta.remetente_nome}" <${conta.remetente_email}>` : conta.remetente_email,
           to: destinatarios.map(d => d.nome ? `"${d.nome}" <${d.email}>` : d.email).join(', '),
           subject: item.assunto_resolvido,
           html: item.corpo_html_resolvido,
@@ -362,4 +387,5 @@ function iniciarMotor() {
 module.exports = {
   iniciarMotor, processarFila, enfileirar, resolverDestinatarios,
   testarConexao, encriptarSenha, decriptarSenha, fmtDataBr,
+  listarContas, contaPorId, contaPadrao,
 };

@@ -51,52 +51,81 @@ router.post('/api/email/templates/:slug/testar', requireComunicacao, async (req,
   res.json({ ok: true, fila_id: filaId, status: item?.status, erro: item?.erro_msg });
 });
 
-// ── Config SMTP ─────────────────────────────────────────────────────────────
-router.get('/api/email/config', requireComunicacao, (req, res) => {
-  const config = db.prepare(`SELECT * FROM email_config ORDER BY id DESC LIMIT 1`).get();
-  if (!config) return res.json(null);
-  const { senha_enc, ...semSenha } = config; // nunca volta a senha (nem criptografada) pro cliente
-  res.json({ ...semSenha, senha_configurada: !!senha_enc });
+// ── Contas de e-mail (múltiplas — ver mailer.js/email_contas) ──────────────
+// Substitui o antigo "Config SMTP" de 1 registro único. email_config fica
+// intocada no banco (histórico/compatibilidade), mas não é mais lida aqui —
+// a migração em database.js já copiou o registro único dela pra uma conta
+// "Conta principal" no primeiro boot depois do deploy.
+router.get('/api/email/contas', requireComunicacao, (req, res) => {
+  const contas = mailer.listarContas().map(({ senha_enc, ...c }) => ({ ...c, senha_configurada: !!senha_enc }));
+  res.json(contas);
 });
 
-router.post('/api/email/config', requireComunicacao, (req, res) => {
-  const { host, port, secure, usuario, senha, remetente_email, remetente_nome, ativo, tls_legado } = req.body || {};
-  if (!host || !port || !remetente_email) {
-    return res.status(400).json({ error: 'Host, porta e e-mail do remetente são obrigatórios.' });
+router.post('/api/email/contas', requireComunicacao, (req, res) => {
+  const { nome, host, port, secure, usuario, senha, remetente_email, remetente_nome, ativo, tls_legado } = req.body || {};
+  if (!nome || !String(nome).trim()) return res.status(400).json({ error: 'Nome da conta é obrigatório.' });
+  if (!host || !port || !remetente_email) return res.status(400).json({ error: 'Host, porta e e-mail do remetente são obrigatórios.' });
+  const params = {
+    nome: String(nome).trim(), host: String(host).trim(), port: Number(port), secure: secure ? 1 : 0,
+    usuario: n(usuario), senha_enc: n(senha ? mailer.encriptarSenha(String(senha)) : null),
+    remetente_email: String(remetente_email).trim(), remetente_nome: n(remetente_nome),
+    ativo: ativo ? 1 : 0, tls_legado: tls_legado ? 1 : 0,
+  };
+  let id;
+  try {
+    id = db.prepare(`
+      INSERT INTO email_contas (nome, host, port, secure, usuario, senha_enc, remetente_email, remetente_nome, ativo, tls_legado)
+      VALUES (@nome, @host, @port, @secure, @usuario, @senha_enc, @remetente_email, @remetente_nome, @ativo, @tls_legado)
+    `).run(params).lastInsertRowid;
+  } catch {
+    return res.status(409).json({ error: 'Já existe uma conta com este nome.' });
   }
-  const atual = db.prepare(`SELECT id, senha_enc FROM email_config ORDER BY id DESC LIMIT 1`).get();
-  // Senha em branco no form = mantém a que já estava salva (não obriga
-  // redigitar a cada edição); senha explicitamente enviada substitui.
-  const senha_enc = senha ? mailer.encriptarSenha(String(senha)) : (atual ? atual.senha_enc : null);
+  registrarLog(req, 'EMAIL', 'CRIOU_CONTA', `Criou a conta de e-mail "${params.nome}"`);
+  res.status(201).json({ id });
+});
+
+router.put('/api/email/contas/:id', requireComunicacao, (req, res) => {
+  const atual = db.prepare(`SELECT id, senha_enc FROM email_contas WHERE id = ?`).get(req.params.id);
+  if (!atual) return res.status(404).json({ error: 'Conta não encontrada' });
+  const { nome, host, port, secure, usuario, senha, remetente_email, remetente_nome, ativo, tls_legado } = req.body || {};
+  if (!nome || !host || !port || !remetente_email) {
+    return res.status(400).json({ error: 'Nome, host, porta e e-mail do remetente são obrigatórios.' });
+  }
   // Parâmetros NOMEADOS de propósito (não posicionais) — um bug real em
   // produção (v4.20.0→4.20.1) foi exatamente um valor errado colado na
   // posição errada de um bind posicional (`secure` recebendo o valor de
   // `ativo`). Nomeado elimina essa classe de erro inteira.
   const params = {
-    host: String(host).trim(), port: Number(port), secure: secure ? 1 : 0,
-    usuario: n(usuario), senha_enc: n(senha_enc), remetente_email: String(remetente_email).trim(),
-    remetente_nome: n(remetente_nome), ativo: ativo ? 1 : 0, tls_legado: tls_legado ? 1 : 0,
+    id: atual.id, nome: String(nome).trim(), host: String(host).trim(), port: Number(port), secure: secure ? 1 : 0,
+    usuario: n(usuario), senha_enc: senha ? mailer.encriptarSenha(String(senha)) : atual.senha_enc,
+    remetente_email: String(remetente_email).trim(), remetente_nome: n(remetente_nome),
+    ativo: ativo ? 1 : 0, tls_legado: tls_legado ? 1 : 0,
   };
-  if (atual) {
-    db.prepare(`
-      UPDATE email_config SET host=@host, port=@port, secure=@secure, usuario=@usuario, senha_enc=@senha_enc,
-        remetente_email=@remetente_email, remetente_nome=@remetente_nome, ativo=@ativo, tls_legado=@tls_legado,
-        atualizado_em=datetime('now')
-      WHERE id = @id
-    `).run({ ...params, id: atual.id });
-  } else {
-    db.prepare(`
-      INSERT INTO email_config (host, port, secure, usuario, senha_enc, remetente_email, remetente_nome, ativo, tls_legado)
-      VALUES (@host, @port, @secure, @usuario, @senha_enc, @remetente_email, @remetente_nome, @ativo, @tls_legado)
-    `).run(params);
-  }
-  registrarLog(req, 'EMAIL', 'CONFIG', `Alterou a configuração de SMTP (motor ${ativo ? 'ativado' : 'desativado'}${tls_legado ? ', TLS legado LIGADO — inseguro, temporário' : ''})`);
+  db.prepare(`
+    UPDATE email_contas SET nome=@nome, host=@host, port=@port, secure=@secure, usuario=@usuario, senha_enc=@senha_enc,
+      remetente_email=@remetente_email, remetente_nome=@remetente_nome, ativo=@ativo, tls_legado=@tls_legado,
+      atualizado_em=datetime('now')
+    WHERE id = @id
+  `).run(params);
+  registrarLog(req, 'EMAIL', 'EDITOU_CONTA', `Editou a conta de e-mail "${params.nome}" (motor ${ativo ? 'ativado' : 'desativado'}${tls_legado ? ', TLS legado LIGADO — inseguro, temporário' : ''})`);
   res.json({ ok: true });
 });
 
-router.post('/api/email/config/testar', requireComunicacao, async (req, res) => {
-  const r = await mailer.testarConexao();
-  registrarLog(req, 'EMAIL', 'TESTOU_CONEXAO', r.ok ? 'Teste de conexão SMTP OK' : `Teste de conexão SMTP falhou: ${r.erro}`);
+router.delete('/api/email/contas/:id', requireComunicacao, (req, res) => {
+  const conta = db.prepare(`SELECT id, nome FROM email_contas WHERE id = ?`).get(req.params.id);
+  if (!conta) return res.status(404).json({ error: 'Conta não encontrada' });
+  const emUso = db.prepare(`SELECT COUNT(*) AS n FROM email_templates WHERE conta_id = ?`).get(conta.id).n;
+  if (emUso > 0) return res.status(409).json({ error: `Existem ${emUso} template(s) usando esta conta — reatribua-os antes de excluir.` });
+  db.prepare(`DELETE FROM email_contas WHERE id = ?`).run(conta.id);
+  registrarLog(req, 'EMAIL', 'EXCLUIU_CONTA', `Excluiu a conta de e-mail "${conta.nome}"`);
+  res.json({ ok: true });
+});
+
+router.post('/api/email/contas/:id/testar', requireComunicacao, async (req, res) => {
+  const conta = db.prepare(`SELECT nome FROM email_contas WHERE id = ?`).get(req.params.id);
+  if (!conta) return res.status(404).json({ error: 'Conta não encontrada' });
+  const r = await mailer.testarConexao(req.params.id);
+  registrarLog(req, 'EMAIL', 'TESTOU_CONEXAO', r.ok ? `Teste de conexão OK (conta "${conta.nome}")` : `Teste de conexão falhou (conta "${conta.nome}"): ${r.erro}`);
   res.json(r);
 });
 
@@ -112,7 +141,7 @@ router.get('/api/email/templates/:slug', requireComunicacao, (req, res) => {
 });
 
 router.post('/api/email/templates', requireComunicacao, (req, res) => {
-  const { slug, nome, assunto, corpo_html, corpo_texto, variaveis_disponiveis } = req.body || {};
+  const { slug, nome, assunto, corpo_html, corpo_texto, variaveis_disponiveis, conta_id } = req.body || {};
   if (!slug || !nome || !assunto || !corpo_html) {
     return res.status(400).json({ error: 'Slug, nome, assunto e corpo HTML são obrigatórios.' });
   }
@@ -121,10 +150,10 @@ router.post('/api/email/templates', requireComunicacao, (req, res) => {
   }
   try {
     db.prepare(`
-      INSERT INTO email_templates (slug, nome, assunto, corpo_html, corpo_texto, variaveis_disponiveis)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO email_templates (slug, nome, assunto, corpo_html, corpo_texto, variaveis_disponiveis, conta_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(String(slug).trim(), String(nome).trim(), String(assunto).trim(), String(corpo_html),
-      n(corpo_texto), n(variaveis_disponiveis ? JSON.stringify(variaveis_disponiveis) : null));
+      n(corpo_texto), n(variaveis_disponiveis ? JSON.stringify(variaveis_disponiveis) : null), n(conta_id || null));
   } catch {
     return res.status(409).json({ error: 'Já existe um template com este slug.' });
   }
@@ -135,13 +164,13 @@ router.post('/api/email/templates', requireComunicacao, (req, res) => {
 router.put('/api/email/templates/:slug', requireComunicacao, (req, res) => {
   const t = db.prepare(`SELECT slug FROM email_templates WHERE slug = ?`).get(req.params.slug);
   if (!t) return res.status(404).json({ error: 'Template não encontrado' });
-  const { nome, assunto, corpo_html, corpo_texto, variaveis_disponiveis } = req.body || {};
+  const { nome, assunto, corpo_html, corpo_texto, variaveis_disponiveis, conta_id } = req.body || {};
   if (!nome || !assunto || !corpo_html) return res.status(400).json({ error: 'Nome, assunto e corpo HTML são obrigatórios.' });
   db.prepare(`
-    UPDATE email_templates SET nome=?, assunto=?, corpo_html=?, corpo_texto=?, variaveis_disponiveis=?, atualizado_em=datetime('now')
+    UPDATE email_templates SET nome=?, assunto=?, corpo_html=?, corpo_texto=?, variaveis_disponiveis=?, conta_id=?, atualizado_em=datetime('now')
     WHERE slug = ?
   `).run(String(nome).trim(), String(assunto).trim(), String(corpo_html), n(corpo_texto),
-    n(variaveis_disponiveis ? JSON.stringify(variaveis_disponiveis) : null), req.params.slug);
+    n(variaveis_disponiveis ? JSON.stringify(variaveis_disponiveis) : null), n(conta_id || null), req.params.slug);
   registrarLog(req, 'EMAIL', 'EDITOU_TEMPLATE', `Editou o template "${req.params.slug}"`);
   res.json({ ok: true });
 });

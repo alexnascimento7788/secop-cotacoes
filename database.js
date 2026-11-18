@@ -406,6 +406,10 @@ function setupDb() {
     { slug: 'depop', nome: 'DEPOP', ordem: 2 },
     { slug: 'depla', nome: 'DEPLA', ordem: 3 },
     { slug: 'detin', nome: 'DETIN', ordem: 4 },
+    // Departamento novo (pedido do Alex, 2026-11-18): CPL — Comissão
+    // Permanente de Licitação, dono do módulo de comunicação de parcelamento
+    // da outorga (ver cpl-comunicacao mais abaixo).
+    { slug: 'cpl', nome: 'CPL', ordem: 5 },
   ].forEach(d => {
     try { _db.prepare(`INSERT INTO departamentos (slug, nome, ordem) VALUES (?, ?, ?)`).run(d.slug, d.nome, d.ordem); } catch {}
   });
@@ -446,12 +450,22 @@ function setupDb() {
       .run('relatorios-gerais', 'Relatórios Gerais', '#F9A800', '/pac-concessionarios.html', 6);
   } catch {}
 
+  // Módulo "Comunicação Concessionários" (pedido do Alex, 2026-11-18) —
+  // departamento CPL novo. Acompanha quem deu aceite à renovação mas ainda
+  // não informou o parcelamento da outorga, e dispara/registra o e-mail de
+  // solicitação (ver routes/cpl-comunicacao.js). Cor própria (roxo), não
+  // reaproveita a família visual de nenhum módulo existente.
+  try {
+    _db.prepare(`INSERT INTO modulos (slug, nome, cor, home, ordem) VALUES (?, ?, ?, ?, ?)`)
+      .run('cpl-comunicacao', 'Comunicação Concessionários', '#6A1B9A', '/cpl-comunicacao.html', 7);
+  } catch {}
+
   // (rename depop→secad já rodou mais acima, antes do seed de módulos)
 
   // departamento_id por módulo (idempotente: só preenche quem ainda está NULL)
   try {
     const depIds = Object.fromEntries(_db.prepare(`SELECT slug, id FROM departamentos`).all().map(d => [d.slug, d.id]));
-    [['secop', 'depad'], ['secad', 'depop'], ['pac', 'depla'], ['detin', 'detin'], ['concessionarios-cadastro', 'depop'], ['relatorios-gerais', 'depla']].forEach(([modSlug, depSlug]) => {
+    [['secop', 'depad'], ['secad', 'depop'], ['pac', 'depla'], ['detin', 'detin'], ['concessionarios-cadastro', 'depop'], ['relatorios-gerais', 'depla'], ['cpl-comunicacao', 'cpl']].forEach(([modSlug, depSlug]) => {
       if (depIds[depSlug]) {
         _db.prepare(`UPDATE modulos SET departamento_id = ? WHERE slug = ? AND departamento_id IS NULL`).run(depIds[depSlug], modSlug);
       }
@@ -511,6 +525,10 @@ function setupDb() {
       ['detin', 'detin-painel',    'Painel',                1, 'ver'],
       ['detin', 'detin-contratos', 'Contratos',             2, 'ver,incluir,alterar,excluir'],
       ['detin', 'detin-analise',   'Análise de Contratos',  3, 'ver,incluir'],
+      // "incluir" aqui cobre enviar e-mail + importar a planilha de
+      // parcelamento já informado (a planilha de ACEITE em si continua
+      // role-gated master/admin_sistema, ver routes/secad-relatorios.js).
+      ['cpl-comunicacao', 'comunicacao-parcelamento', 'Comunicação de Parcelamento', 1, 'ver,incluir,alterar,excluir'],
     ];
     seedRotinas.forEach(([modSlug, slug, nome, ordem, flags]) => {
       if (!modIds[modSlug]) return;
@@ -635,6 +653,11 @@ function setupDb() {
     [['detin-painel', SOVER], ['detin-contratos', TUDO], ['detin-analise', { ver: 1, incluir: 1, alterar: 0, excluir: 0 }]]);
   seedPerfil('detin', 'Consultor', 'Consulta contratos e análises do DETIN, somente leitura.',
     [['detin-painel', SOVER], ['detin-contratos', SOVER], ['detin-analise', SOVER]]);
+
+  seedPerfil('cpl-comunicacao', 'CPL - Operador', 'Acesso completo à Comunicação de Parcelamento (importar, enviar e-mail, registrar retorno).',
+    [['comunicacao-parcelamento', TUDO]]);
+  seedPerfil('cpl-comunicacao', 'CPL - Consulta', 'Acompanha a Comunicação de Parcelamento, somente leitura.',
+    [['comunicacao-parcelamento', SOVER]]);
 
   // Migração única (2026-11-05): quem já tinha "Dados Concessionários"
   // liberado como rotina do PAC (perfil "Analista DEPLA" de lá) ganha o
@@ -2192,6 +2215,209 @@ function setupDb() {
     );
   `);
   _db.exec(`CREATE INDEX IF NOT EXISTS idx_depla_tarifa_conc ON depla_concessionarios_tarifa(concessionario_id)`);
+
+  // ── Comunicação de Parcelamento (CPL) ────────────────────────────────────
+  // Pedido do Alex, 2026-11-18: concessionário que já deu aceite à renovação
+  // (ver renovacao_aceites, routes/secad-relatorios.js) mas cuja planilha de
+  // aceite NÃO tinha o informe de quantas parcelas da outorga — a CPL usa
+  // esta tela pra solicitar isso por e-mail e acompanhar quem já respondeu.
+  // Uma linha por (codigo, numero_ccu), mesma chave de renovacao_aceites —
+  // SEM FK pro depop.db (convenção já estabelecida no projeto: ligação só
+  // por valor). Nasce via importação da planilha de aceite (quando ela trouxer
+  // e-mail/telefone, ver routes/secad-relatorios.js) ou da planilha "já
+  // informado" (routes/cpl-comunicacao.js).
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS cpl_parcelamento_concessionarios (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      codigo              INTEGER NOT NULL,
+      numero_ccu          TEXT    NOT NULL,
+      cnpj                TEXT,
+      razao_social        TEXT,
+      email1              TEXT,
+      email2              TEXT,
+      telefone            TEXT,
+      telefone_whatsapp   TEXT,
+      data_aceite         TEXT,
+      habilitado          INTEGER NOT NULL DEFAULT 1,
+      autorizado_cpl      INTEGER NOT NULL DEFAULT 1,
+      parcelas_informado  INTEGER NOT NULL DEFAULT 0,
+      parcelas_qtd        TEXT,
+      parcelas_origem     TEXT,
+      email_retornado     INTEGER NOT NULL DEFAULT 0,
+      envios_qtd          INTEGER NOT NULL DEFAULT 0,
+      ultimo_envio_em     DATETIME,
+      observacao          TEXT,
+      ocultado            INTEGER NOT NULL DEFAULT 0,
+      criado_em           DATETIME DEFAULT CURRENT_TIMESTAMP,
+      atualizado_em       DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (codigo, numero_ccu)
+    );
+
+    -- Histórico de envios (um por e-mail de fato enfileirado) — alimenta
+    -- "quantidade de envios" e a expansão de detalhe da linha. teste=1 nunca
+    -- conta pra envios_qtd do concessionário (só fica no histórico).
+    CREATE TABLE IF NOT EXISTS cpl_parcelamento_envios (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      concessionario_id  INTEGER NOT NULL,
+      email_fila_id      INTEGER,
+      teste              INTEGER NOT NULL DEFAULT 0,
+      enviado_por        INTEGER,
+      criado_em          DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (concessionario_id) REFERENCES cpl_parcelamento_concessionarios(id) ON DELETE CASCADE,
+      FOREIGN KEY (email_fila_id) REFERENCES email_fila(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_cpl_parc_codigo ON cpl_parcelamento_concessionarios(codigo, numero_ccu);
+    CREATE INDEX IF NOT EXISTS idx_cpl_parc_envios ON cpl_parcelamento_envios(concessionario_id);
+  `);
+
+  // ── E-mail: múltiplas contas (pedido do Alex, 2026-11-18) ───────────────
+  // Generaliza email_config (1 registro único) pra N contas nomeadas — cada
+  // template passa a referenciar qual conta usa (email_templates.conta_id).
+  // email_config NÃO é apagada (nunca dropamos tabela neste projeto) — só
+  // para de ser lida/escrita por código novo; a migração abaixo copia o
+  // registro único dela pra email_contas na 1ª vez que este boot roda.
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS email_contas (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome            TEXT    NOT NULL,
+      host            TEXT,
+      port            INTEGER,
+      secure          INTEGER NOT NULL DEFAULT 0,
+      usuario         TEXT,
+      senha_enc       TEXT,
+      remetente_email TEXT,
+      remetente_nome  TEXT,
+      ativo           INTEGER NOT NULL DEFAULT 0,
+      tls_legado      INTEGER NOT NULL DEFAULT 0,
+      testado_em      DATETIME,
+      criado_em       DATETIME DEFAULT CURRENT_TIMESTAMP,
+      atualizado_em   DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  try { _db.exec(`ALTER TABLE email_templates ADD COLUMN conta_id INTEGER REFERENCES email_contas(id)`); } catch {}
+  try { _db.exec(`ALTER TABLE email_fila ADD COLUMN conta_id INTEGER REFERENCES email_contas(id)`); } catch {}
+
+  // Migração única: quem já tinha email_config cadastrado (smtp.ceasaminas,
+  // produção) ganha uma conta "Conta principal" equivalente, e TODO template
+  // existente é apontado pra ela — pedido explícito do Alex ("deixe
+  // configurado para a conta já cadastrada"). Roda só 1x (flag em `config`).
+  try {
+    if (!_db.prepare(`SELECT valor FROM config WHERE chave = 'email_contas_migracao_aplicada'`).get()) {
+      const antigo = _db.prepare(`SELECT * FROM email_config ORDER BY id DESC LIMIT 1`).get();
+      if (antigo) {
+        const info = _db.prepare(`
+          INSERT INTO email_contas (nome, host, port, secure, usuario, senha_enc, remetente_email, remetente_nome, ativo, tls_legado, testado_em)
+          VALUES ('Conta principal', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(antigo.host, antigo.port, antigo.secure, antigo.usuario, antigo.senha_enc,
+          antigo.remetente_email, antigo.remetente_nome, antigo.ativo, antigo.tls_legado, antigo.testado_em);
+        _db.prepare(`UPDATE email_templates SET conta_id = ? WHERE conta_id IS NULL`).run(info.lastInsertRowid);
+      }
+      _db.prepare(`INSERT INTO config (chave, valor) VALUES ('email_contas_migracao_aplicada', '1')`).run();
+    }
+  } catch {}
+
+  // Template novo: template.conta_id continua NULL pra quem nasceu depois da
+  // migração acima SEM conta nenhuma cadastrada ainda (instalação nova) — a
+  // tela de admin mostra "Template sem e-mail" em vermelho até alguém
+  // escolher a conta manualmente (pedido explícito do Alex).
+
+  // Config da CPL: e-mail interno que recebe o aviso de "novo concessionário
+  // com aceite pendente de parcelamento" + e-mail de destino quando o modo
+  // teste (tela cpl-comunicacao.html) está ligado. Editável sem redeploy —
+  // mesma convenção de outras chaves soltas em `config`.
+  [
+    { chave: 'cpl_email_aviso_novo', valor: 'cpl@ceasaminas.com.br' },
+    { chave: 'cpl_email_teste_interno', valor: '' },
+  ].forEach(c => {
+    try { _db.prepare(`INSERT INTO config (chave, valor) VALUES (?, ?)`).run(c.chave, c.valor); } catch {}
+  });
+
+  // Templates de e-mail da CPL — formatação de formulário centralizado
+  // (pedido explícito do Alex), com a logo da CEASAMINAS embutida em base64
+  // (mesmo padrão dos templates do PAC, mas visual PRÓPRIO — não reaproveita
+  // o envelope do PAC porque o texto é institucional/formal, formatado como
+  // ofício, não como notificação de sistema).
+  try {
+    const logoBase64Cpl = (() => {
+      try { return fs.readFileSync(path.join(__dirname, 'public', 'img', 'Ceasa_Signea.png')).toString('base64'); }
+      catch { return ''; }
+    })();
+    const cabecalhoCpl = logoBase64Cpl
+      ? `<img src="data:image/png;base64,${logoBase64Cpl}" alt="CEASAMINAS" height="46" style="display:block;margin:0 auto 6px;" />`
+      : `<div style="font-size:17px;font-weight:700;color:#1A6B35;">CEASAMINAS</div>`;
+    const envolverCpl = corpo => `<div style="font-family:Arial,Helvetica,sans-serif;max-width:620px;margin:0 auto;background:#f2f2f2;padding:28px 10px;">
+  <div style="background:#ffffff;border:1px solid #ddd;border-radius:10px;overflow:hidden;">
+    <div style="background:#ffffff;padding:26px 30px 14px;text-align:center;border-bottom:3px solid #6A1B9A;">
+      ${cabecalhoCpl}
+      <div style="font-size:12px;letter-spacing:.5px;color:#666;margin-top:4px;">COMISSÃO PERMANENTE DE LICITAÇÃO — CPL</div>
+    </div>
+    <div style="padding:30px 34px;color:#222;font-size:13.5px;line-height:1.7;text-align:justify;">
+      ${corpo}
+    </div>
+    <div style="background:#f7f7f7;border-top:1px solid #e2e2e2;padding:16px 24px;color:#888;font-size:11px;text-align:center;line-height:1.6;">
+      <div>Comissão Permanente de Licitação — CPL</div>
+      <div>CEASAMINAS · Centrais de Abastecimento de Minas Gerais S.A. · Telefone: +55 31 3399-2056</div>
+    </div>
+  </div>
+</div>`;
+    const paraTextoCpl = html => html
+      .replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n').replace(/<\/li>/gi, '\n')
+      .replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ')
+      .replace(/\n{3,}/g, '\n\n').trim();
+
+    const corpoSolicitacao = `
+      <p style="text-align:center;font-weight:700;font-size:15px;margin-top:0;">SOLICITAÇÃO DE INFORMAÇÃO — PARCELAMENTO DA OUTORGA</p>
+      <p>Prezado(a) Concessionário(a) <strong>{{concessionario_nome}}</strong>,</p>
+      <p>A Comissão Permanente de Licitação (CPL) da CEASAMINAS, no âmbito do Edital de Chamamento de Interessados nº 001/2026 e do Termo de Compromisso de Conduta (TCC) firmado com o Ministério Público de Minas Gerais (MPMG), solicita a formalização da sua opção quanto ao pagamento do valor da outorga de prorrogação (contrato <strong>{{numero_ccu}}</strong>).</p>
+      <p style="font-weight:700;margin-bottom:4px;">1. Opção de parcelamento da outorga</p>
+      <p>Solicitamos informar, em resposta formal a este e-mail no prazo de 10 (dez) dias úteis, a quantidade de parcelas desejada para o pagamento da outorga (correspondente a 30% do valor da concessão da área).</p>
+      <p>&bull; O pagamento poderá ser realizado à vista ou em até 180 (cento e oitenta) parcelas mensais e consecutivas.<br>
+      &bull; As parcelas serão corrigidas pelo índice IPCA-E/IBGE, conforme estipulado na Cláusula Quarta do TCC e nos itens 4.3 e 9.2 do Edital Consolidado.</p>
+      <p style="font-weight:700;margin-bottom:4px;">2. Vencimento da 1ª parcela</p>
+      <p>Ressaltamos que a 1ª (primeira) parcela — ou o pagamento à vista — vencerá no prazo de até 3 (três) dias úteis, contados a partir da emissão do aviso formal de homologação do processo de renovação, o qual será comunicado via e-mail. As demais parcelas vencerão sucessivamente a cada 30 (trinta) dias.</p>
+      <p style="font-weight:700;margin-bottom:4px;">3. Suspensão da análise dos documentos da renovação</p>
+      <p>Alertamos que, até que a quantidade de parcelas seja formalmente informada por vossa empresa, o processo administrativo de renovação e a análise da documentação permanecerão <strong>SUSPENSOS</strong>. O trâmite regular do processo somente será retomado após o recebimento desta manifestação.</p>
+      <p style="font-weight:700;margin-bottom:4px;">4. Ressalva institucional</p>
+      <p>Esclarece-se que o envio desta solicitação se refere exclusivamente à instrução da condição financeira da outorga e <strong>NÃO IMPLICA</strong> aprovação, conferência definitiva ou habilitação da documentação cadastral, jurídica e fiscal apresentada na plataforma. A CEASAMINAS reserva-se o direito de notificar formalmente a empresa quanto a eventuais pendências documentais futuramente identificadas pela CPL.</p>
+      <p style="background:#f7f0fb;border:1px solid #e3cdf2;border-radius:6px;padding:12px 16px;">Aguardamos o envio da informação com a indicação precisa do número de parcelas pretendido (ex: à vista, 12x, 60x, 120x ou 180x).</p>
+      <p style="margin-top:22px;margin-bottom:0;">Atenciosamente,</p>
+      <p style="margin-top:2px;"><strong>Comissão Permanente de Licitação — CPL</strong><br>Telefone: +55 31 3399-2056</p>`;
+
+    const corpoAvisoNovo = `
+      <p>Novo concessionário com aceite registrado na renovação, pendente de solicitação de parcelamento:</p>
+      <p>&bull; <strong>{{concessionario_nome}}</strong> (código {{codigo}}, contrato {{numero_ccu}})<br>
+      &bull; CNPJ: {{cnpj}}<br>
+      &bull; E-mail: {{email}}<br>
+      &bull; Data do aceite: {{data_aceite}}</p>
+      <p>O registro já foi incluído na tela de Comunicação de Parcelamento, <strong>habilitado para envio</strong>. Acesse a tela para revisar e, se necessário, desautorizar o envio.</p>`;
+
+    const seedCpl = (slug, nome, assunto, corpoBody, variaveis) => {
+      const corpo_html = envolverCpl(corpoBody);
+      try {
+        _db.prepare(`
+          INSERT INTO email_templates (slug, nome, assunto, corpo_html, corpo_texto, variaveis_disponiveis)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(slug, nome, assunto, corpo_html, paraTextoCpl(corpo_html), JSON.stringify(variaveis));
+      } catch {}
+    };
+    seedCpl('cpl.parcelamento.solicitacao', 'CPL: solicitação de parcelamento da outorga',
+      'Solicitação de Informação — Parcelamento da Outorga ({{numero_ccu}})', corpoSolicitacao,
+      ['concessionario_nome', 'numero_ccu']);
+    seedCpl('cpl.parcelamento.novo_concessionario', 'CPL: novo concessionário com aceite pendente',
+      'CPL: novo concessionário com aceite pendente de parcelamento — {{concessionario_nome}}', corpoAvisoNovo,
+      ['concessionario_nome', 'codigo', 'numero_ccu', 'cnpj', 'email', 'data_aceite']);
+
+    // Diferente da migração acima (que só backfilla quem já existia ANTES
+    // dela rodar), estes 2 templates nascem DEPOIS — sem isto ficariam "sem
+    // e-mail" até o Alex entrar na tela e escolher manualmente. Como só
+    // existe 1 conta cadastrada hoje, já aponta pra ela — continua editável
+    // na tela normalmente se um dia houver mais de uma.
+    const contaDefault = _db.prepare(`SELECT id FROM email_contas WHERE ativo = 1 ORDER BY atualizado_em DESC, id DESC LIMIT 1`).get();
+    if (contaDefault) {
+      _db.prepare(`UPDATE email_templates SET conta_id = ? WHERE conta_id IS NULL AND slug LIKE 'cpl.%'`).run(contaDefault.id);
+    }
+  } catch {}
 }
 
 setupDb();

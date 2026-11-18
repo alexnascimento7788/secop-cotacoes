@@ -869,53 +869,21 @@
         <button class="comm-subtab" onclick="mudarSubabaComm('alertas', this)">Alertas<span id="comm-alertas-badge"></span></button>
       </div>
 
-      <!-- Config SMTP -->
+      <!-- Contas de e-mail (múltiplas — cada template escolhe qual usa) -->
       <div class="comm-pane active" id="comm-pane-config">
-        <div class="admin-card" style="max-width:520px;">
-          <div class="admin-section-title">Configuração SMTP</div>
-          <div class="form-group" style="margin-bottom:12px;">
-            <label>Host</label>
-            <input type="text" id="comm-cfg-host" placeholder="smtp.exemplo.com" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
-          </div>
-          <div style="display:flex;gap:10px;">
-            <div class="form-group" style="flex:1;margin-bottom:12px;">
-              <label>Porta</label>
-              <input type="number" id="comm-cfg-port" placeholder="587" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
-            </div>
-            <div class="form-group" style="flex:1;margin-bottom:12px;align-self:end;">
-              <label><input type="checkbox" id="comm-cfg-secure" style="margin-right:6px;"/>TLS/SSL (secure)</label>
-            </div>
-          </div>
-          <div class="form-group" style="margin-bottom:12px;">
-            <label>Usuário SMTP</label>
-            <input type="text" id="comm-cfg-usuario" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
-          </div>
-          <div class="form-group" style="margin-bottom:12px;">
-            <label>Senha SMTP <span id="comm-cfg-senha-hint" style="font-weight:400;color:var(--text-muted);"></span></label>
-            <input type="password" id="comm-cfg-senha" placeholder="deixe em branco para manter a atual" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
-          </div>
-          <div class="form-group" style="margin-bottom:12px;">
-            <label>E-mail do remetente</label>
-            <input type="email" id="comm-cfg-remetente-email" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
-          </div>
-          <div class="form-group" style="margin-bottom:12px;">
-            <label>Nome do remetente</label>
-            <input type="text" id="comm-cfg-remetente-nome" placeholder="CEASA CONECTA" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
-          </div>
-          <div class="form-group" style="margin-bottom:12px;">
-            <label><input type="checkbox" id="comm-cfg-ativo" style="margin-right:6px;"/>Motor de e-mail ativo</label>
-          </div>
-          <div class="form-group" style="margin-bottom:6px;">
-            <label><input type="checkbox" id="comm-cfg-tls-legado" style="margin-right:6px;" onchange="alternarAvisoTlsLegado()"/>⚠️ Servidor legado (aceita TLS antigo/certificado vencido)</label>
-          </div>
-          <div id="comm-cfg-tls-legado-aviso" style="display:none;font-size:11.5px;color:#B26A00;background:#FFF3CD;border:1px solid #FFE082;border-radius:6px;padding:8px 10px;margin-bottom:16px;line-height:1.5;">
-            Isto desliga uma proteção de segurança de propósito: a conexão passa a aceitar TLS 1.0 (protocolo antigo, quebrado), cifras fracas e um certificado inválido/vencido sem checar a identidade do servidor. Use só se souber exatamente por quê (ex.: servidor de e-mail antigo, como o achado em smtp.ceasaminas.com.br em 2026-09-10) e trate como temporário até o problema real ser corrigido pelo TI.
-          </div>
-          <div id="comm-cfg-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin-bottom:8px;"></div>
-          <div style="display:flex;gap:8px;">
-            <button class="btn btn-primary" onclick="salvarConfigEmail()">Salvar</button>
-            <button class="btn btn-secondary" onclick="testarConexaoEmail()">Testar conexão</button>
-          </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <div class="admin-section-title" style="margin-bottom:0;">Contas de e-mail</div>
+          <button class="btn btn-primary btn-sm" onclick="abrirModalConta()">+ Nova conta</button>
+        </div>
+        <p style="font-size:12px;color:var(--text-muted);margin:-6px 0 14px;">
+          Cada template (aba Templates) escolhe qual destas contas usa pra enviar. Um template sem conta escolhida aparece marcado em vermelho lá.
+        </p>
+        <div id="comm-contas-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin-bottom:8px;"></div>
+        <div class="table-wrap">
+          <table class="comm-table">
+            <thead><tr><th>Nome</th><th>Host</th><th>Remetente</th><th>Status</th><th></th></tr></thead>
+            <tbody id="comm-contas-tbody"><tr><td colspan="5" style="text-align:center;color:#aaa;padding:16px;">Carregando...</td></tr></tbody>
+          </table>
         </div>
       </div>
 
@@ -946,8 +914,8 @@
         </div>
         <div class="table-wrap">
           <table class="comm-table">
-            <thead><tr><th>Slug</th><th>Nome</th><th>Status</th><th></th></tr></thead>
-            <tbody id="comm-tpl-tbody"><tr><td colspan="4" style="text-align:center;color:#aaa;padding:16px;">Carregando...</td></tr></tbody>
+            <thead><tr><th>Slug</th><th>Nome</th><th>Conta de e-mail</th><th>Status</th><th></th></tr></thead>
+            <tbody id="comm-tpl-tbody"><tr><td colspan="5" style="text-align:center;color:#aaa;padding:16px;">Carregando...</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1303,6 +1271,59 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-comm-conta">
+  <div class="modal-box" style="max-width:480px;">
+    <h3 id="comm-conta-modal-titulo">Nova conta de e-mail</h3>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>Nome da conta</label>
+      <input type="text" id="comm-conta-nome" placeholder="ex: Conta principal, CPL, ..." style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>Host</label>
+      <input type="text" id="comm-conta-host" placeholder="smtp.exemplo.com" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <div class="form-group" style="flex:1;margin-bottom:12px;">
+        <label>Porta</label>
+        <input type="number" id="comm-conta-port" placeholder="587" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+      </div>
+      <div class="form-group" style="flex:1;margin-bottom:12px;align-self:end;">
+        <label><input type="checkbox" id="comm-conta-secure" style="margin-right:6px;"/>TLS/SSL (secure)</label>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>Usuário SMTP</label>
+      <input type="text" id="comm-conta-usuario" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>Senha SMTP <span id="comm-conta-senha-hint" style="font-weight:400;color:var(--text-muted);"></span></label>
+      <input type="password" id="comm-conta-senha" placeholder="deixe em branco para manter a atual" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>E-mail do remetente</label>
+      <input type="email" id="comm-conta-remetente-email" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>Nome do remetente</label>
+      <input type="text" id="comm-conta-remetente-nome" placeholder="CEASA CONECTA" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label><input type="checkbox" id="comm-conta-ativo" style="margin-right:6px;"/>Motor de e-mail ativo (usando esta conta)</label>
+    </div>
+    <div class="form-group" style="margin-bottom:6px;">
+      <label><input type="checkbox" id="comm-conta-tls-legado" style="margin-right:6px;" onchange="alternarAvisoTlsLegado()"/>⚠️ Servidor legado (aceita TLS antigo/certificado vencido)</label>
+    </div>
+    <div id="comm-conta-tls-legado-aviso" style="display:none;font-size:11.5px;color:#B26A00;background:#FFF3CD;border:1px solid #FFE082;border-radius:6px;padding:8px 10px;margin-bottom:16px;line-height:1.5;">
+      Isto desliga uma proteção de segurança de propósito: a conexão passa a aceitar TLS 1.0 (protocolo antigo, quebrado), cifras fracas e um certificado inválido/vencido sem checar a identidade do servidor. Use só se souber exatamente por quê (ex.: servidor de e-mail antigo, como o achado em smtp.ceasaminas.com.br em 2026-09-10) e trate como temporário até o problema real ser corrigido pelo TI.
+    </div>
+    <div id="comm-conta-msg" style="font-size:12.5px;font-weight:600;min-height:16px;margin-bottom:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="fecharModalConta()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarConta()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-comm-template">
   <div class="modal-box" style="max-width:840px;max-height:90vh;overflow-y:auto;">
     <h3 id="comm-tpl-modal-titulo">Novo template</h3>
@@ -1316,9 +1337,17 @@
         <input type="text" id="comm-tpl-nome" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
       </div>
     </div>
-    <div class="form-group" style="margin-bottom:10px;">
-      <label>Assunto</label>
-      <input type="text" id="comm-tpl-assunto" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+    <div style="display:flex;gap:10px;">
+      <div class="form-group" style="flex:2;margin-bottom:10px;">
+        <label>Assunto</label>
+        <input type="text" id="comm-tpl-assunto" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);"/>
+      </div>
+      <div class="form-group" style="flex:1;margin-bottom:10px;">
+        <label>Conta de e-mail</label>
+        <select id="comm-tpl-conta" style="width:100%;padding:8px 10px;border:1.5px solid var(--cinza-b);border-radius:6px;background:var(--surface);color:var(--text);">
+          <option value="">— nenhuma (não envia) —</option>
+        </select>
+      </div>
     </div>
     <div class="form-group" style="margin-bottom:6px;">
       <label>Variáveis disponíveis (clique pra inserir no cursor do corpo HTML)</label>
@@ -3457,7 +3486,7 @@ function mudarSubabaComm(nome, btn) {
     const el = document.getElementById(`comm-pane-${n}`);
     if (el) el.classList.toggle('active', n === nome);
   });
-  if (nome === 'config') carregarConfigEmail();
+  if (nome === 'config') carregarContasEmail();
   if (nome === 'templates') carregarTemplatesEmail();
   if (nome === 'destinatarios') carregarSeletorTemplatesDestinatarios();
   if (nome === 'fila') carregarFila();
@@ -3480,67 +3509,108 @@ function resumirDestinatarios(json) {
   } catch { return '—'; }
 }
 
-// ── Config SMTP ──────────────────────────────────────────────────────────
+// ── Contas de e-mail ─────────────────────────────────────────────────────
+let _commContas = [];
+let _commContaIdEditando = null;
+
 function alternarAvisoTlsLegado() {
-  const marcado = document.getElementById('comm-cfg-tls-legado').checked;
-  document.getElementById('comm-cfg-tls-legado-aviso').style.display = marcado ? 'block' : 'none';
+  const marcado = document.getElementById('comm-conta-tls-legado').checked;
+  document.getElementById('comm-conta-tls-legado-aviso').style.display = marcado ? 'block' : 'none';
 }
 
-async function carregarConfigEmail() {
-  const msg = document.getElementById('comm-cfg-msg');
-  msg.textContent = '';
+async function carregarContasEmail() {
+  const tbody = document.getElementById('comm-contas-tbody');
   try {
-    const config = await fetch('/api/email/config').then(r => r.json());
-    document.getElementById('comm-cfg-host').value = config?.host || '';
-    document.getElementById('comm-cfg-port').value = config?.port || '';
-    document.getElementById('comm-cfg-secure').checked = !!config?.secure;
-    document.getElementById('comm-cfg-usuario').value = config?.usuario || '';
-    document.getElementById('comm-cfg-senha').value = '';
-    document.getElementById('comm-cfg-senha-hint').textContent = config?.senha_configurada
-      ? '(já configurada — deixe em branco para manter)' : '(nenhuma senha salva ainda)';
-    document.getElementById('comm-cfg-remetente-email').value = config?.remetente_email || '';
-    document.getElementById('comm-cfg-remetente-nome').value = config?.remetente_nome || '';
-    document.getElementById('comm-cfg-ativo').checked = !!config?.ativo;
-    document.getElementById('comm-cfg-tls-legado').checked = !!config?.tls_legado;
-    alternarAvisoTlsLegado();
+    _commContas = await fetch('/api/email/contas').then(r => r.json());
+    tbody.innerHTML = _commContas.map(c => `
+      <tr>
+        <td>${c.nome}</td>
+        <td>${c.host || '—'}${c.port ? ':' + c.port : ''}</td>
+        <td>${c.remetente_email || '—'}</td>
+        <td>${c.ativo ? '<span class="badge-ativo">Ativo</span>' : '<span class="badge-inativo">Inativo</span>'}${c.tls_legado ? ' ⚠️' : ''}</td>
+        <td style="white-space:nowrap;">
+          <button class="btn btn-secondary btn-sm" onclick="abrirModalConta(${c.id})">Editar</button>
+          <button class="btn btn-secondary btn-sm" onclick="testarConta(${c.id})">Testar</button>
+          <button class="btn btn-secondary btn-sm" onclick="excluirConta(${c.id})">Excluir</button>
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan="5" style="text-align:center;color:#aaa;padding:16px;">Nenhuma conta cadastrada.</td></tr>';
   } catch {
-    msg.style.color = 'var(--vermelho)'; msg.textContent = 'Erro ao carregar configuração.';
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--vermelho);padding:16px;">Erro ao carregar contas.</td></tr>';
   }
 }
 
-async function salvarConfigEmail() {
-  const msg = document.getElementById('comm-cfg-msg');
+function abrirModalConta(id) {
+  _commContaIdEditando = id || null;
+  const c = id ? _commContas.find(x => x.id === id) : null;
+  document.getElementById('comm-conta-modal-titulo').textContent = c ? 'Editar conta de e-mail' : 'Nova conta de e-mail';
+  document.getElementById('comm-conta-nome').value = c?.nome || '';
+  document.getElementById('comm-conta-host').value = c?.host || '';
+  document.getElementById('comm-conta-port').value = c?.port || '';
+  document.getElementById('comm-conta-secure').checked = !!c?.secure;
+  document.getElementById('comm-conta-usuario').value = c?.usuario || '';
+  document.getElementById('comm-conta-senha').value = '';
+  document.getElementById('comm-conta-senha-hint').textContent = c?.senha_configurada
+    ? '(já configurada — deixe em branco para manter)' : '(nenhuma senha salva ainda)';
+  document.getElementById('comm-conta-remetente-email').value = c?.remetente_email || '';
+  document.getElementById('comm-conta-remetente-nome').value = c?.remetente_nome || '';
+  document.getElementById('comm-conta-ativo').checked = !!c?.ativo;
+  document.getElementById('comm-conta-tls-legado').checked = !!c?.tls_legado;
+  document.getElementById('comm-conta-msg').textContent = '';
+  alternarAvisoTlsLegado();
+  document.getElementById('modal-comm-conta').classList.add('open');
+}
+
+function fecharModalConta() {
+  document.getElementById('modal-comm-conta').classList.remove('open');
+}
+
+async function salvarConta() {
+  const msg = document.getElementById('comm-conta-msg');
   const body = {
-    host: document.getElementById('comm-cfg-host').value.trim(),
-    port: Number(document.getElementById('comm-cfg-port').value),
-    secure: document.getElementById('comm-cfg-secure').checked,
-    usuario: document.getElementById('comm-cfg-usuario').value.trim(),
-    senha: document.getElementById('comm-cfg-senha').value,
-    remetente_email: document.getElementById('comm-cfg-remetente-email').value.trim(),
-    remetente_nome: document.getElementById('comm-cfg-remetente-nome').value.trim(),
-    ativo: document.getElementById('comm-cfg-ativo').checked,
-    tls_legado: document.getElementById('comm-cfg-tls-legado').checked,
+    nome: document.getElementById('comm-conta-nome').value.trim(),
+    host: document.getElementById('comm-conta-host').value.trim(),
+    port: Number(document.getElementById('comm-conta-port').value),
+    secure: document.getElementById('comm-conta-secure').checked,
+    usuario: document.getElementById('comm-conta-usuario').value.trim(),
+    senha: document.getElementById('comm-conta-senha').value,
+    remetente_email: document.getElementById('comm-conta-remetente-email').value.trim(),
+    remetente_nome: document.getElementById('comm-conta-remetente-nome').value.trim(),
+    ativo: document.getElementById('comm-conta-ativo').checked,
+    tls_legado: document.getElementById('comm-conta-tls-legado').checked,
   };
   try {
-    const r = await fetch('/api/email/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const url = _commContaIdEditando ? `/api/email/contas/${_commContaIdEditando}` : '/api/email/contas';
+    const r = await fetch(url, { method: _commContaIdEditando ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (!r.ok) { const e = await r.json(); throw new Error(e.error); }
-    msg.style.color = 'var(--verde)'; msg.textContent = 'Configuração salva.';
-    carregarConfigEmail();
+    toast('Conta salva', 'success');
+    fecharModalConta();
+    carregarContasEmail();
     carregarBadgeComunicacao();
   } catch (e) {
     msg.style.color = 'var(--vermelho)'; msg.textContent = e.message || 'Erro ao salvar.';
   }
 }
 
-async function testarConexaoEmail() {
-  const msg = document.getElementById('comm-cfg-msg');
-  msg.style.color = 'var(--text-muted)'; msg.textContent = 'Testando...';
+async function testarConta(id) {
+  toast('Testando conexão...', 'info');
   try {
-    const r = await fetch('/api/email/config/testar', { method: 'POST' }).then(x => x.json());
-    if (r.ok) { msg.style.color = 'var(--verde)'; msg.textContent = '✅ Conexão OK.'; }
-    else { msg.style.color = 'var(--vermelho)'; msg.textContent = `❌ ${r.erro}`; }
+    const r = await fetch(`/api/email/contas/${id}/testar`, { method: 'POST' }).then(x => x.json());
+    toast(r.ok ? '✅ Conexão OK.' : `❌ ${r.erro}`, r.ok ? 'success' : 'error');
   } catch {
-    msg.style.color = 'var(--vermelho)'; msg.textContent = 'Erro ao testar conexão.';
+    toast('Erro ao testar conexão', 'error');
+  }
+}
+
+async function excluirConta(id) {
+  if (!confirm('Excluir esta conta de e-mail?')) return;
+  try {
+    const r = await fetch(`/api/email/contas/${id}`, { method: 'DELETE' });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.error); }
+    toast('Conta excluída', 'success');
+    carregarContasEmail();
+  } catch (e) {
+    toast(e.message || 'Erro ao excluir conta', 'error');
   }
 }
 
@@ -3548,18 +3618,23 @@ async function testarConexaoEmail() {
 async function carregarTemplatesEmail() {
   const tbody = document.getElementById('comm-tpl-tbody');
   try {
-    _commTemplates = await fetch('/api/email/templates').then(r => r.json());
+    [_commTemplates, _commContas] = await Promise.all([
+      fetch('/api/email/templates').then(r => r.json()),
+      fetch('/api/email/contas').then(r => r.json()),
+    ]);
+    const nomeConta = id => _commContas.find(c => c.id === id)?.nome;
     tbody.innerHTML = _commTemplates.map(t => `
       <tr>
         <td><code>${t.slug}</code></td>
         <td>${t.nome}</td>
+        <td>${t.conta_id && nomeConta(t.conta_id) ? nomeConta(t.conta_id) : '<span style="color:var(--vermelho);font-weight:700;">Template sem e-mail</span>'}</td>
         <td>${t.ativo ? '<span class="badge-ativo">Ativo</span>' : '<span class="badge-inativo">Inativo</span>'}</td>
         <td style="white-space:nowrap;">
           <button class="btn btn-secondary btn-sm" onclick="abrirModalTemplate('${t.slug}')">Editar</button>
           <button class="btn btn-secondary btn-sm" onclick="alternarAtivoTemplate('${t.slug}', ${t.ativo ? 0 : 1})">${t.ativo ? 'Desativar' : 'Ativar'}</button>
         </td>
       </tr>
-    `).join('') || '<tr><td colspan="4" style="text-align:center;color:#aaa;padding:16px;">Nenhum template.</td></tr>';
+    `).join('') || '<tr><td colspan="5" style="text-align:center;color:#aaa;padding:16px;">Nenhum template.</td></tr>';
 
     const sel = document.getElementById('comm-teste-template');
     const atual = sel.value;
@@ -3567,7 +3642,7 @@ async function carregarTemplatesEmail() {
       || '<option value="">Nenhum template ativo</option>';
     if (atual) sel.value = atual;
   } catch {
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--vermelho);padding:16px;">Erro ao carregar templates.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--vermelho);padding:16px;">Erro ao carregar templates.</td></tr>';
   }
 }
 
@@ -3602,7 +3677,8 @@ async function alternarAtivoTemplate(slug, ativo) {
   }
 }
 
-function abrirModalTemplate(slug) {
+async function abrirModalTemplate(slug) {
+  if (!_commContas.length) _commContas = await fetch('/api/email/contas').then(r => r.json()).catch(() => []);
   _commTplSlugOriginal = slug || null;
   document.getElementById('comm-tpl-modal-titulo').textContent = slug ? 'Editar template' : 'Novo template';
   const t = slug ? _commTemplates.find(x => x.slug === slug) : null;
@@ -3614,6 +3690,10 @@ function abrirModalTemplate(slug) {
   document.getElementById('comm-tpl-html').value = t ? t.corpo_html : '';
   document.getElementById('comm-tpl-texto').value = t ? (t.corpo_texto || '') : '';
   document.getElementById('comm-tpl-msg').textContent = '';
+  const selConta = document.getElementById('comm-tpl-conta');
+  selConta.innerHTML = '<option value="">— nenhuma (não envia) —</option>'
+    + _commContas.map(c => `<option value="${c.id}">${c.nome}</option>`).join('');
+  selConta.value = (t && t.conta_id) ? t.conta_id : '';
   let variaveis = ['plataforma', 'ano', 'url_sistema'];
   if (t && t.variaveis_disponiveis) { try { variaveis = JSON.parse(t.variaveis_disponiveis); } catch {} }
   document.getElementById('comm-tpl-vars').innerHTML = variaveis.map(v =>
@@ -3651,6 +3731,7 @@ async function salvarTemplate() {
   const assunto = document.getElementById('comm-tpl-assunto').value.trim();
   const corpo_html = document.getElementById('comm-tpl-html').value;
   const corpo_texto = document.getElementById('comm-tpl-texto').value;
+  const conta_id = document.getElementById('comm-tpl-conta').value || null;
   if (!slug || !nome || !assunto || !corpo_html) {
     msg.style.color = 'var(--vermelho)'; msg.textContent = 'Preencha slug, nome, assunto e corpo HTML.';
     return;
@@ -3660,7 +3741,7 @@ async function salvarTemplate() {
     const url = editando ? `/api/email/templates/${_commTplSlugOriginal}` : '/api/email/templates';
     const r = await fetch(url, {
       method: editando ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug, nome, assunto, corpo_html, corpo_texto }),
+      body: JSON.stringify({ slug, nome, assunto, corpo_html, corpo_texto, conta_id }),
     });
     if (!r.ok) { const e = await r.json(); throw new Error(e.error); }
     toast('Template salvo', 'success');
