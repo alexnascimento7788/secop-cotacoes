@@ -3494,11 +3494,17 @@ function mudarSubabaComm(nome, btn) {
   if (nome === 'alertas') carregarAlertasEmail();
 }
 
+// criado_em dessas tabelas vem de datetime('now')/CURRENT_TIMESTAMP, que no
+// SQLite é sempre UTC — precisa converter pro fuso do Brasil antes de exibir.
 function fmtDataHoraBr(iso) {
   if (!iso) return '—';
   const [data, hora] = String(iso).split(/[T ]/);
   const d = (data || '').split('-');
-  return d.length < 3 ? String(iso) : `${d[2]}/${d[1]}/${d[0]}${hora ? ' ' + hora.slice(0, 5) : ''}`;
+  if (d.length < 3) return String(iso);
+  if (!hora) return `${d[2]}/${d[1]}/${d[0]}`;
+  const dt = new Date(`${data}T${hora}Z`);
+  if (isNaN(dt)) return String(iso);
+  return dt.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function resumirDestinatarios(json) {

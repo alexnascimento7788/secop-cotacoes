@@ -14,15 +14,19 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&am
 
 function fecharModal(id) { document.getElementById(id).classList.remove('open'); }
 
-// DATETIME do SQLite ('YYYY-MM-DD HH:MM:SS', sem timezone) — mesmo padrão de
-// exibição "como está gravado" que o resto do projeto usa pra esses campos
-// (sem conversão de fuso), só que aqui mostrando também a hora.
+// DATETIME do SQLite ('YYYY-MM-DD HH:MM:SS') vem de datetime('now')/
+// CURRENT_TIMESTAMP, que no SQLite é sempre UTC — precisa converter pro fuso
+// do Brasil antes de exibir (achado 2026-11-19: a versão anterior mostrava
+// "como está gravado", 3h na frente da hora real).
 function fmtDataHoraBr(iso) {
   if (!iso) return null;
   const [data, hora] = String(iso).split(/[T ]/);
   const d = (data || '').split('-');
   if (d.length < 3) return null;
-  return `${d[2]}/${d[1]}/${d[0]}${hora ? ' às ' + hora.slice(0, 5) : ''}`;
+  if (!hora) return `${d[2]}/${d[1]}/${d[0]}`;
+  const dt = new Date(`${data}T${hora}Z`);
+  if (isNaN(dt)) return null;
+  return `${dt.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })} às ${dt.toLocaleString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 // Ordem fixa de exibição das Unidades (as 7 unidades reais do CORPORE + o
