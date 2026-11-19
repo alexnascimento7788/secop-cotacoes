@@ -2276,6 +2276,13 @@ function setupDb() {
     CREATE INDEX IF NOT EXISTS idx_cpl_parc_codigo ON cpl_parcelamento_concessionarios(codigo, numero_ccu);
     CREATE INDEX IF NOT EXISTS idx_cpl_parc_envios ON cpl_parcelamento_envios(concessionario_id);
   `);
+  // Cidade do concessionário (pedido do Alex, 2026-11-18, depois de ver a
+  // tela em teste) — preenchida a partir de concessionario_cadastro.cidade
+  // (depop.db, sync automático do Gateway a cada 6h), por codigo. Só exibição,
+  // não é o mesmo conceito de "entreposto" usado no DEPLA (ver
+  // [[project_secop_depla_concessionarios]] — lá é um campo de negócio
+  // diferente, vindo de outro CSV).
+  try { _db.exec(`ALTER TABLE cpl_parcelamento_concessionarios ADD COLUMN cidade TEXT`); } catch {}
 
   // ── E-mail: múltiplas contas (pedido do Alex, 2026-11-18) ───────────────
   // Generaliza email_config (1 registro único) pra N contas nomeadas — cada
