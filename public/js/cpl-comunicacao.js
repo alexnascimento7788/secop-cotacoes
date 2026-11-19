@@ -28,11 +28,19 @@ const CPL_SITUACAO_LABEL = {
   informado: 'Parcelamento informado', desabilitado: 'Desabilitado',
 };
 
+// Campo com hora (ultimo_envio_em, criado_em do envio) vem de datetime('now')
+// do SQLite, que é sempre UTC — precisa converter pro fuso do Brasil antes de
+// exibir. Campo só com data (data_aceite, vem de planilha, sem hora) não tem
+// esse problema — mostra direto, sem conversão.
 function fmtDataHoraBrCpl(iso) {
   if (!iso) return '—';
   const [data, hora] = String(iso).split(/[T ]/);
   const d = (data || '').split('-');
-  return d.length < 3 ? String(iso) : `${d[2]}/${d[1]}/${d[0]}${hora ? ' ' + hora.slice(0, 5) : ''}`;
+  if (d.length < 3) return String(iso);
+  if (!hora) return `${d[2]}/${d[1]}/${d[0]}`;
+  const dt = new Date(`${data}T${hora}Z`);
+  if (isNaN(dt)) return String(iso);
+  return dt.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function cplFiltrarDebounce() {
