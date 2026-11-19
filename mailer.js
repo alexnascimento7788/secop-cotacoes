@@ -40,6 +40,29 @@ function decriptarSenha(senhaEnc) {
   } catch { return ''; }
 }
 
+// Gmail (e outros webmails) bloqueia/não renderiza imagem embutida como
+// `data:` URI em HTML de e-mail recebido (achado real, 2026-11-18: logo
+// quebrado no teste do Alex pro Gmail — os templates existentes usam
+// base64 embutido direto no HTML, que funciona em cliente desktop/Outlook
+// mas não no Gmail). Fix sistêmico aqui, não por template: extrai toda
+// imagem base64 do HTML resolvido antes de enviar, vira anexo inline
+// referenciado por Content-ID (`cid:`), suportado por todo cliente de
+// e-mail relevante — nenhum template precisa ser reescrito.
+function extrairImagensInlineDoHtml(html) {
+  const attachments = [];
+  let contador = 0;
+  const htmlComCid = String(html || '').replace(
+    /src="data:image\/(png|jpe?g|gif);base64,([^"]+)"/g,
+    (match, ext, base64) => {
+      contador++;
+      const cid = `email-img-${contador}-${Date.now()}`;
+      attachments.push({ cid, content: Buffer.from(base64, 'base64'), contentType: `image/${ext === 'jpg' ? 'jpeg' : ext}` });
+      return `src="cid:${cid}"`;
+    }
+  );
+  return { htmlComCid, attachments };
+}
+
 function fmtDataBr(iso) {
   if (!iso) return '';
   const d = String(iso).split(/[T ]/)[0].split('-');
@@ -234,12 +257,14 @@ async function processarFila() {
       try { destinatarios = JSON.parse(item.destinatarios); } catch { destinatarios = []; }
       try {
         const transporter = getTransporter(conta);
+        const { htmlComCid, attachments } = extrairImagensInlineDoHtml(item.corpo_html_resolvido);
         await transporter.sendMail({
           from: conta.remetente_nome ? `"${conta.remetente_nome}" <${conta.remetente_email}>` : conta.remetente_email,
           to: destinatarios.map(d => d.nome ? `"${d.nome}" <${d.email}>` : d.email).join(', '),
           subject: item.assunto_resolvido,
-          html: item.corpo_html_resolvido,
+          html: htmlComCid,
           text: item.corpo_texto_resolvido || undefined,
+          attachments: attachments.length ? attachments : undefined,
         });
         db.prepare(`UPDATE email_fila SET status = 'enviado', processado_em = datetime('now') WHERE id = ?`).run(item.id);
         db.prepare(`

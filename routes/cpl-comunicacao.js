@@ -16,7 +16,7 @@
 // em Admin → Comunicação → Templates ("Testar envio"), não neste módulo —
 // pedido explícito do Alex pra não duplicar esse mecanismo.
 const express = require('express');
-const { db } = require('../database');
+const { db, depopDb } = require('../database');
 const { registrarLog, requireModulo, requireRotina, n } = require('../middleware');
 const mailer = require('../mailer');
 
@@ -29,6 +29,23 @@ const excluirGate = requireRotina('comunicacao-parcelamento', 'excluir');
 
 function normalizarCcu(s) {
   return String(s || '').trim();
+}
+
+// Nome/cidade do concessionário não vêm da planilha de aceite (ela nunca
+// teve essas colunas) — busca no depop.db por `codigo` (achado em
+// 2026-11-18, depois do Alex ver a tela cheia de linha "sem nome"). Mesma
+// fonte usada no backfill manual único: ClienteConcessionario.cliente (nome)
+// e concessionario_cadastro.cidade (sync automático do Gateway a cada 6h).
+// Nunca lança exceção — falha aqui não pode travar o cadastro/sincronização.
+function enriquecerDoDepop(codigo) {
+  try {
+    const cliente = depopDb.prepare(`SELECT cliente FROM ClienteConcessionario WHERE codigo = ?`).get(codigo);
+    const cadastro = depopDb.prepare(`SELECT cidade FROM concessionario_cadastro WHERE codigo = ? ORDER BY atualizado_em DESC LIMIT 1`).get(codigo);
+    return { razao_social: cliente?.cliente || null, cidade: cadastro?.cidade || null };
+  } catch (e) {
+    console.error('[cpl] erro buscando nome/cidade no depop:', e.message);
+    return { razao_social: null, cidade: null };
+  }
 }
 
 // ── Sincronização a partir da importação de aceites (SECAD/Relatórios) ────
@@ -46,30 +63,36 @@ function sincronizarNovosAceites(linhas, usuarioId) {
       if (!temEmail || !l.data_aceite) return;
       const codigo = l.codigo;
       const numero_ccu = normalizarCcu(l.numero_ccu);
-      const existente = db.prepare(`SELECT id FROM cpl_parcelamento_concessionarios WHERE codigo = ? AND numero_ccu = ?`).get(codigo, numero_ccu);
+      const existente = db.prepare(`SELECT id, razao_social, cidade FROM cpl_parcelamento_concessionarios WHERE codigo = ? AND numero_ccu = ?`).get(codigo, numero_ccu);
       if (existente) {
         // Já conhecido — só atualiza dados de contato/aceite, nunca o
         // progresso (habilitado/autorizado/parcelas) já decidido pela CPL.
+        // Nome/cidade só preenche se ainda estiver em branco (nunca sobrescreve).
+        const enriq = (!existente.razao_social || !existente.cidade) ? enriquecerDoDepop(codigo) : { razao_social: null, cidade: null };
         db.prepare(`
           UPDATE cpl_parcelamento_concessionarios
           SET cnpj = COALESCE(?, cnpj), email1 = ?, email2 = ?, telefone = ?, telefone_whatsapp = ?,
-              data_aceite = ?, atualizado_em = datetime('now')
+              data_aceite = ?, razao_social = COALESCE(razao_social, ?), cidade = COALESCE(cidade, ?),
+              atualizado_em = datetime('now')
           WHERE id = ?
-        `).run(n(l.cnpj), n(l.email1), n(l.email2), n(l.telefone), n(l.telefone_whatsapp), n(l.data_aceite), existente.id);
+        `).run(n(l.cnpj), n(l.email1), n(l.email2), n(l.telefone), n(l.telefone_whatsapp), n(l.data_aceite),
+          enriq.razao_social, enriq.cidade, existente.id);
         return;
       }
       // Novo concessionário com aceite — nasce pronto pra envio (habilitado +
       // autorizado), CPL que decide desautorizar se necessário (pedido
       // explícito do Alex: "ja inserir deixando o envio pronto, informar a
-      // cpl e eles acessam e somente autorizam ou desautorizam").
+      // cpl e eles acessam e somente autorizam ou desautorizam"). Nome/cidade
+      // vêm do depop (a planilha de aceite nunca trouxe essas colunas).
+      const enriqNovo = enriquecerDoDepop(codigo);
       const info = db.prepare(`
         INSERT INTO cpl_parcelamento_concessionarios
-          (codigo, numero_ccu, cnpj, email1, email2, telefone, telefone_whatsapp, data_aceite, habilitado, autorizado_cpl)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1)
-      `).run(codigo, numero_ccu, n(l.cnpj), n(l.email1), n(l.email2), n(l.telefone), n(l.telefone_whatsapp), n(l.data_aceite));
+          (codigo, numero_ccu, cnpj, razao_social, cidade, email1, email2, telefone, telefone_whatsapp, data_aceite, habilitado, autorizado_cpl)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1)
+      `).run(codigo, numero_ccu, n(l.cnpj), enriqNovo.razao_social, enriqNovo.cidade, n(l.email1), n(l.email2), n(l.telefone), n(l.telefone_whatsapp), n(l.data_aceite));
 
       mailer.enfileirar('cpl.parcelamento.novo_concessionario', {
-        concessionario_nome: `Concessionário ${codigo}`, codigo: String(codigo), numero_ccu,
+        concessionario_nome: enriqNovo.razao_social || `Concessionário ${codigo}`, codigo: String(codigo), numero_ccu,
         cnpj: l.cnpj || '—', email: l.email1 || l.email2 || '—', data_aceite: mailer.fmtDataBr(l.data_aceite),
       }, [{ email: avisoEmail }]);
 
@@ -159,6 +182,25 @@ router.patch('/api/cpl-comunicacao/concessionarios/:id/retorno', cpl, alterarGat
     WHERE id = ?
   `).run(String(parcelas_qtd).trim(), email_retornado === false ? 0 : 1, c.id);
   registrarLog(req, 'CPL', 'REGISTROU_RETORNO', `Registrou retorno do concessionário #${c.id}: ${String(parcelas_qtd).trim()}`);
+  res.json({ ok: true });
+});
+
+// Desfaz um "parcelamento informado" registrado por engano (pedido do Alex,
+// 2026-11-18: "preciso de uma forma de desinformar o aceite de parcelamento
+// caso tenha erro"). Mesmo gate de alterar — a tela já esconde esta ação
+// atrás de uma confirmação em 2 passos, não é 1 clique só. Volta a ficar
+// disponível pra envio se ainda estiver autorizado pela CPL.
+router.patch('/api/cpl-comunicacao/concessionarios/:id/desfazer-informado', cpl, alterarGate, (req, res) => {
+  const c = db.prepare(`SELECT id, autorizado_cpl, parcelas_informado, parcelas_qtd FROM cpl_parcelamento_concessionarios WHERE id = ?`).get(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Concessionário não encontrado' });
+  if (!c.parcelas_informado) return res.status(400).json({ error: 'Este concessionário não está marcado como parcelamento informado.' });
+  db.prepare(`
+    UPDATE cpl_parcelamento_concessionarios
+    SET parcelas_informado = 0, parcelas_qtd = NULL, parcelas_origem = NULL, email_retornado = 0,
+        habilitado = ?, atualizado_em = datetime('now')
+    WHERE id = ?
+  `).run(c.autorizado_cpl ? 1 : 0, c.id);
+  registrarLog(req, 'CPL', 'DESFEZ_PARCELAMENTO_INFORMADO', `Desfez o parcelamento informado do concessionário #${c.id} (era: ${c.parcelas_qtd || '—'})`);
   res.json({ ok: true });
 });
 
