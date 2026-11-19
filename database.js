@@ -2367,7 +2367,7 @@ function setupDb() {
     </div>
     <div style="background:#f7f7f7;border-top:1px solid #e2e2e2;padding:16px 24px;color:#888;font-size:11px;text-align:center;line-height:1.6;">
       <div>Comissão Permanente de Licitação — CPL</div>
-      <div>CEASAMINAS · Centrais de Abastecimento de Minas Gerais S.A. · Telefone: +55 31 3399-2056</div>
+      <div>CEASAMINAS · Centrais de Abastecimento de Minas Gerais S.A. · Telefone: +55 31 3399-2056 / +55 31 3399-2057</div>
     </div>
   </div>
 </div>`;
@@ -2392,7 +2392,7 @@ function setupDb() {
       <p>Esclarece-se que o envio desta solicitação se refere exclusivamente à instrução da condição financeira da outorga e <strong>NÃO IMPLICA</strong> aprovação, conferência definitiva ou habilitação da documentação cadastral, jurídica e fiscal apresentada na plataforma. A CEASAMINAS reserva-se o direito de notificar formalmente a empresa quanto a eventuais pendências documentais futuramente identificadas pela CPL.</p>
       <p style="background:#f7f0fb;border:1px solid #e3cdf2;border-radius:6px;padding:12px 16px;">Aguardamos o envio da informação com a indicação precisa do número de parcelas pretendido (ex: à vista, 12x, 60x, 120x ou 180x).</p>
       <p style="margin-top:22px;margin-bottom:0;">Atenciosamente,</p>
-      <p style="margin-top:2px;"><strong>Comissão Permanente de Licitação — CPL</strong><br>Telefone: +55 31 3399-2056</p>`;
+      <p style="margin-top:2px;"><strong>Comissão Permanente de Licitação — CPL</strong><br>Telefone: +55 31 3399-2056 / +55 31 3399-2057</p>`;
 
     const corpoAvisoNovo = `
       <p>Novo concessionário com aceite registrado na renovação, pendente de solicitação de parcelamento:</p>
