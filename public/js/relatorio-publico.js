@@ -43,6 +43,7 @@ async function relpubVerificarAcesso() {
       _relpubUltimoDados = dados;
       relpubMostrarTela('dashboard');
       _relRenderDashboard(dados);
+      _relPopularFiltroCidade('rel-filtro-cidade-tabela', dados);
       document.getElementById('rel-tabela-unificada').innerHTML = _relRenderTabelaUnificada(dados);
       _relRenderAderiram(dados);
       return;
@@ -125,7 +126,13 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('rel-filtro-data-tabela').addEventListener('change', () => {
     if (_relpubUltimoDados) document.getElementById('rel-tabela-unificada').innerHTML = _relRenderTabelaUnificada(_relpubUltimoDados);
   });
+  document.getElementById('rel-filtro-cidade-tabela').addEventListener('change', () => {
+    if (_relpubUltimoDados) document.getElementById('rel-tabela-unificada').innerHTML = _relRenderTabelaUnificada(_relpubUltimoDados);
+  });
   document.getElementById('rel-filtro-data-aderiram').addEventListener('change', () => {
+    if (_relpubUltimoDados) document.getElementById('rel-tabela-aderiram').innerHTML = _relRenderTabelaAderiram(_relpubUltimoDados);
+  });
+  document.getElementById('rel-filtro-cidade-aderiram').addEventListener('change', () => {
     if (_relpubUltimoDados) document.getElementById('rel-tabela-aderiram').innerHTML = _relRenderTabelaAderiram(_relpubUltimoDados);
   });
   relpubInjetarRodape();
