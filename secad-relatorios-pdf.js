@@ -240,11 +240,17 @@ const COLS_PENDENTES = [
   { label: 'Código', w: 60 }, { label: 'Concessionário', w: 220 },
   { label: 'CNPJ', w: 125 }, { label: 'CCU', w: 98 },
 ];
+const COLS_ACEITOS = [
+  { label: 'Código', w: 55 }, { label: 'Concessionário', w: 185 },
+  { label: 'CNPJ', w: 115 }, { label: 'CCU', w: 88 }, { label: 'Data aceite', w: 60 },
+];
 
 // dados: { importacao: {id, criado_em, nome_arquivo, total_linhas, nao_casados},
 //          grupos: [{ prazo, cidades: [{cidade, total, aceitaram, pendentes, pct}],
 //                     total: {total,aceitaram,pendentes,pct}, lista_pendentes:
-//                     [{codigo, concessionario, cnpj, numero_ccu, cidade}] }] }
+//                     [{codigo, concessionario, cnpj, numero_ccu, cidade}],
+//                     lista_aceitos: [{codigo, concessionario, cnpj, numero_ccu,
+//                     cidade, data_aceite}] }] }
 // — vem de montarRelatorioAdesao() em routes/secad-relatorios.js (mesma
 // função monta os dados pra tela E pro PDF).
 async function gerarPdfAdesaoRenovacao(dados, nomeGerador) {
@@ -358,6 +364,29 @@ async function gerarPdfAdesaoRenovacao(dados, nomeGerador) {
       });
     } else {
       w.paragrafo('Nenhum pendente — 100% de adesão neste prazo.', 9, VERDE_OK);
+    }
+
+    // ── Quem aderiu (mesmo modelo acima, foco invertido) — pedido do Alex,
+    // 2026-11-25: o PDF só detalhava quem NÃO aceitou, faltava o espelho.
+    if (g.lista_aceitos && g.lista_aceitos.length) {
+      w.espaco(10);
+      w.garantirEspaco(30);
+      w.paragrafo(g.prazo === 'Fora do prazo previsto' ? 'Concessionários que aderiram (sem prazo previsto definido):' : `Concessionários que aderiram (prazo ${g.prazo}):`, 9.5, VERDE_OK);
+      const blocosAceitosPorCidade = [];
+      g.lista_aceitos.forEach(p => {
+        const cidade = p.cidade || 'Sem cidade definida';
+        let bloco = blocosAceitosPorCidade[blocosAceitosPorCidade.length - 1];
+        if (!bloco || bloco.cidade !== cidade) { bloco = { cidade, itens: [] }; blocosAceitosPorCidade.push(bloco); }
+        bloco.itens.push(p);
+      });
+      blocosAceitosPorCidade.forEach(bloco => {
+        w.garantirEspaco(18);
+        w.paragrafo(`${bloco.cidade} (${bloco.itens.length})`, 9.5, AZUL);
+        const linhasAceitos = bloco.itens.map(p => ({
+          valores: [p.codigo, p.concessionario || '—', p.cnpj || '—', p.numero_ccu || '—', p.data_aceite || '—'],
+        }));
+        desenharTabela(w, negrito, regular, `${subtituloPagina} (continuação)`, COLS_ACEITOS, linhasAceitos);
+      });
     }
   });
 

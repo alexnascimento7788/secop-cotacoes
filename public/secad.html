@@ -403,6 +403,7 @@
 
       <div class="page-tabs" id="rel-tabs">
         <button class="page-tab active" data-reltab="painel" onclick="relTrocarSubview('painel')">📊 Relatórios</button>
+        <button class="page-tab" data-reltab="aderiram" onclick="relTrocarSubview('aderiram')">✅ Quem Aderiu</button>
         <button class="page-tab" data-reltab="historico" onclick="relTrocarSubview('historico')">🕑 Histórico de Importações</button>
         <button class="page-tab" data-reltab="verificar" onclick="relTrocarSubview('verificar')">⚠️ Dados Registrados e a Verificar</button>
         <button class="page-tab" id="rel-tab-importar" data-reltab="importar" onclick="relTrocarSubview('importar')" style="display:none;">📥 Importar planilha</button>
@@ -473,6 +474,35 @@
          <div id="rel-tabela-unificada"></div>
        </div>
       </div><!-- /rel-sub-painel -->
+
+      <!-- ── Sub-aba: Quem Aderiu (espelha o Painel, focado em quem JÁ aceitou) ── -->
+      <div id="rel-sub-aderiram" style="display:none;">
+       <div class="card" id="rel-dash-card-aderiram" style="margin-bottom:16px;">
+         <div class="card-header"><span class="card-title">✅ Quem Aderiu</span></div>
+         <div class="rel-panorama-row">
+           <div class="rel-dash-item">
+             <div class="rel-dash-titulo">Aderiram por cidade</div>
+             <div id="rel-pizza-aderiram"></div>
+           </div>
+           <div class="rel-dash-item rel-dash-item-wide" style="flex:2 1 420px;">
+             <div class="rel-dash-titulo">Evolução dos aceites</div>
+             <div id="rel-timeline-aderiram"></div>
+           </div>
+         </div>
+       </div>
+
+       <div class="card" style="margin-bottom:16px;">
+         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+           <span class="card-title">Indicadores por cidade</span>
+           <select id="rel-filtro-data-aderiram" class="filter-select">
+             <option value="">Total</option>
+             <option value="30/10/2026">30/10/2026</option>
+             <option value="18/12/2026">18/12/2026</option>
+           </select>
+         </div>
+         <div id="rel-tabela-aderiram"></div>
+       </div>
+      </div><!-- /rel-sub-aderiram -->
 
       <!-- ── Sub-aba: Histórico de Importações ── -->
       <div id="rel-sub-historico" style="display:none;">
