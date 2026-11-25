@@ -44,6 +44,7 @@ async function relpubVerificarAcesso() {
       relpubMostrarTela('dashboard');
       _relRenderDashboard(dados);
       document.getElementById('rel-tabela-unificada').innerHTML = _relRenderTabelaUnificada(dados);
+      _relRenderAderiram(dados);
       return;
     }
     const r = await res.json().catch(() => ({}));
@@ -123,6 +124,9 @@ document.addEventListener('DOMContentLoaded', () => {
   _relpubTelWidget = iniciarTelefoneBR(document.getElementById('relpub-telefone'));
   document.getElementById('rel-filtro-data-tabela').addEventListener('change', () => {
     if (_relpubUltimoDados) document.getElementById('rel-tabela-unificada').innerHTML = _relRenderTabelaUnificada(_relpubUltimoDados);
+  });
+  document.getElementById('rel-filtro-data-aderiram').addEventListener('change', () => {
+    if (_relpubUltimoDados) document.getElementById('rel-tabela-aderiram').innerHTML = _relRenderTabelaAderiram(_relpubUltimoDados);
   });
   relpubInjetarRodape();
   relpubVerificarAcesso();

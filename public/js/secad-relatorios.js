@@ -124,7 +124,7 @@ function _relMostrarSimulacao(r) {
 
 // ── Sub-navegação do submódulo (Relatórios × Histórico × Verificar × Importar) ──
 
-const REL_SUBVIEWS = ['painel', 'historico', 'verificar', 'importar'];
+const REL_SUBVIEWS = ['painel', 'aderiram', 'historico', 'verificar', 'importar'];
 
 function relTrocarSubview(nome) {
   REL_SUBVIEWS.forEach(v => { document.getElementById(`rel-sub-${v}`).style.display = v === nome ? '' : 'none'; });
@@ -141,6 +141,9 @@ async function initRelatorios() {
   // em memória a partir de _relDados, que já tem TODOS os grupos.
   document.getElementById('rel-filtro-data-tabela').addEventListener('change', () => {
     if (_relDados) document.getElementById('rel-tabela-unificada').innerHTML = _relRenderTabelaUnificada(_relDados);
+  });
+  document.getElementById('rel-filtro-data-aderiram').addEventListener('change', () => {
+    if (_relDados) document.getElementById('rel-tabela-aderiram').innerHTML = _relRenderTabelaAderiram(_relDados);
   });
   await _relCarregarImportacoes();
   await carregarRelatorioAdesao();
@@ -191,6 +194,7 @@ async function carregarRelatorioAdesao() {
       foraPrazo.innerHTML = '';
       dashCard.style.display = 'none';
       tabela.innerHTML = vazio('Nenhuma importação feita ainda.');
+      document.getElementById('rel-tabela-aderiram').innerHTML = '';
       return;
     }
     const dados = await res.json();
@@ -207,11 +211,13 @@ async function carregarRelatorioAdesao() {
     if (!_relGruposOp(dados).length) {
       dashCard.style.display = 'none';
       tabela.innerHTML = vazio('Nenhum contrato no intervalo de prazo previsto (2027–2032) com os filtros atuais.');
+      document.getElementById('rel-tabela-aderiram').innerHTML = '';
       return;
     }
     dashCard.style.display = '';
     _relRenderDashboard(dados);
     tabela.innerHTML = _relRenderTabelaUnificada(dados);
+    _relRenderAderiram(dados);
   } catch {
     info.textContent = '';
     destaques.innerHTML = '';
@@ -485,15 +491,23 @@ function _relRenderDashboard(dados) {
   document.getElementById('rel-bateria').innerHTML = _relSvgBateria(pctGeral);
 }
 
-// Tabela unificada por cidade (substitui a repetição de _relRenderGrupo por
-// prazo): filtro LOCAL (não refaz fetch) — "Total" soma os 2 prazos
-// operacionais por cidade, ou mostra só o prazo escolhido. "Fora do prazo
-// previsto" nunca entra aqui (fica só na aba de Verificação).
-function _relRenderTabelaUnificada(dados) {
-  const filtro = document.getElementById('rel-filtro-data-tabela').value;
-  const gruposOp = _relGruposOp(dados);
-  const gruposAlvo = filtro ? gruposOp.filter(g => g.prazo === filtro) : gruposOp;
+// 4 cards de resumo (Total/Aceitaram/Pendentes/% Adesão) — extraído de
+// _relRenderTabelaUnificada pra ser reaproveitado também em
+// _relRenderTabelaAderiram (mesmo modelo, outro foco de detalhe).
+function _relCardsResumo(total) {
+  return `
+    <div class="cards-grid" style="padding:14px 16px 0;">
+      <div class="card" style="box-shadow:none;border:1px solid var(--cinza-b);"><div style="padding:14px;"><div class="text-muted" style="font-size:11px;text-transform:uppercase;">Total</div><div style="font-size:22px;font-weight:700;">${total.total}</div></div></div>
+      <div class="card" style="box-shadow:none;border:1px solid var(--cinza-b);"><div style="padding:14px;"><div class="text-muted" style="font-size:11px;text-transform:uppercase;">Aceitaram</div><div style="font-size:22px;font-weight:700;color:var(--verde);">${total.aceitaram}</div></div></div>
+      <div class="card" style="box-shadow:none;border:1px solid var(--cinza-b);"><div style="padding:14px;"><div class="text-muted" style="font-size:11px;text-transform:uppercase;">Pendentes</div><div style="font-size:22px;font-weight:700;color:var(--vermelho);">${total.pendentes}</div></div></div>
+      <div class="card" style="box-shadow:none;border:1px solid var(--cinza-b);"><div style="padding:14px;"><div class="text-muted" style="font-size:11px;text-transform:uppercase;">% Adesão</div><div style="font-size:22px;font-weight:700;" class="${_relFaixaPct(total.pct).classe}">${total.pct.toFixed(1)}%</div></div></div>
+    </div>`;
+}
 
+// Agrupa cidades operacionais (soma dos 2 prazos, ou só o prazo escolhido)
+// — mesma lógica usada por _relRenderTabelaUnificada e _relRenderTabelaAderiram,
+// só muda o que cada uma faz com a lista detalhada (pendentes x aceitos).
+function _relCidadesAgregadas(gruposAlvo) {
   const porCidade = new Map();
   gruposAlvo.forEach(g => g.cidades.forEach(c => {
     const atual = porCidade.get(c.cidade) || { cidade: c.cidade, total: 0, aceitaram: 0, pendentes: 0 };
@@ -506,14 +520,11 @@ function _relRenderTabelaUnificada(dados) {
   const totalGeral = cidades.reduce((acc, c) => ({ total: acc.total + c.total, aceitaram: acc.aceitaram + c.aceitaram }), { total: 0, aceitaram: 0 });
   const total = { total: totalGeral.total, aceitaram: totalGeral.aceitaram, pendentes: totalGeral.total - totalGeral.aceitaram,
                   pct: totalGeral.total ? (totalGeral.aceitaram / totalGeral.total) * 100 : 0 };
+  return { cidades, total };
+}
 
-  const listaPendentes = gruposAlvo.flatMap(g => g.lista_pendentes)
-    .sort((a, b) => a.cidade.localeCompare(b.cidade, 'pt-BR') || String(a.concessionario).localeCompare(String(b.concessionario), 'pt-BR'));
-
-  const badgeSituacao = p => p.situacao === 'removido'
-    ? ` <span class="rel-badge rel-badge-removido" title="${p.motivo || ''}">REMOVIDO</span>`
-    : (p.situacao === 'teste' ? ` <span class="rel-badge rel-badge-teste">TESTE</span>` : '');
-  const linhasCidade = cidades.map(c => {
+function _relLinhasCidade(cidades) {
+  return cidades.map(c => {
     const faixa = _relFaixaPct(c.pct);
     return `
     <tr>
@@ -522,18 +533,32 @@ function _relRenderTabelaUnificada(dados) {
       <td class="${faixa.classe}"><span class="rel-seta">${faixa.seta}</span>${c.pct.toFixed(1)}%</td>
     </tr>`;
   }).join('');
+}
+
+// Tabela unificada por cidade (substitui a repetição de _relRenderGrupo por
+// prazo): filtro LOCAL (não refaz fetch) — "Total" soma os 2 prazos
+// operacionais por cidade, ou mostra só o prazo escolhido. "Fora do prazo
+// previsto" nunca entra aqui (fica só na aba de Verificação).
+function _relRenderTabelaUnificada(dados) {
+  const filtro = document.getElementById('rel-filtro-data-tabela').value;
+  const gruposOp = _relGruposOp(dados);
+  const gruposAlvo = filtro ? gruposOp.filter(g => g.prazo === filtro) : gruposOp;
+  const { cidades, total } = _relCidadesAgregadas(gruposAlvo);
+
+  const listaPendentes = gruposAlvo.flatMap(g => g.lista_pendentes)
+    .sort((a, b) => a.cidade.localeCompare(b.cidade, 'pt-BR') || String(a.concessionario).localeCompare(String(b.concessionario), 'pt-BR'));
+
+  const badgeSituacao = p => p.situacao === 'removido'
+    ? ` <span class="rel-badge rel-badge-removido" title="${p.motivo || ''}">REMOVIDO</span>`
+    : (p.situacao === 'teste' ? ` <span class="rel-badge rel-badge-teste">TESTE</span>` : '');
+  const linhasCidade = _relLinhasCidade(cidades);
   const linhasPendentes = _relAgruparPorCidade(listaPendentes).map(bloco => `
     <tr class="rel-subcab"><td colspan="4">${bloco.cidade} (${bloco.itens.length})</td></tr>
     ${bloco.itens.map(p => `<tr><td>${p.codigo}</td><td>${p.concessionario}${badgeSituacao(p)}</td><td>${p.cnpj}</td><td>${p.numero_ccu}</td></tr>`).join('')}
   `).join('');
 
   return `
-    <div class="cards-grid" style="padding:14px 16px 0;">
-      <div class="card" style="box-shadow:none;border:1px solid var(--cinza-b);"><div style="padding:14px;"><div class="text-muted" style="font-size:11px;text-transform:uppercase;">Total</div><div style="font-size:22px;font-weight:700;">${total.total}</div></div></div>
-      <div class="card" style="box-shadow:none;border:1px solid var(--cinza-b);"><div style="padding:14px;"><div class="text-muted" style="font-size:11px;text-transform:uppercase;">Aceitaram</div><div style="font-size:22px;font-weight:700;color:var(--verde);">${total.aceitaram}</div></div></div>
-      <div class="card" style="box-shadow:none;border:1px solid var(--cinza-b);"><div style="padding:14px;"><div class="text-muted" style="font-size:11px;text-transform:uppercase;">Pendentes</div><div style="font-size:22px;font-weight:700;color:var(--vermelho);">${total.pendentes}</div></div></div>
-      <div class="card" style="box-shadow:none;border:1px solid var(--cinza-b);"><div style="padding:14px;"><div class="text-muted" style="font-size:11px;text-transform:uppercase;">% Adesão</div><div style="font-size:22px;font-weight:700;" class="${_relFaixaPct(total.pct).classe}">${total.pct.toFixed(1)}%</div></div></div>
-    </div>
+    ${_relCardsResumo(total)}
     <div class="table-wrap" style="padding:14px 16px;">
       <table class="rel-grupo-cidades">
         <thead><tr><th>Cidade</th><th>Total</th><th>Aceitaram</th><th>Pendentes</th><th>Progresso</th><th>% Adesão</th></tr></thead>
@@ -550,6 +575,57 @@ function _relRenderTabelaUnificada(dados) {
         </table>
       </div>
     </details>` : ''}
+  `;
+}
+
+// ── Aba "✅ Quem Aderiu" (espelha o Painel, focado em quem JÁ aceitou) ──────
+// Pedido do Alex, 2026-11-25: o relatório só tinha detalhe de quem NÃO
+// aceitou (pendentes); faltava o equivalente pra quem aceitou — mesmos
+// gráficos/indicadores/tabela por cidade, só troca o foco do drill-down.
+function _relRenderAderiram(dados) {
+  const gruposOp = _relGruposOp(dados);
+  const totalGeral = gruposOp.reduce((acc, g) => {
+    const s = _relSomaGrupo(g);
+    return { total: acc.total + s.total, aceitaram: acc.aceitaram + s.aceitaram };
+  }, { total: 0, aceitaram: 0 });
+  _relPorCidadePizza('rel-pizza-aderiram', gruposOp, c => c.aceitaram, 'Ainda sem nenhum aceite.');
+  document.getElementById('rel-timeline-aderiram').innerHTML = _relSvgTimeline(dados.evolucao || [], totalGeral.total);
+  document.getElementById('rel-tabela-aderiram').innerHTML = _relRenderTabelaAderiram(dados);
+}
+
+function _relRenderTabelaAderiram(dados) {
+  const filtro = document.getElementById('rel-filtro-data-aderiram').value;
+  const gruposOp = _relGruposOp(dados);
+  const gruposAlvo = filtro ? gruposOp.filter(g => g.prazo === filtro) : gruposOp;
+  const { cidades, total } = _relCidadesAgregadas(gruposAlvo);
+
+  const listaAceitos = gruposAlvo.flatMap(g => g.lista_aceitos)
+    .sort((a, b) => a.cidade.localeCompare(b.cidade, 'pt-BR') || String(a.concessionario).localeCompare(String(b.concessionario), 'pt-BR'));
+
+  const linhasCidade = _relLinhasCidade(cidades);
+  const linhasAceitos = _relAgruparPorCidade(listaAceitos).map(bloco => `
+    <tr class="rel-subcab"><td colspan="5">${bloco.cidade} (${bloco.itens.length})</td></tr>
+    ${bloco.itens.map(p => `<tr><td>${p.codigo}</td><td>${p.concessionario}</td><td>${p.cnpj}</td><td>${p.numero_ccu}</td><td>${p.data_aceite}</td></tr>`).join('')}
+  `).join('');
+
+  return `
+    ${_relCardsResumo(total)}
+    <div class="table-wrap" style="padding:14px 16px;">
+      <table class="rel-grupo-cidades">
+        <thead><tr><th>Cidade</th><th>Total</th><th>Aceitaram</th><th>Pendentes</th><th>Progresso</th><th>% Adesão</th></tr></thead>
+        <tbody>${linhasCidade}</tbody>
+      </table>
+    </div>
+    ${listaAceitos.length ? `
+    <details open style="padding:0 16px 16px;">
+      <summary style="cursor:pointer;font-size:13px;color:var(--text-muted);">Ver ${listaAceitos.length} concessionário(s) que aderiram</summary>
+      <div class="table-wrap" style="margin-top:10px;">
+        <table class="rel-grupo-cidades">
+          <thead><tr><th>Código</th><th>Concessionário</th><th>CNPJ</th><th>CCU</th><th>Data do aceite</th></tr></thead>
+          <tbody>${linhasAceitos}</tbody>
+        </table>
+      </div>
+    </details>` : `<div class="text-muted" style="font-size:12px;padding:0 16px 16px;">Ainda sem nenhum aceite registrado.</div>`}
   `;
 }
 

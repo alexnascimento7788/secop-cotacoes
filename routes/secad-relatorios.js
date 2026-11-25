@@ -230,11 +230,19 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeIds) {
 
     if (!porPrazo.has(prazo)) porPrazo.set(prazo, new Map());
     const porCidade = porPrazo.get(prazo);
-    if (!porCidade.has(cidadeNome)) porCidade.set(cidadeNome, { total: 0, aceitaram: 0, pendentes: [] });
+    if (!porCidade.has(cidadeNome)) porCidade.set(cidadeNome, { total: 0, aceitaram: 0, pendentes: [], aceitos: [] });
     const g = porCidade.get(cidadeNome);
     g.total++;
-    if (aceitou) g.aceitaram++;
-    else g.pendentes.push({
+    if (aceitou) {
+      g.aceitaram++;
+      // Espelha g.pendentes, mesmo formato (+ data_aceite) — alimenta o
+      // drill-down "quem aderiu" (pedido do Alex, 2026-11-25: o relatório só
+      // tinha detalhe de quem NÃO aceitou, nada sobre quem aceitou).
+      g.aceitos.push({
+        codigo: c.codigo, concessionario: c.cliente || '—', cnpj: c.cpf_cnpj || '—',
+        numero_ccu: c.numero_ccu || '—', cidade: cidadeNome, data_aceite: dataAceite || '—',
+      });
+    } else g.pendentes.push({
       codigo: c.codigo, concessionario: c.cliente || '—', cnpj: c.cpf_cnpj || '—',
       numero_ccu: c.numero_ccu || '—', cidade: cidadeNome,
     });
@@ -261,17 +269,21 @@ function montarRelatorioAdesao(importacaoId, filtroPrazo, filtroCidadeIds) {
           cidade, total: v.total, aceitaram: v.aceitaram, pendentes: v.total - v.aceitaram,
           pct: v.total ? (v.aceitaram / v.total) * 100 : 0,
           _pendentesLista: v.pendentes,
+          _aceitosLista: v.aceitos,
         }))
         .sort((a, b) => a.cidade.localeCompare(b.cidade, 'pt-BR'));
       const totalGrupo = cidades.reduce((acc, c) => ({ total: acc.total + c.total, aceitaram: acc.aceitaram + c.aceitaram }), { total: 0, aceitaram: 0 });
       const listaPendentes = cidades.flatMap(c => c._pendentesLista)
         .sort((a, b) => a.cidade.localeCompare(b.cidade, 'pt-BR') || String(a.concessionario).localeCompare(String(b.concessionario), 'pt-BR'));
+      const listaAceitos = cidades.flatMap(c => c._aceitosLista)
+        .sort((a, b) => a.cidade.localeCompare(b.cidade, 'pt-BR') || String(a.concessionario).localeCompare(String(b.concessionario), 'pt-BR'));
       return {
         prazo,
-        cidades: cidades.map(({ _pendentesLista, ...c }) => c),
+        cidades: cidades.map(({ _pendentesLista, _aceitosLista, ...c }) => c),
         total: { total: totalGrupo.total, aceitaram: totalGrupo.aceitaram, pendentes: totalGrupo.total - totalGrupo.aceitaram,
                  pct: totalGrupo.total ? (totalGrupo.aceitaram / totalGrupo.total) * 100 : 0 },
         lista_pendentes: listaPendentes,
+        lista_aceitos: listaAceitos,
       };
     });
 
