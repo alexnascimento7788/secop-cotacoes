@@ -161,11 +161,14 @@
       <div class="card" style="margin-bottom:16px;">
         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
           <span class="card-title">Indicadores por cidade</span>
-          <select id="rel-filtro-data-tabela" class="filter-select">
-            <option value="">Total</option>
-            <option value="30/10/2026">30/10/2026</option>
-            <option value="18/12/2026">18/12/2026</option>
-          </select>
+          <div style="display:flex;gap:8px;">
+            <select id="rel-filtro-cidade-tabela" class="filter-select"><option value="">Todas as cidades</option></select>
+            <select id="rel-filtro-data-tabela" class="filter-select">
+              <option value="">Total</option>
+              <option value="30/10/2026">30/10/2026</option>
+              <option value="18/12/2026">18/12/2026</option>
+            </select>
+          </div>
         </div>
         <div id="rel-tabela-unificada"></div>
       </div>
@@ -187,11 +190,14 @@
       <div class="card" style="margin-bottom:16px;">
         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
           <span class="card-title">Indicadores por cidade (quem aderiu)</span>
-          <select id="rel-filtro-data-aderiram" class="filter-select">
-            <option value="">Total</option>
-            <option value="30/10/2026">30/10/2026</option>
-            <option value="18/12/2026">18/12/2026</option>
-          </select>
+          <div style="display:flex;gap:8px;">
+            <select id="rel-filtro-cidade-aderiram" class="filter-select"><option value="">Todas as cidades</option></select>
+            <select id="rel-filtro-data-aderiram" class="filter-select">
+              <option value="">Total</option>
+              <option value="30/10/2026">30/10/2026</option>
+              <option value="18/12/2026">18/12/2026</option>
+            </select>
+          </div>
         </div>
         <div id="rel-tabela-aderiram"></div>
       </div>

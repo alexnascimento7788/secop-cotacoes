@@ -142,7 +142,13 @@ async function initRelatorios() {
   document.getElementById('rel-filtro-data-tabela').addEventListener('change', () => {
     if (_relDados) document.getElementById('rel-tabela-unificada').innerHTML = _relRenderTabelaUnificada(_relDados);
   });
+  document.getElementById('rel-filtro-cidade-tabela').addEventListener('change', () => {
+    if (_relDados) document.getElementById('rel-tabela-unificada').innerHTML = _relRenderTabelaUnificada(_relDados);
+  });
   document.getElementById('rel-filtro-data-aderiram').addEventListener('change', () => {
+    if (_relDados) document.getElementById('rel-tabela-aderiram').innerHTML = _relRenderTabelaAderiram(_relDados);
+  });
+  document.getElementById('rel-filtro-cidade-aderiram').addEventListener('change', () => {
     if (_relDados) document.getElementById('rel-tabela-aderiram').innerHTML = _relRenderTabelaAderiram(_relDados);
   });
   await _relCarregarImportacoes();
@@ -216,6 +222,7 @@ async function carregarRelatorioAdesao() {
     }
     dashCard.style.display = '';
     _relRenderDashboard(dados);
+    _relPopularFiltroCidade('rel-filtro-cidade-tabela', dados);
     tabela.innerHTML = _relRenderTabelaUnificada(dados);
     _relRenderAderiram(dados);
   } catch {
@@ -507,9 +514,13 @@ function _relCardsResumo(total) {
 // Agrupa cidades operacionais (soma dos 2 prazos, ou só o prazo escolhido)
 // — mesma lógica usada por _relRenderTabelaUnificada e _relRenderTabelaAderiram,
 // só muda o que cada uma faz com a lista detalhada (pendentes x aceitos).
-function _relCidadesAgregadas(gruposAlvo) {
+// filtroCidade (opcional): nome exato da cidade — reduz a TABELA a essa
+// única linha, mas não afeta os gráficos do Panorama (esses continuam
+// mostrando todas as cidades, pedido implícito de manter a visão geral).
+function _relCidadesAgregadas(gruposAlvo, filtroCidade) {
   const porCidade = new Map();
   gruposAlvo.forEach(g => g.cidades.forEach(c => {
+    if (filtroCidade && c.cidade !== filtroCidade) return;
     const atual = porCidade.get(c.cidade) || { cidade: c.cidade, total: 0, aceitaram: 0, pendentes: 0 };
     atual.total += c.total; atual.aceitaram += c.aceitaram; atual.pendentes += c.pendentes;
     porCidade.set(c.cidade, atual);
@@ -521,6 +532,26 @@ function _relCidadesAgregadas(gruposAlvo) {
   const total = { total: totalGeral.total, aceitaram: totalGeral.aceitaram, pendentes: totalGeral.total - totalGeral.aceitaram,
                   pct: totalGeral.total ? (totalGeral.aceitaram / totalGeral.total) * 100 : 0 };
   return { cidades, total };
+}
+
+// Lista (ordenada) de cidades com pelo menos 1 contrato operacional — sempre
+// com TODAS as cidades, independente do prazo selecionado no momento (o
+// filtro de prazo e o de cidade são independentes um do outro).
+function _relOpcoesCidade(dados) {
+  const nomes = new Set();
+  _relGruposOp(dados).forEach(g => g.cidades.forEach(c => nomes.add(c.cidade)));
+  return [...nomes].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+}
+
+// Preenche um <select> de cidade a partir dos dados recém-carregados,
+// preservando a seleção atual se a cidade continuar na lista (evita resetar
+// o filtro sem necessidade caso a função seja chamada mais de uma vez).
+function _relPopularFiltroCidade(selectId, dados) {
+  const sel = document.getElementById(selectId);
+  const atual = sel.value;
+  sel.innerHTML = '<option value="">Todas as cidades</option>' +
+    _relOpcoesCidade(dados).map(c => `<option value="${c}">${c}</option>`).join('');
+  if (atual && [...sel.options].some(o => o.value === atual)) sel.value = atual;
 }
 
 function _relLinhasCidade(cidades) {
@@ -541,11 +572,13 @@ function _relLinhasCidade(cidades) {
 // previsto" nunca entra aqui (fica só na aba de Verificação).
 function _relRenderTabelaUnificada(dados) {
   const filtro = document.getElementById('rel-filtro-data-tabela').value;
+  const filtroCidade = document.getElementById('rel-filtro-cidade-tabela').value;
   const gruposOp = _relGruposOp(dados);
   const gruposAlvo = filtro ? gruposOp.filter(g => g.prazo === filtro) : gruposOp;
-  const { cidades, total } = _relCidadesAgregadas(gruposAlvo);
+  const { cidades, total } = _relCidadesAgregadas(gruposAlvo, filtroCidade);
 
   const listaPendentes = gruposAlvo.flatMap(g => g.lista_pendentes)
+    .filter(p => !filtroCidade || p.cidade === filtroCidade)
     .sort((a, b) => a.cidade.localeCompare(b.cidade, 'pt-BR') || String(a.concessionario).localeCompare(String(b.concessionario), 'pt-BR'));
 
   const badgeSituacao = p => p.situacao === 'removido'
@@ -590,16 +623,19 @@ function _relRenderAderiram(dados) {
   }, { total: 0, aceitaram: 0 });
   _relPorCidadePizza('rel-pizza-aderiram', gruposOp, c => c.aceitaram, 'Ainda sem nenhum aceite.');
   document.getElementById('rel-timeline-aderiram').innerHTML = _relSvgTimeline(dados.evolucao || [], totalGeral.total);
+  _relPopularFiltroCidade('rel-filtro-cidade-aderiram', dados);
   document.getElementById('rel-tabela-aderiram').innerHTML = _relRenderTabelaAderiram(dados);
 }
 
 function _relRenderTabelaAderiram(dados) {
   const filtro = document.getElementById('rel-filtro-data-aderiram').value;
+  const filtroCidade = document.getElementById('rel-filtro-cidade-aderiram').value;
   const gruposOp = _relGruposOp(dados);
   const gruposAlvo = filtro ? gruposOp.filter(g => g.prazo === filtro) : gruposOp;
-  const { cidades, total } = _relCidadesAgregadas(gruposAlvo);
+  const { cidades, total } = _relCidadesAgregadas(gruposAlvo, filtroCidade);
 
   const listaAceitos = gruposAlvo.flatMap(g => g.lista_aceitos)
+    .filter(p => !filtroCidade || p.cidade === filtroCidade)
     .sort((a, b) => a.cidade.localeCompare(b.cidade, 'pt-BR') || String(a.concessionario).localeCompare(String(b.concessionario), 'pt-BR'));
 
   const linhasCidade = _relLinhasCidade(cidades);
