@@ -1881,6 +1881,14 @@ function setupDb() {
          <p>A partir de agora este DFD está em modo somente leitura.</p>
          ${botao('Ver DFD')}`,
         ['dfd_titulo', 'dfd_ano', 'nome_gestor']],
+
+      ['pac.dfd.setor.reaberto', 'PAC: setor reaberto para lançamento',
+        'PAC: seu lançamento foi reaberto — DFD {{dfd_titulo}}',
+        `<p>O DEPLA reabriu o lançamento do setor <strong>{{nome_setor}}</strong> no DFD <strong>{{dfd_titulo}}</strong> ({{dfd_ano}}), que estava finalizado.</p>
+         <p><strong>Motivo informado:</strong><br>{{motivo}}</p>
+         <p>É possível voltar a incluir e editar itens normalmente até finalizar de novo.</p>
+         ${botao('Acessar o Lançamento')}`,
+        ['dfd_titulo', 'dfd_ano', 'nome_setor', 'nome_gestor', 'motivo']],
     ];
 
     const seedTemplate = (slug, nome, assunto, corpoBody, variaveis) => {
