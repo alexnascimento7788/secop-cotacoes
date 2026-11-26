@@ -9,6 +9,14 @@ function toast(msg, tipo) {
   t._timer = setTimeout(() => { t.className = ''; }, 3200);
 }
 
+// Distingue "aviso esperado" (linha travada por outro usuário, ver
+// em_uso_por — mesmo campo que processo_lock/validacao_lock já devolvem) de
+// erro de verdade — pedido do Alex, 2026-11-26: o toast vermelho de "error"
+// dava a entender que era um bug do sistema, não que a linha estava em uso.
+function toastErro(e, msgPadrao) {
+  toast((e && e.error) || msgPadrao, (e && e.em_uso_por) ? 'warning' : 'error');
+}
+
 function badgeStatusDfd(status) {
   const map = { aberto: 'Aberto', analise: 'Em análise', em_consolidacao: 'Em consolidação', consolidado: 'Consolidado', fechado: 'Fechado', cancelado: 'Cancelado' };
   return `<span class="badge badge-${status}">${map[status] || status}</span>`;
@@ -1640,7 +1648,7 @@ async function travarLinhaConsol(itemId) {
     const res = await fetch(`/api/pac/consolidacao/itens/${itemId}/trava`, { method: 'POST' });
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
-      toast(e.error || 'Linha em uso por outro usuário.', 'error');
+      toastErro(e, 'Linha em uso por outro usuário.');
       return false;
     }
     liberarLinhaConsolAtual(); // se eu tinha outra linha travada, solta antes
@@ -2007,7 +2015,7 @@ async function salvarCampoConsolidacao(el) {
     });
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
-      toast(e.error || 'Erro ao salvar campo', 'error');
+      toastErro(e, 'Erro ao salvar campo');
       return;
     }
     const item = (_consolDados?.itens || []).find(i => i.id === Number(itemId));
@@ -2142,11 +2150,11 @@ async function alterarStatusConsolidacao(itemId, status) {
     const res = await fetch(`/api/pac/itens/${itemId}/consolidacao`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
     });
-    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    if (!res.ok) { toastErro(await res.json().catch(() => ({})), 'Erro ao atualizar status'); return; }
     toast('Status atualizado.');
     renderConsolidadoDetalhe();
-  } catch (e) {
-    toast('Erro: ' + e.message, 'error');
+  } catch {
+    toast('Erro ao atualizar status', 'error');
   }
 }
 
@@ -2157,11 +2165,11 @@ async function cancelarPac(itemId) {
     const res = await fetch(`/api/pac/itens/${itemId}/consolidacao`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'cancelado', justificativa: justificativa.trim() }),
     });
-    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    if (!res.ok) { toastErro(await res.json().catch(() => ({})), 'Erro ao cancelar item'); return; }
     toast('Item cancelado.');
     renderConsolidadoDetalhe();
-  } catch (e) {
-    toast('Erro: ' + e.message, 'error');
+  } catch {
+    toast('Erro ao cancelar item', 'error');
   }
 }
 
@@ -2177,7 +2185,7 @@ async function salvarObservacaoConsolidacao(itemId, valor) {
     // digitado que não foi salvo.
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
-      toast(e.error || 'Erro ao salvar observação', 'error');
+      toastErro(e, 'Erro ao salvar observação');
       renderConsolidadoDetalhe();
     }
   } catch { toast('Erro ao salvar observação', 'error'); }
@@ -2190,7 +2198,7 @@ async function salvarNaturezaConsolidacao(itemId, valor) {
     });
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
-      toast(e.error || 'Erro ao salvar natureza', 'error');
+      toastErro(e, 'Erro ao salvar natureza');
     }
     // Re-renderiza pra liberar o botão "Finalizada" e mostrar o ícone "📊" de
     // orçamento assim que a Natureza é preenchida, sem precisar de F5 — e,

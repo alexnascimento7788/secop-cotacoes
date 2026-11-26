@@ -1150,6 +1150,10 @@ textarea:focus::placeholder { color: transparent; }
 #toast.show { opacity: 1; }
 #toast.success { background: var(--verde); }
 #toast.error   { background: var(--vermelho); }
+/* "Aviso" (não é erro do sistema, é esperado — ex.: linha travada por outro
+   usuário) — pedido do Alex, 2026-11-26: vermelho de "error" dava a entender
+   que era bug. Mesma cor de .btn-warning. */
+#toast.warning { background: var(--amarelo); color: #333; }
 
 [data-theme="dark"] #toast { background: #e6edf3; color: #0d1117; }
 
