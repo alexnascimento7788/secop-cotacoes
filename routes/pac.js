@@ -1757,6 +1757,58 @@ function colunaId(slug) {
   return row ? row.id : null;
 }
 
+// Trava de CONCORRÊNCIA por LINHA na Consolidação (pedido do Alex, 2026-11-26).
+// Mesmo padrão ping/TTL de travaAtivaProcesso (routes/secop.js) e
+// validacao_lock (routes/secad.js), mas por item em vez do recurso inteiro —
+// 2+ analistas do DEPLA podem trabalhar em linhas diferentes do MESMO DFD ao
+// mesmo tempo, só não disputam a mesma linha.
+const LOCK_TTL_CONSOL_SEG = 120;
+function travaAtivaItemConsol(itemId) {
+  const l = db.prepare(`
+    SELECT item_id, user_id, nome,
+           CAST((julianday('now') - julianday(ultimo_ping)) * 86400 AS INTEGER) AS idade
+    FROM consol_item_lock WHERE item_id = ?`).get(itemId);
+  if (!l || l.idade > LOCK_TTL_CONSOL_SEG) return null;
+  return l;
+}
+// Aplicada nos 4 endpoints de escrita da Consolidação (status/observação/
+// natureza/valores) — todos usam :id como nome do param do item.
+function requireTravaItemConsol(req, res, next) {
+  const trava = travaAtivaItemConsol(Number(req.params.id));
+  if (trava && trava.user_id !== req.user.user_id) {
+    return res.status(409).json({ error: `Linha em edição por ${trava.nome || 'outro usuário'} — aguarde.`, em_uso_por: trava.nome });
+  }
+  next();
+}
+
+router.post('/api/pac/consolidacao/itens/:id/trava', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const itemId = Number(req.params.id);
+  const item = db.prepare(`SELECT id FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(itemId);
+  if (!item) return res.status(404).json({ error: 'Item não encontrado' });
+  const trava = travaAtivaItemConsol(itemId);
+  if (trava && trava.user_id !== req.user.user_id) {
+    return res.status(409).json({ error: `Linha em edição por ${trava.nome || 'outro usuário'}.`, em_uso_por: trava.nome });
+  }
+  db.prepare(`
+    INSERT INTO consol_item_lock (item_id, user_id, nome, aberto_em, ultimo_ping)
+    VALUES (?, ?, ?, datetime('now'), datetime('now'))
+    ON CONFLICT(item_id) DO UPDATE SET
+      user_id = excluded.user_id, nome = excluded.nome, ultimo_ping = datetime('now')`)
+    .run(itemId, req.user.user_id, req.user.nome_completo || req.user.username);
+  res.json({ ok: true });
+});
+
+router.post('/api/pac/consolidacao/itens/:id/ping', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const info = db.prepare(`UPDATE consol_item_lock SET ultimo_ping = datetime('now') WHERE item_id = ? AND user_id = ?`)
+    .run(req.params.id, req.user.user_id);
+  res.json({ ok: info.changes > 0 });
+});
+
+router.post('/api/pac/consolidacao/itens/:id/liberar', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  db.prepare(`DELETE FROM consol_item_lock WHERE item_id = ? AND user_id = ?`).run(req.params.id, req.user.user_id);
+  res.json({ ok: true });
+});
+
 function itensConsolidados(dfdId) {
   const itens = db.prepare(`
     SELECT di.*, s.nome AS setor_nome, s.sigla AS setor_sigla, u.username AS cancelado_por_username
@@ -1768,12 +1820,19 @@ function itensConsolidados(dfdId) {
   `).all(dfdId);
   const ids = itens.map(i => i.id);
   const valoresPorItem = {};
+  const travasPorItem = {};
   if (ids.length) {
     const ph = ids.map(() => '?').join(',');
     db.prepare(`SELECT item_id, coluna_id, valor FROM dfd_itens_valores WHERE item_id IN (${ph})`).all(...ids)
       .forEach(v => { (valoresPorItem[v.item_id] ??= {})[v.coluna_id] = v.valor; });
+    // Só manda pro front travas ainda dentro do TTL (as expiradas nem
+    // aparecem como "em uso" — mesmo critério de travaAtivaItemConsol).
+    db.prepare(`
+      SELECT item_id, user_id, nome FROM consol_item_lock
+      WHERE item_id IN (${ph}) AND CAST((julianday('now') - julianday(ultimo_ping)) * 86400 AS INTEGER) <= ${LOCK_TTL_CONSOL_SEG}
+    `).all(...ids).forEach(l => { travasPorItem[l.item_id] = l; });
   }
-  return itens.map(i => ({ ...i, valores: valoresPorItem[i.id] || {} }));
+  return itens.map(i => ({ ...i, valores: valoresPorItem[i.id] || {}, trava: travasPorItem[i.id] || null }));
 }
 
 router.post('/api/pac/dfds/:id/gerar-consolidacao', pac, requireRotina('pac-gestao', 'incluir'), (req, res) => {
@@ -1862,7 +1921,7 @@ router.get('/api/pac/dfds/:id/consolidado', pac, requireRotina('pac-gestao', 've
 });
 
 const STATUS_CONSOLIDACAO_VALIDOS = new Set(['nao_iniciado', 'em_analise', 'finalizado', 'cancelado']);
-router.patch('/api/pac/itens/:id/consolidacao', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+router.patch('/api/pac/itens/:id/consolidacao', pac, requireRotina('pac-gestao', 'alterar'), requireTravaItemConsol, (req, res) => {
   const { status, justificativa } = req.body || {};
   if (!STATUS_CONSOLIDACAO_VALIDOS.has(status)) return res.status(400).json({ error: 'Status inválido' });
   if (status === 'cancelado' && !String(justificativa || '').trim()) {
@@ -1911,7 +1970,7 @@ router.patch('/api/pac/itens/:id/consolidacao', pac, requireRotina('pac-gestao',
   res.json({ ok: true });
 });
 
-router.patch('/api/pac/itens/:id/observacao-consolidacao', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+router.patch('/api/pac/itens/:id/observacao-consolidacao', pac, requireRotina('pac-gestao', 'alterar'), requireTravaItemConsol, (req, res) => {
   const item = db.prepare(`SELECT id, dfd_id FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
   if (!item) return res.status(404).json({ error: 'Item não encontrado' });
   const observacao = req.body?.observacao;
@@ -1924,7 +1983,7 @@ router.patch('/api/pac/itens/:id/observacao-consolidacao', pac, requireRotina('p
 // (nunca aparece pro setor em Lançamento, ver database.js). Valor livre (não
 // valida contra dfd_parametros_lista) — mesma confiança que o resto do
 // sistema já dá pro <select> do cliente, sem validação server-side extra.
-router.patch('/api/pac/itens/:id/natureza-consolidacao', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+router.patch('/api/pac/itens/:id/natureza-consolidacao', pac, requireRotina('pac-gestao', 'alterar'), requireTravaItemConsol, (req, res) => {
   const item = db.prepare(`SELECT id, dfd_id FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
   if (!item) return res.status(404).json({ error: 'Item não encontrado' });
   const natureza = req.body?.natureza;
@@ -1938,7 +1997,7 @@ router.patch('/api/pac/itens/:id/natureza-consolidacao', pac, requireRotina('pac
 // "consolidado" (não em análise, não fechado). Diferente de
 // PUT /api/pac/itens/:id (edição do setor, com requireDfdEditavel e vínculo
 // de setor): aqui quem edita é o DEPLA, sem nenhum dos dois.
-router.put('/api/pac/consolidacao/itens/:id/valores', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+router.put('/api/pac/consolidacao/itens/:id/valores', pac, requireRotina('pac-gestao', 'alterar'), requireTravaItemConsol, (req, res) => {
   const item = db.prepare(`SELECT id, dfd_id, especificacao_sem_minimo FROM dfd_itens WHERE id = ? AND excluido_em IS NULL`).get(req.params.id);
   if (!item) return res.status(404).json({ error: 'Item não encontrado' });
   const dfd = db.prepare(`SELECT status FROM dfds WHERE id = ?`).get(item.dfd_id);

@@ -1623,7 +1623,71 @@ let _consolDfdId = null;
 let _consolDados = null; // { itens, totais... } — cache do GET /consolidado
 let _consolSubtabAtual = 'ativos';
 
+// ── Trava de concorrência POR LINHA na Consolidação (pedido do Alex,
+// 2026-11-26) — mesmo padrão ping/TTL de processo_lock/validacao_lock
+// (rotas em routes/pac.js), mas por item em vez do DFD inteiro, porque é
+// comum 2+ analistas do DEPLA dividirem o trabalho por setor dentro do
+// MESMO DFD. Trava ao focar QUALQUER campo editável da linha (delegação de
+// evento no tbody, montada 1x em "Consolidação ganha trava por linha" mais
+// abaixo); libera quando o foco sai da linha sem outro campo da MESMA linha
+// assumir. Ping a cada 40s enquanto segue focada (TTL do servidor é 120s).
+let _consolLockAtual = null; // item_id travado por mim agora, ou null
+let _consolLockPingTimer = null;
+
+async function travarLinhaConsol(itemId) {
+  if (_consolLockAtual === itemId) return true;
+  try {
+    const res = await fetch(`/api/pac/consolidacao/itens/${itemId}/trava`, { method: 'POST' });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      toast(e.error || 'Linha em uso por outro usuário.', 'error');
+      return false;
+    }
+    liberarLinhaConsolAtual(); // se eu tinha outra linha travada, solta antes
+    _consolLockAtual = itemId;
+    _consolLockPingTimer = setInterval(() => {
+      fetch(`/api/pac/consolidacao/itens/${itemId}/ping`, { method: 'POST' }).catch(() => {});
+    }, 40000);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function liberarLinhaConsolAtual() {
+  if (!_consolLockAtual) return;
+  const itemId = _consolLockAtual;
+  _consolLockAtual = null;
+  clearInterval(_consolLockPingTimer);
+  _consolLockPingTimer = null;
+  fetch(`/api/pac/consolidacao/itens/${itemId}/liberar`, { method: 'POST' }).catch(() => {});
+}
+
+// Delegação de evento 1x no tbody (sobrevive a innerHTML ser reescrito a
+// cada render — o elemento <tbody> continua o mesmo, só os filhos mudam).
+document.addEventListener('DOMContentLoaded', () => {
+  const tbody = document.getElementById('consol-itens-tbody');
+  if (!tbody) return;
+  tbody.addEventListener('focusin', (e) => {
+    const tr = e.target.closest('tr.consol-linha');
+    if (!tr) return;
+    const itemId = Number(tr.dataset.itemId);
+    if (!itemId) return;
+    travarLinhaConsol(itemId).then(ok => { if (!ok) e.target.blur(); });
+  });
+  tbody.addEventListener('focusout', (e) => {
+    const tr = e.target.closest('tr.consol-linha');
+    if (!tr) return;
+    const itemId = Number(tr.dataset.itemId);
+    setTimeout(() => {
+      if (_consolLockAtual === itemId && !tr.contains(document.activeElement)) liberarLinhaConsolAtual();
+    }, 150);
+  });
+});
+window.addEventListener('beforeunload', liberarLinhaConsolAtual);
+
 async function abrirConsolidadoDetalhe(dfdId, titulo, anoBase) {
+  liberarLinhaConsolAtual();
   _consolDfdId = dfdId;
   _consolSubtabAtual = 'ativos';
   document.getElementById('consol-lista').style.display = 'none';
@@ -1678,6 +1742,7 @@ async function carregarListasConsol() {
 }
 
 function fecharConsolidadoDetalhe() {
+  liberarLinhaConsolAtual();
   _consolDfdId = null;
   carregarConsolidacaoLista();
 }
@@ -1836,8 +1901,9 @@ async function renderConsolidadoDetalhe() {
     }
     const v = item.valores || {};
     _itensPorId[item.id] = item;
+    const travaDeOutro = item.trava && item.id !== _consolLockAtual;
     linhas.push(`<tr class="consol-linha st-${item.status_consolidacao}" data-item-id="${item.id}">
-      <td><strong>${item.numero_pac ?? '—'}</strong></td>
+      <td><strong>${item.numero_pac ?? '—'}</strong>${travaDeOutro ? ` <span class="badge badge-fechado" style="font-size:10px;" title="Em edição por ${item.trava.nome || 'outro usuário'}">🔒 ${item.trava.nome || 'outro usuário'}</span>` : ''}</td>
       ${exibirCodigo ? `<td>${item.codigo_pac || '—'}</td>` : ''}
       ${colAntesNatureza.map(c => celulaColuna(item, v, c)).join('')}
       <td>
@@ -2101,19 +2167,34 @@ async function cancelarPac(itemId) {
 
 async function salvarObservacaoConsolidacao(itemId, valor) {
   try {
-    await fetch(`/api/pac/itens/${itemId}/observacao-consolidacao`, {
+    const res = await fetch(`/api/pac/itens/${itemId}/observacao-consolidacao`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ observacao: valor }),
     });
+    // Achado implementando a trava por linha (2026-11-26): esta função nunca
+    // checava res.ok — um 409 (linha travada por outro analista) passava em
+    // silêncio como se tivesse salvo. Em caso de erro, re-renderiza pra
+    // devolver o valor real do servidor em vez de deixar o campo com o texto
+    // digitado que não foi salvo.
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      toast(e.error || 'Erro ao salvar observação', 'error');
+      renderConsolidadoDetalhe();
+    }
   } catch { toast('Erro ao salvar observação', 'error'); }
 }
 
 async function salvarNaturezaConsolidacao(itemId, valor) {
   try {
-    await fetch(`/api/pac/itens/${itemId}/natureza-consolidacao`, {
+    const res = await fetch(`/api/pac/itens/${itemId}/natureza-consolidacao`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ natureza: valor }),
     });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      toast(e.error || 'Erro ao salvar natureza', 'error');
+    }
     // Re-renderiza pra liberar o botão "Finalizada" e mostrar o ícone "📊" de
-    // orçamento assim que a Natureza é preenchida, sem precisar de F5.
+    // orçamento assim que a Natureza é preenchida, sem precisar de F5 — e,
+    // em caso de erro (409 por trava de outro analista), devolve o valor real.
     renderConsolidadoDetalhe();
   } catch { toast('Erro ao salvar natureza', 'error'); }
 }

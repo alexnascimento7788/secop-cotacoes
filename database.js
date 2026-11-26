@@ -2155,6 +2155,24 @@ function setupDb() {
   // Último usuário a alterar o processo (qualquer escrita, ver requireEditProcesso
   // em routes/secop.js) — aparece em vermelho ao lado de "Criado por".
   try { _db.exec(`ALTER TABLE processos ADD COLUMN atualizado_por_id INTEGER REFERENCES users(id)`); } catch {}
+
+  // ── PAC: trava de concorrência POR LINHA na Consolidação (pedido do Alex,
+  // 2026-11-26) ────────────────────────────────────────────────────────────
+  // Diferente de processo_lock/validacao_lock (travam o recurso INTEIRO),
+  // aqui a trava é por item (dfd_itens.id) — 2+ analistas do DEPLA podem
+  // trabalhar em setores/linhas diferentes do MESMO DFD ao mesmo tempo, só
+  // não na mesma linha. Mesmo padrão ping/TTL dos outros dois.
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS consol_item_lock (
+      item_id     INTEGER PRIMARY KEY,
+      user_id     INTEGER NOT NULL,
+      nome        TEXT,
+      aberto_em   DATETIME DEFAULT CURRENT_TIMESTAMP,
+      ultimo_ping DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (item_id) REFERENCES dfd_itens(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
   try { _db.prepare(`INSERT INTO config (chave, valor) VALUES ('secop_edicao_livre', '1')`).run(); } catch {}
 
   // Responsável pela elaboração passa a ser SEMPRE Rogério Diniz (pedido do
