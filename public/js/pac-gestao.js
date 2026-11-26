@@ -1651,6 +1651,12 @@ async function abrirConsolidadoDetalhe(dfdId, titulo, anoBase) {
   const setorSel = document.getElementById('consol-filtro-setor');
   setorSel.dataset.montado = '';
   setorSel.value = '';
+  ['consol-filtro-tipo', 'consol-filtro-tipo-contratacao', 'consol-filtro-natureza'].forEach(id => {
+    const el = document.getElementById(id);
+    el.dataset.montado = '';
+    el.value = '';
+  });
+  document.getElementById('consol-filtro-objeto').value = '';
   document.getElementById('consol-exibir-codigo').checked = false;
   mudarConsolSubtab('ativos');
   await carregarListasConsol();
@@ -1682,6 +1688,14 @@ function mudarConsolSubtab(tab) {
   ['ativos', 'cancelados', 'aguardando'].forEach(t =>
     document.getElementById(`consol-subtab-${t}`).style.display = t === tab ? '' : 'none');
   if (tab === 'cancelados') renderConsolCancelados();
+}
+
+// Debounce do filtro de texto "Objeto" — sem isso, renderConsolidadoDetalhe()
+// (que refaz o fetch do DFD) dispararia a cada tecla digitada.
+let _consolObjetoDebounce;
+function filtrarConsolObjeto() {
+  clearTimeout(_consolObjetoDebounce);
+  _consolObjetoDebounce = setTimeout(renderConsolidadoDetalhe, 300);
 }
 
 async function renderConsolidadoDetalhe() {
@@ -1726,6 +1740,41 @@ async function renderConsolidadoDetalhe() {
   const filtroSetor = setorSel.value;
   const exibirCodigo = document.getElementById('consol-exibir-codigo').checked;
 
+  // Filtros de Objeto/Tipo/Tipo de Contratação/Natureza — pedido do Alex,
+  // 2026-11-26 ("temos o filtro por setor apenas"). Tipo e Tipo de
+  // Contratação/Natureza só mostram as opções que realmente aparecem neste
+  // DFD (mesmo padrão do filtro de Setor); Objeto é texto livre, filtra por
+  // "contém" porque a coluna (slug 'subitem') não tem lista fixa.
+  const idTipo = colunaId('tipo');
+  const idObjeto = colunaId('subitem');
+  const idTipoContratacao = colunaId('dependencia');
+
+  const tipoSel = document.getElementById('consol-filtro-tipo');
+  if (!tipoSel.dataset.montado) {
+    const tiposUnicos = [...new Set(_consolDados.itens.map(i => (i.valores || {})[idTipo]).filter(Boolean))];
+    tipoSel.innerHTML = `<option value="">Todos</option>` + tiposUnicos.map(t => `<option value="${String(t).replace(/"/g, '&quot;')}">${t}</option>`).join('');
+    tipoSel.dataset.montado = '1';
+  }
+  const filtroTipo = tipoSel.value;
+
+  const tcSel = document.getElementById('consol-filtro-tipo-contratacao');
+  if (!tcSel.dataset.montado) {
+    const tcUnicos = [...new Set(_consolDados.itens.map(i => (i.valores || {})[idTipoContratacao]).filter(Boolean))];
+    tcSel.innerHTML = `<option value="">Todos</option>` + tcUnicos.map(t => `<option value="${String(t).replace(/"/g, '&quot;')}">${t}</option>`).join('');
+    tcSel.dataset.montado = '1';
+  }
+  const filtroTipoContratacao = tcSel.value;
+
+  const natSel = document.getElementById('consol-filtro-natureza');
+  if (!natSel.dataset.montado) {
+    const natUnicos = [...new Set(_consolDados.itens.map(i => i.natureza_consolidacao).filter(Boolean))];
+    natSel.innerHTML = `<option value="">Todos</option>` + natUnicos.map(n => `<option value="${String(n).replace(/"/g, '&quot;')}">${n}</option>`).join('');
+    natSel.dataset.montado = '1';
+  }
+  const filtroNatureza = natSel.value;
+
+  const filtroObjeto = (document.getElementById('consol-filtro-objeto').value || '').trim().toLowerCase();
+
   // Colunas do DFD (mesmas de Lançamento, uma a uma — inclusive Tipo e
   // Subitem separados, não mais numa coluna combinada) + badge de Contrato,
   // clicável e só-leitura. Pedido do Alex, 2026-09-06: fiel ao processo do
@@ -1735,7 +1784,14 @@ async function renderConsolidadoDetalhe() {
   const temContrato = colunasContrato.length > 0;
   const todasColunas = _colunasCatalogo || [];
 
-  const itens = _consolDados.itens.filter(i => !filtroSetor || String(i.setor_id) === filtroSetor);
+  const itens = _consolDados.itens.filter(i => {
+    const v = i.valores || {};
+    return (!filtroSetor || String(i.setor_id) === filtroSetor)
+      && (!filtroTipo || v[idTipo] === filtroTipo)
+      && (!filtroTipoContratacao || v[idTipoContratacao] === filtroTipoContratacao)
+      && (!filtroNatureza || i.natureza_consolidacao === filtroNatureza)
+      && (!filtroObjeto || String(v[idObjeto] || '').toLowerCase().includes(filtroObjeto));
+  });
   const ativos = itens.filter(i => i.status_consolidacao !== 'cancelado');
 
   const totalColunas = 1 + (exibirCodigo ? 1 : 0) + colunasDfd.length + (temContrato ? 1 : 0) + 4;
@@ -1882,7 +1938,22 @@ async function salvarCampoConsolidacao(el) {
 function renderConsolCancelados() {
   if (!_consolDados) return;
   const filtroSetor = document.getElementById('consol-filtro-setor').value;
-  const cancelados = _consolDados.itens.filter(i => i.status_consolidacao === 'cancelado' && (!filtroSetor || String(i.setor_id) === filtroSetor));
+  const idTipo = colunaId('tipo');
+  const idObjeto = colunaId('subitem');
+  const idTipoContratacao = colunaId('dependencia');
+  const filtroTipo = document.getElementById('consol-filtro-tipo').value;
+  const filtroTipoContratacao = document.getElementById('consol-filtro-tipo-contratacao').value;
+  const filtroNatureza = document.getElementById('consol-filtro-natureza').value;
+  const filtroObjeto = (document.getElementById('consol-filtro-objeto').value || '').trim().toLowerCase();
+  const cancelados = _consolDados.itens.filter(i => {
+    const v = i.valores || {};
+    return i.status_consolidacao === 'cancelado'
+      && (!filtroSetor || String(i.setor_id) === filtroSetor)
+      && (!filtroTipo || v[idTipo] === filtroTipo)
+      && (!filtroTipoContratacao || v[idTipoContratacao] === filtroTipoContratacao)
+      && (!filtroNatureza || i.natureza_consolidacao === filtroNatureza)
+      && (!filtroObjeto || String(v[idObjeto] || '').toLowerCase().includes(filtroObjeto));
+  });
   const idDescricao = colunaId('descricao_objeto');
   document.getElementById('consol-cancelados-tbody').innerHTML = cancelados.map(item => `
     <tr>
