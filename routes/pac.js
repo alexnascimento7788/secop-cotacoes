@@ -1694,6 +1694,36 @@ router.post('/api/pac/dfds/:dfd_id/setores/:setor_id/finalizar', pac, requireRot
   res.json({ ok: true, todos_finalizados: todosFinalizados });
 });
 
+// Contrapartida de "Finalizar meu DFD" acima — pedido do Alex, 2026-11-26:
+// precisa de um jeito do DEPLA destravar um setor que já finalizou sem editar
+// o banco direto. Só o DEPLA decide (requireRotina 'pac-gestao'/'alterar'),
+// nunca o próprio setor — senão a finalização não significaria nada. Só zera
+// dfd_setores.finalizado_em; não toca no status global do DFD, que já precisa
+// estar 'aberto' (se o DFD foi pra 'análise' ou além, requireDfdEditavel trava
+// a escrita por causa do status mesmo com finalizado_em nulo — reabrir não
+// serviria pra nada nesse caso, por isso o 409 abaixo).
+router.post('/api/pac/dfds/:dfd_id/setores/:setor_id/reabrir', pac, requireRotina('pac-gestao', 'alterar'), (req, res) => {
+  const dfdId = Number(req.params.dfd_id);
+  const setorId = Number(req.params.setor_id);
+  const dfd = db.prepare(`SELECT id, titulo, ano_base, status FROM dfds WHERE id = ?`).get(dfdId);
+  if (!dfd) return res.status(404).json({ error: 'DFD não encontrado' });
+  if (dfd.status !== 'aberto') return res.status(409).json({ error: 'Só é possível reabrir um setor com o DFD aberto.' });
+  const participa = db.prepare(`SELECT finalizado_em FROM dfd_setores WHERE dfd_id = ? AND setor_id = ?`).get(dfdId, setorId);
+  if (!participa) return res.status(404).json({ error: 'Este setor não participa deste DFD.' });
+  if (!participa.finalizado_em) return res.status(409).json({ error: 'Este setor ainda não foi finalizado.' });
+  const justificativa = (req.body?.justificativa || '').trim();
+  db.prepare(`UPDATE dfd_setores SET finalizado_em = NULL WHERE dfd_id = ? AND setor_id = ?`).run(dfdId, setorId);
+  const setor = db.prepare(`SELECT nome FROM setores WHERE id = ?`).get(setorId);
+  registrarLog(req, 'PAC', 'REABRIU_SETOR_DFD',
+    `Reabriu o lançamento do setor "${setor?.nome}" no DFD "${dfd.titulo}"` + (justificativa ? ` — motivo: ${justificativa}` : ''));
+  mailer.enfileirar('pac.dfd.setor.reaberto', {
+    dfd_titulo: dfd.titulo, dfd_ano: dfd.ano_base, nome_setor: setor?.nome,
+    nome_gestor: req.user.nome_completo || req.user.username,
+    motivo: justificativa || 'não informado',
+  }, mailer.resolverDestinatarios('setor', { setor_id: setorId }));
+  res.json({ ok: true });
+});
+
 // Usado tanto pelo Acompanhamento do DEPLA (badges por setor + condição pra
 // mostrar "Gerar Consolidação") quanto pelo próprio Lançamento do gestor
 // (esconder/desabilitar o botão "Finalizar meu DFD" depois de já finalizado).

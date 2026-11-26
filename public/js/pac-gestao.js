@@ -2544,7 +2544,10 @@ async function renderFinalizacaoAcompanhamento(dfdId) {
     document.getElementById('acomp-fin-progress-fill').style.width = `${pct}%`;
 
     document.getElementById('acomp-fin-badges').innerHTML = status.setores.map(s => s.finalizado_em
-      ? `<span class="pac-fin-badge ok">✅ ${s.setor_nome} — finalizado em ${fmtBrData(s.finalizado_em)}</span>`
+      ? `<span class="pac-fin-badge ok">✅ ${s.setor_nome} — finalizado em ${fmtBrData(s.finalizado_em)}
+           <button class="btn btn-secondary btn-sm" style="margin-left:6px;padding:2px 8px;font-size:11px;"
+             onclick="reabrirSetorDfd(${dfdId}, ${s.setor_id}, '${(s.setor_nome || '').replace(/'/g, "\\'")}')">↩️ Reabrir</button>
+         </span>`
       : `<span class="pac-fin-badge aguardando">🕐 ${s.setor_nome} — aguardando</span>`
     ).join('') || '<span class="text-muted">Este DFD ainda não tem setores participantes.</span>';
 
@@ -2561,6 +2564,25 @@ async function renderFinalizacaoAcompanhamento(dfdId) {
       ? `<button class="btn btn-primary btn-sm" onclick="gerarConsolidacao(${dfdId})">Iniciar Consolidação</button>`
       : '';
   } catch { card.style.display = 'none'; }
+}
+
+// Pedido do Alex, 2026-11-26: destravar um setor já finalizado sem precisar
+// editar o banco direto. Só o DEPLA vê este botão (está dentro do
+// Acompanhamento, que já é pac-gestao/alterar); mesmo padrão de prompt()
+// simples usado em responderPedido() acima, sem modal dedicado.
+async function reabrirSetorDfd(dfdId, setorId, setorNome) {
+  if (!confirm(`Reabrir o lançamento do setor "${setorNome}"? Ele volta a poder incluir/editar itens até finalizar de novo.`)) return;
+  const justificativa = prompt('Motivo da reabertura (opcional, vai no e-mail pro setor):') || '';
+  try {
+    const res = await fetch(`/api/pac/dfds/${dfdId}/setores/${setorId}/reabrir`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ justificativa }),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    toast('Setor reaberto.', 'success');
+    renderFinalizacaoAcompanhamento(dfdId);
+  } catch (e) {
+    toast('Erro: ' + e.message, 'error');
+  }
 }
 
 // Indicadores do DFD selecionado, no topo da aba — pedido do Alex,
