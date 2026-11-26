@@ -1784,6 +1784,20 @@ async function renderConsolidadoDetalhe() {
   const temContrato = colunasContrato.length > 0;
   const todasColunas = _colunasCatalogo || [];
 
+  // Ordem de exibição pedida pelo Alex, 2026-11-26: Nº PAC/Tipo/Objeto/
+  // Especificação objeto/Natureza/Valor Est. Anual/Fonte Pagadora/Tipo de
+  // Contratação, depois as demais colunas na ordem de sempre (ordem_padrao
+  // do catálogo). Natureza não é coluna do catálogo (ver _listaNatureza),
+  // por isso entra "no meio" como bloco fixo separado, não dentro de
+  // colunasDfd.
+  const SLUGS_ANTES_NATUREZA = ['tipo', 'subitem', 'descricao_objeto'];
+  const SLUGS_DEPOIS_NATUREZA = ['valor_estimado', 'fonte_pagadora', 'dependencia'];
+  const colAntesNatureza = SLUGS_ANTES_NATUREZA.map(s => colunasDfd.find(c => c.slug === s)).filter(Boolean);
+  const colDepoisNatureza = SLUGS_DEPOIS_NATUREZA.map(s => colunasDfd.find(c => c.slug === s)).filter(Boolean);
+  const slugsReordenados = new Set([...SLUGS_ANTES_NATUREZA, ...SLUGS_DEPOIS_NATUREZA]);
+  const colResto = colunasDfd.filter(c => !slugsReordenados.has(c.slug));
+  const celulaColuna = (item, v, c) => editavelConsol ? renderCelulaConsolEditavel(item, c) : `<td>${formatarValorColuna(c, v[c.id])}</td>`;
+
   const itens = _consolDados.itens.filter(i => {
     const v = i.valores || {};
     return (!filtroSetor || String(i.setor_id) === filtroSetor)
@@ -1798,8 +1812,10 @@ async function renderConsolidadoDetalhe() {
   const thead = document.getElementById('consol-itens-thead');
   thead.innerHTML = `<tr>
     <th>Nº PAC</th>${exibirCodigo ? '<th>ID PAC</th>' : ''}
-    ${colunasDfd.map(c => `<th>${c.label}</th>`).join('')}${temContrato ? '<th>Contrato</th>' : ''}
-    <th>Natureza</th><th>Observação</th><th>Status</th><th></th>
+    ${colAntesNatureza.map(c => `<th>${c.label}</th>`).join('')}
+    <th>Natureza</th>
+    ${colDepoisNatureza.map(c => `<th>${c.label}</th>`).join('')}${colResto.map(c => `<th>${c.label}</th>`).join('')}${temContrato ? '<th>Contrato</th>' : ''}
+    <th>Observação</th><th>Status</th><th></th>
   </tr>`;
 
   // Agrupado visualmente por setor (setores.ordem já vem aplicado do servidor
@@ -1823,14 +1839,15 @@ async function renderConsolidadoDetalhe() {
     linhas.push(`<tr class="consol-linha st-${item.status_consolidacao}" data-item-id="${item.id}">
       <td><strong>${item.numero_pac ?? '—'}</strong></td>
       ${exibirCodigo ? `<td>${item.codigo_pac || '—'}</td>` : ''}
-      ${colunasDfd.map(c => editavelConsol ? renderCelulaConsolEditavel(item, c) : `<td>${formatarValorColuna(c, v[c.id])}</td>`).join('')}
-      ${temContrato ? celulaContratoLeitura(item, colunasContrato, todasColunas, item.id) : ''}
+      ${colAntesNatureza.map(c => celulaColuna(item, v, c)).join('')}
       <td>
         <select class="consol-natureza-select" onchange="salvarNaturezaConsolidacao(${item.id}, this.value)">
           <option value=""${!item.natureza_consolidacao ? ' selected' : ''}>—</option>
           ${_listaNatureza.map(n => `<option value="${n.valor.replace(/"/g, '&quot;')}"${item.natureza_consolidacao === n.valor ? ' selected' : ''}>${n.valor}</option>`).join('')}
         </select>
       </td>
+      ${colDepoisNatureza.map(c => celulaColuna(item, v, c)).join('')}${colResto.map(c => celulaColuna(item, v, c)).join('')}
+      ${temContrato ? celulaContratoLeitura(item, colunasContrato, todasColunas, item.id) : ''}
       <td><input type="text" class="consol-obs-input" value="${(item.observacao_consolidacao || '').replace(/"/g, '&quot;')}" placeholder="—" onblur="salvarObservacaoConsolidacao(${item.id}, this.value)" /></td>
       <td style="white-space:nowrap;">
         ${String(item.natureza_consolidacao || '').trim()
